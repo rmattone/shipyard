@@ -109,14 +109,17 @@ curl -fsSL https://raw.githubusercontent.com/rmattone/shipyard/main/install.sh |
 ```
 
 The installer will prompt you for:
-- **Admin credentials** - Email and password for your admin account
-- **Application URL** - Where ShipYard will be accessible
-- **Database credentials** - Username and password for the database
+- **Admin credentials** - Name, email, and password for your admin account
+- **Application URL** - Where ShipYard will be accessible (used for generating links)
+- **HTTP/HTTPS ports** - Which ports to expose (default: 80/443)
+- **Database credentials** - Database name, username, and password
 
 ### Prerequisites
 
 - **Docker** and **Docker Compose** installed
-- **Node.js 18+** (for building the frontend)
+- **Git** installed
+
+That's it! Node.js and all other dependencies run inside Docker.
 
 ### Manual Installation
 
@@ -153,11 +156,8 @@ docker compose exec app php artisan key:generate
 # 9. Run database migrations
 docker compose exec app php artisan migrate --seed
 
-# 10. Build the frontend
-cd frontend
-npm install
-npm run build
-cd ..
+# 10. Build the frontend (inside Docker)
+docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run build"
 
 # 11. Access ShipYard at http://localhost/app
 ```
@@ -330,9 +330,11 @@ shipyard/
 # Start all services
 docker compose up -d
 
-# Frontend development (with hot reload)
-cd frontend
-npm run dev
+# Frontend development (with hot reload) - inside Docker
+docker compose exec app bash -c "cd /var/www/frontend && npm run dev"
+
+# Or if you have Node.js locally installed
+cd frontend && npm run dev
 
 # View backend logs
 docker compose logs -f app
@@ -347,8 +349,8 @@ docker compose logs -f queue
 # Backend tests
 docker compose exec app php artisan test
 
-# Frontend tests
-cd frontend && npm test
+# Frontend tests (inside Docker)
+docker compose exec app bash -c "cd /var/www/frontend && npm test"
 ```
 
 ### Useful Commands

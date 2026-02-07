@@ -71,22 +71,8 @@ check_prerequisites() {
         missing+=("git")
     fi
 
-    if ! command_exists node; then
-        missing+=("node (v20+)")
-    fi
-
-    if ! command_exists npm; then
-        missing+=("npm")
-    fi
-
     if [ ${#missing[@]} -gt 0 ]; then
         error "Missing required dependencies: ${missing[*]}\nPlease install them and try again."
-    fi
-
-    # Check Node.js version
-    NODE_VERSION=$(node -v | cut -d'v' -f2 | cut -d'.' -f1)
-    if [ "$NODE_VERSION" -lt 18 ]; then
-        error "Node.js version 18 or higher is required. Current version: $(node -v)"
     fi
 
     # Check if Docker is running
@@ -393,11 +379,8 @@ EOF
     $DOCKER_COMPOSE exec -T app php artisan view:cache
 
     echo ""
-    info "Building frontend..."
-    cd frontend
-    npm install --silent
-    npm run build
-    cd ..
+    info "Building frontend (inside Docker)..."
+    $DOCKER_COMPOSE exec -T app bash -c "cd /var/www/frontend && npm install && npm run build"
 
     echo ""
     echo -e "${GREEN}${BOLD}"
