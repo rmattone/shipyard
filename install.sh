@@ -26,10 +26,10 @@ CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 BOLD='\033[1m'
 
-# ASCII Art Banner
+# ASCII Art Banner (output to stderr for pipe compatibility)
 print_banner() {
-    echo -e "${CYAN}"
-    cat << "EOF"
+    echo -e "${CYAN}" >&2
+    cat >&2 << "EOF"
   ____  _     _       __   __            _
  / ___|| |__ (_)_ __  \ \ / /_ _ _ __ __| |
  \___ \| '_ \| | '_ \  \ V / _` | '__/ _` |
@@ -37,16 +37,16 @@ print_banner() {
  |____/|_| |_|_| .__/   |_|\__,_|_|  \__,_|
                |_|
 EOF
-    echo -e "${NC}"
-    echo -e "${BOLD}Self-Hosted Server Management & Deployment Platform${NC}"
-    echo ""
+    echo -e "${NC}" >&2
+    echo -e "${BOLD}Self-Hosted Server Management & Deployment Platform${NC}" >&2
+    echo "" >&2
 }
 
-# Print colored messages
-info() { echo -e "${BLUE}[INFO]${NC} $1"; }
-success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
-warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
-error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+# Print colored messages (to stderr so they show when piped)
+info() { echo -e "${BLUE}[INFO]${NC} $1" >&2; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1" >&2; }
+warning() { echo -e "${YELLOW}[WARNING]${NC} $1" >&2; }
+error() { echo -e "${RED}[ERROR]${NC} $1" >&2; exit 1; }
 
 # Check if command exists
 command_exists() {
@@ -217,9 +217,9 @@ prompt_port() {
 main() {
     print_banner
 
-    echo -e "${BOLD}Welcome to the ShipYard installer!${NC}"
-    echo "This script will set up ShipYard on your server."
-    echo ""
+    echo -e "${BOLD}Welcome to the ShipYard installer!${NC}" >&2
+    echo "This script will set up ShipYard on your server." >&2
+    echo "" >&2
 
     check_prerequisites
 
@@ -234,11 +234,11 @@ main() {
 
         if [ -d "$INSTALL_DIR" ]; then
             warning "Directory $INSTALL_DIR already exists."
-            echo ""
-            echo "  1) Reinstall (remove and clone fresh)"
-            echo "  2) Update (use existing directory)"
-            echo "  3) Cancel"
-            echo ""
+            echo "" >&2
+            echo "  1) Reinstall (remove and clone fresh)" >&2
+            echo "  2) Update (use existing directory)" >&2
+            echo "  3) Cancel" >&2
+            echo "" >&2
             printf "Choose an option [2]: " >&2
             read choice </dev/tty
             choice="${choice:-2}"
@@ -269,19 +269,19 @@ main() {
         fi
     fi
 
-    echo ""
-    echo -e "${BOLD}=== Admin Account Setup ===${NC}"
-    echo "Please enter the credentials for your admin account."
-    echo ""
+    echo "" >&2
+    echo -e "${BOLD}=== Admin Account Setup ===${NC}" >&2
+    echo "Please enter the credentials for your admin account." >&2
+    echo "" >&2
 
     # Get admin credentials
     ADMIN_NAME=$(prompt_with_default "Admin name" "Admin")
     ADMIN_EMAIL=$(prompt_email)
     ADMIN_PASSWORD=$(prompt_password "Admin password")
 
-    echo ""
-    echo -e "${BOLD}=== Application Settings ===${NC}"
-    echo ""
+    echo "" >&2
+    echo -e "${BOLD}=== Application Settings ===${NC}" >&2
+    echo "" >&2
 
     # Get app URL
     DEFAULT_URL="http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost')"
@@ -291,9 +291,9 @@ main() {
     HTTP_PORT=$(prompt_port "HTTP port" "80")
     HTTPS_PORT=$(prompt_port "HTTPS port" "443")
 
-    echo ""
-    echo -e "${BOLD}=== Database Configuration ===${NC}"
-    echo ""
+    echo "" >&2
+    echo -e "${BOLD}=== Database Configuration ===${NC}" >&2
+    echo "" >&2
 
     # Get database credentials
     DB_DATABASE=$(prompt_with_default "Database name" "server_management")
@@ -304,7 +304,7 @@ main() {
     info "Generating secure database root password..."
     DB_ROOT_PASSWORD=$(generate_random_string 32)
 
-    echo ""
+    echo "" >&2
     info "Configuring environment..."
 
     # Create root .env file for docker-compose
@@ -372,11 +372,11 @@ ADMIN_PASSWORD="${ADMIN_PASSWORD}"
 SANCTUM_STATEFUL_DOMAINS=localhost,localhost:3000,127.0.0.1,127.0.0.1:8000,::1,${APP_URL##*://}
 EOF
 
-    echo ""
+    echo "" >&2
     info "Starting Docker containers..."
     $DOCKER_COMPOSE up -d
 
-    echo ""
+    echo "" >&2
     info "Waiting for services to be ready..."
     sleep 10
 
@@ -387,56 +387,56 @@ EOF
     done
     success "MySQL is ready!"
 
-    echo ""
+    echo "" >&2
     info "Installing PHP dependencies..."
     $DOCKER_COMPOSE exec -T app composer install --no-dev --optimize-autoloader
 
-    echo ""
+    echo "" >&2
     info "Generating application key..."
     $DOCKER_COMPOSE exec -T app php artisan key:generate --force
 
-    echo ""
+    echo "" >&2
     info "Running database migrations..."
     $DOCKER_COMPOSE exec -T app php artisan migrate --force
 
-    echo ""
+    echo "" >&2
     info "Creating admin user..."
     $DOCKER_COMPOSE exec -T app php artisan db:seed --force
 
-    echo ""
+    echo "" >&2
     info "Optimizing application..."
     $DOCKER_COMPOSE exec -T app php artisan config:cache
     $DOCKER_COMPOSE exec -T app php artisan route:cache
     $DOCKER_COMPOSE exec -T app php artisan view:cache
 
-    echo ""
+    echo "" >&2
     info "Building frontend (inside Docker)..."
     $DOCKER_COMPOSE exec -T app bash -c "cd /var/www/frontend && npm install && npm run build"
 
-    echo ""
-    echo -e "${GREEN}${BOLD}"
-    echo "=============================================="
-    echo "   ShipYard installed successfully!"
-    echo "=============================================="
-    echo -e "${NC}"
-    echo ""
-    echo -e "Access your dashboard at: ${CYAN}${APP_URL}/app${NC}"
-    echo ""
-    echo -e "${BOLD}Login credentials:${NC}"
-    echo -e "  Email:    ${CYAN}${ADMIN_EMAIL}${NC}"
-    echo -e "  Password: ${CYAN}(the password you entered)${NC}"
-    echo ""
-    echo -e "${BOLD}Useful commands:${NC}"
-    echo "  View logs:      $DOCKER_COMPOSE logs -f"
-    echo "  Stop services:  $DOCKER_COMPOSE down"
-    echo "  Start services: $DOCKER_COMPOSE up -d"
-    echo "  Restart:        $DOCKER_COMPOSE restart"
-    echo ""
-    echo -e "${YELLOW}Security reminder:${NC}"
-    echo "  - Set up SSL/TLS certificates for production use"
-    echo "  - Configure your firewall to restrict access"
-    echo "  - Keep your system and Docker images updated"
-    echo ""
+    echo "" >&2
+    echo -e "${GREEN}${BOLD}" >&2
+    echo "==============================================" >&2
+    echo "   ShipYard installed successfully!" >&2
+    echo "==============================================" >&2
+    echo -e "${NC}" >&2
+    echo "" >&2
+    echo -e "Access your dashboard at: ${CYAN}${APP_URL}/app${NC}" >&2
+    echo "" >&2
+    echo -e "${BOLD}Login credentials:${NC}" >&2
+    echo -e "  Email:    ${CYAN}${ADMIN_EMAIL}${NC}" >&2
+    echo -e "  Password: ${CYAN}(the password you entered)${NC}" >&2
+    echo "" >&2
+    echo -e "${BOLD}Useful commands:${NC}" >&2
+    echo "  View logs:      $DOCKER_COMPOSE logs -f" >&2
+    echo "  Stop services:  $DOCKER_COMPOSE down" >&2
+    echo "  Start services: $DOCKER_COMPOSE up -d" >&2
+    echo "  Restart:        $DOCKER_COMPOSE restart" >&2
+    echo "" >&2
+    echo -e "${YELLOW}Security reminder:${NC}" >&2
+    echo "  - Set up SSL/TLS certificates for production use" >&2
+    echo "  - Configure your firewall to restrict access" >&2
+    echo "  - Keep your system and Docker images updated" >&2
+    echo "" >&2
     success "Installation complete!"
 }
 
