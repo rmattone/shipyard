@@ -15,6 +15,15 @@ success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 warning() { echo -e "${YELLOW}[WARNING]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
+# Prompt function that works with piped scripts
+prompt_confirm() {
+    local prompt="$1"
+    local result
+    printf "%s " "$prompt" >&2
+    read result </dev/tty 2>/dev/null || read result
+    echo "$result"
+}
+
 # Get docker compose command
 get_docker_compose_cmd() {
     if docker compose version >/dev/null 2>&1; then
@@ -36,7 +45,7 @@ main() {
 
     warning "This will stop and remove all ShipYard containers and data."
     echo ""
-    read -p "Are you sure you want to continue? (y/N): " confirm
+    confirm=$(prompt_confirm "Are you sure you want to continue? (y/N):")
 
     if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
         info "Uninstallation cancelled."
@@ -44,7 +53,7 @@ main() {
     fi
 
     echo ""
-    read -p "Do you want to remove the database volume (all data will be lost)? (y/N): " remove_data
+    remove_data=$(prompt_confirm "Do you want to remove the database volume (all data will be lost)? (y/N):")
 
     echo ""
     info "Stopping containers..."
@@ -59,7 +68,7 @@ main() {
     fi
 
     echo ""
-    read -p "Do you want to remove configuration files (.env files)? (y/N): " remove_env
+    remove_env=$(prompt_confirm "Do you want to remove configuration files (.env files)? (y/N):")
 
     if [ "$remove_env" = "y" ] || [ "$remove_env" = "Y" ]; then
         rm -f .env backend/.env
@@ -67,7 +76,7 @@ main() {
     fi
 
     echo ""
-    read -p "Do you want to remove the installation directory? (y/N): " remove_dir
+    remove_dir=$(prompt_confirm "Do you want to remove the installation directory? (y/N):")
 
     if [ "$remove_dir" = "y" ] || [ "$remove_dir" = "Y" ]; then
         INSTALL_DIR=$(pwd)

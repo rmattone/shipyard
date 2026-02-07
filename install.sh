@@ -93,31 +93,37 @@ get_docker_compose_cmd() {
 }
 
 # Prompt for input with default value
+# Uses /dev/tty to read from terminal even when script is piped
 prompt_with_default() {
     local prompt="$1"
     local default="$2"
     local result
 
     if [ -n "$default" ]; then
-        read -p "$prompt [$default]: " result
+        printf "%s [%s]: " "$prompt" "$default" >&2
+        read result </dev/tty
         echo "${result:-$default}"
     else
-        read -p "$prompt: " result
+        printf "%s: " "$prompt" >&2
+        read result </dev/tty
         echo "$result"
     fi
 }
 
 # Prompt for password (hidden input)
+# Uses /dev/tty to read from terminal even when script is piped
 prompt_password() {
     local prompt="$1"
     local password
     local password_confirm
 
     while true; do
-        read -s -p "$prompt: " password
-        echo
-        read -s -p "Confirm password: " password_confirm
-        echo
+        printf "%s: " "$prompt" >&2
+        read -s password </dev/tty
+        echo >&2
+        printf "Confirm password: " >&2
+        read -s password_confirm </dev/tty
+        echo >&2
 
         if [ "$password" != "$password_confirm" ]; then
             warning "Passwords do not match. Please try again."
@@ -141,10 +147,12 @@ validate_email() {
 }
 
 # Prompt for email with validation
+# Uses /dev/tty to read from terminal even when script is piped
 prompt_email() {
     local email
     while true; do
-        read -p "Admin email: " email
+        printf "Admin email: " >&2
+        read email </dev/tty
         if validate_email "$email"; then
             echo "$email"
             return
@@ -226,16 +234,39 @@ main() {
 
         if [ -d "$INSTALL_DIR" ]; then
             warning "Directory $INSTALL_DIR already exists."
-            read -p "Remove and reinstall? (y/N): " confirm
-            if [ "$confirm" = "y" ] || [ "$confirm" = "Y" ]; then
-                rm -rf "$INSTALL_DIR"
-            else
-                error "Installation cancelled."
-            fi
-        fi
+            echo ""
+            echo "  1) Reinstall (remove and clone fresh)"
+            echo "  2) Update (use existing directory)"
+            echo "  3) Cancel"
+            echo ""
+            printf "Choose an option [2]: " >&2
+            read choice </dev/tty
+            choice="${choice:-2}"
 
-        git clone "$REPO_URL" "$INSTALL_DIR"
-        cd "$INSTALL_DIR"
+            case "$choice" in
+                1)
+                    info "Removing existing installation..."
+                    rm -rf "$INSTALL_DIR"
+                    git clone "$REPO_URL" "$INSTALL_DIR"
+                    ;;
+                2)
+                    info "Using existing directory..."
+                    cd "$INSTALL_DIR"
+                    info "Pulling latest changes..."
+                    git pull origin main 2>/dev/null || git pull origin master 2>/dev/null || true
+                    ;;
+                3)
+                    error "Installation cancelled."
+                    ;;
+                *)
+                    info "Using existing directory..."
+                    ;;
+            esac
+            cd "$INSTALL_DIR"
+        else
+            git clone "$REPO_URL" "$INSTALL_DIR"
+            cd "$INSTALL_DIR"
+        fi
     fi
 
     echo ""
