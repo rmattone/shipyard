@@ -1,0 +1,82 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: server-mgmt-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html
+      - ./frontend/dist:/var/www/html/public/app
+    networks:
+      - server-mgmt
+    depends_on:
+      - mysql
+      - redis
+
+  nginx:
+    image: nginx:alpine
+    container_name: server-mgmt-nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./backend:/var/www/html
+      - ./frontend/dist:/var/www/html/public/app
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - server-mgmt
+    depends_on:
+      - app
+
+  mysql:
+    image: mysql:8
+    container_name: server-mgmt-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-server_management}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?Database root password required}
+      MYSQL_USER: ${DB_USERNAME:?Database username required}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Database password required}
+    # Uncomment to expose MySQL externally (not recommended for production)
+    # ports:
+    #   - "${DB_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - server-mgmt
+
+  redis:
+    image: redis:alpine
+    container_name: server-mgmt-redis
+    restart: unless-stopped
+    # Redis is only accessible internally (more secure)
+    networks:
+      - server-mgmt
+
+  queue:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: server-mgmt-queue
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - server-mgmt
+    depends_on:
+      - app
+      - mysql
+      - redis
+
+networks:
+  server-mgmt:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    driver: local

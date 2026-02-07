@@ -1,0 +1,21 @@
+# Environment files (contain secrets)
+.env
+*.env.local
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Node modules (frontend has its own .gitignore but just in case)
+node_modules/
+
+# PHP vendor (backend has its own .gitignore but just in case)
+vendor/
