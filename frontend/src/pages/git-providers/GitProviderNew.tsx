@@ -30,8 +30,8 @@ const providerHelpTexts: Record<string, { token: { title: string; steps: string[
       title: 'GitLab Personal Access Token',
       steps: [
         'Go to GitLab Settings > Access Tokens',
-        'Create a new token with "read_repository" scope',
-        'For group/project tokens, use "read_repository" scope',
+        'Create a new token with "api" and "read_user" scopes (or "read_api" instead of "api")',
+        'The "api" scope is required for repository access and connection testing',
         'Copy the generated token'
       ]
     },
