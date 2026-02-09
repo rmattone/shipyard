@@ -110,9 +110,10 @@ curl -fsSL https://raw.githubusercontent.com/rmattone/shipyard/main/install.sh |
 
 The installer will prompt you for:
 - **Admin credentials** - Name, email, and password for your admin account
-- **Application URL** - Where ShipYard will be accessible (used for generating links)
 - **HTTP/HTTPS ports** - Which ports to expose (default: 80/443)
 - **Database credentials** - Database name, username, and password
+
+The server IP is auto-detected and ShipYard will be accessible at `http://YOUR_SERVER_IP/app`
 
 ### Prerequisites
 
@@ -228,13 +229,15 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 
 | Variable | Description |
 |----------|-------------|
-| `APP_URL` | Your ShipYard URL |
+| `APP_URL` | Your ShipYard URL (auto-detected during install) |
 | `APP_KEY` | Application encryption key (auto-generated) |
 | `DB_*` | Database connection settings |
 | `REDIS_*` | Redis connection settings |
 | `ADMIN_NAME` | Initial admin name |
 | `ADMIN_EMAIL` | Initial admin email |
 | `ADMIN_PASSWORD` | Initial admin password |
+
+**Note:** To use a custom domain, just point your domain's DNS A record to your server's IP address. ShipYard accepts any hostname automatically.
 
 ---
 
