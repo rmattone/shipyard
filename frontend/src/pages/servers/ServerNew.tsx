@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Switch } from '@/components/ui/switch'
 import {
   Select,
   SelectContent,
@@ -16,7 +17,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { LoadingSpinner } from '@/components/custom'
-import { KeyIcon } from '@heroicons/react/24/outline'
+import { KeyIcon, ComputerDesktopIcon } from '@heroicons/react/24/outline'
 
 export default function ServerNew() {
   const navigate = useNavigate()
@@ -30,6 +31,7 @@ export default function ServerNew() {
     username: 'root',
     private_key: '',
     status: 'active' as 'active' | 'inactive',
+    is_local: false,
   })
 
   const handleGenerateKey = async () => {
@@ -89,68 +91,91 @@ export default function ServerNew() {
               />
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="host">Host</Label>
-                <Input
-                  id="host"
-                  value={formData.host}
-                  onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                  placeholder="192.168.1.100 or server.example.com"
-                  required
-                />
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border">
+              <div className="flex items-center gap-3">
+                <ComputerDesktopIcon className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <Label htmlFor="is_local" className="text-sm font-medium cursor-pointer">
+                    Local Server
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    This is the server where ShipYard is installed
+                  </p>
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="port">Port</Label>
-                <Input
-                  id="port"
-                  type="number"
-                  value={formData.port}
-                  onChange={(e) => setFormData({ ...formData, port: e.target.value })}
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={formData.username}
-                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                required
+              <Switch
+                id="is_local"
+                checked={formData.is_local}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_local: checked })}
               />
             </div>
 
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="private_key">Private Key</Label>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleGenerateKey}
-                  disabled={generating}
-                >
-                  {generating ? (
-                    <LoadingSpinner size="sm" className="mr-1" />
-                  ) : (
-                    <KeyIcon className="h-4 w-4 mr-1" />
-                  )}
-                  Generate Key Pair
-                </Button>
-              </div>
-              <Textarea
-                id="private_key"
-                value={formData.private_key}
-                onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                rows={8}
-                required
-              />
-            </div>
+            {!formData.is_local && (
+              <>
+                <div className="grid grid-cols-3 gap-4">
+                  <div className="col-span-2 space-y-2">
+                    <Label htmlFor="host">Host</Label>
+                    <Input
+                      id="host"
+                      value={formData.host}
+                      onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                      placeholder="192.168.1.100 or server.example.com"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="port">Port</Label>
+                    <Input
+                      id="port"
+                      type="number"
+                      value={formData.port}
+                      onChange={(e) => setFormData({ ...formData, port: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
 
-            {publicKey && (
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input
+                    id="username"
+                    value={formData.username}
+                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                    required
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="private_key">Private Key</Label>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleGenerateKey}
+                      disabled={generating}
+                    >
+                      {generating ? (
+                        <LoadingSpinner size="sm" className="mr-1" />
+                      ) : (
+                        <KeyIcon className="h-4 w-4 mr-1" />
+                      )}
+                      Generate Key Pair
+                    </Button>
+                  </div>
+                  <Textarea
+                    id="private_key"
+                    value={formData.private_key}
+                    onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                    rows={8}
+                    required
+                  />
+                </div>
+              </>
+            )}
+
+            {publicKey && !formData.is_local && (
               <Alert className="bg-blue-50 border-blue-200">
                 <AlertDescription>
                   <div className="flex items-center justify-between mb-2">
@@ -171,6 +196,16 @@ export default function ServerNew() {
                       {`echo "${publicKey}" >> ~/.ssh/authorized_keys`}
                     </pre>
                   </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {formData.is_local && (
+              <Alert className="bg-green-50 border-green-200">
+                <AlertDescription>
+                  <p className="text-sm text-green-800">
+                    Commands will run directly on this server without SSH. No additional configuration needed.
+                  </p>
                 </AlertDescription>
               </Alert>
             )}

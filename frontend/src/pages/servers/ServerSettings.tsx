@@ -10,6 +10,8 @@ import { Label } from '@/components/ui/label'
 import { LoadingSpinner } from '@/components/custom'
 import { TagBadge } from '@/components/custom/TagBadge'
 import { ColorPicker } from '@/components/custom/ColorPicker'
+import { Badge } from '@/components/ui/badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -219,7 +221,7 @@ export default function ServerSettings() {
 
   const sidebarItems = [
     { id: 'general' as const, label: 'General' },
-    { id: 'ssh' as const, label: 'SSH' },
+    ...(!server.is_local ? [{ id: 'ssh' as const, label: 'SSH' }] : []),
     { id: 'tags' as const, label: 'Tags' },
     { id: 'danger' as const, label: 'Danger Zone' },
   ]
@@ -252,12 +254,27 @@ export default function ServerSettings() {
         {activeSection === 'general' && (
           <Card>
             <CardHeader>
-              <CardTitle>Settings</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                Settings
+                {server.is_local && (
+                  <Badge variant="secondary">Local Server</Badge>
+                )}
+              </CardTitle>
               <CardDescription>
                 Manage and configure your server's basic settings.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {server.is_local && (
+                <Alert className="bg-green-50 border-green-200">
+                  <AlertDescription>
+                    <p className="text-sm text-green-800">
+                      This is a local server. Commands run directly without SSH.
+                    </p>
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {/* Name */}
               <div className="flex items-start justify-between py-4 border-b">
                 <div>
@@ -273,63 +290,67 @@ export default function ServerSettings() {
                 />
               </div>
 
-              {/* IP Address */}
-              <div className="flex items-start justify-between py-4 border-b">
-                <div>
-                  <p className="font-medium">IP address</p>
-                  <p className="text-sm text-muted-foreground">
-                    The public IP address used to connect to your server via SSH.
-                  </p>
-                </div>
-                <Input
-                  value={formData.host}
-                  onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                  className="w-64"
-                />
-              </div>
+              {!server.is_local && (
+                <>
+                  {/* IP Address */}
+                  <div className="flex items-start justify-between py-4 border-b">
+                    <div>
+                      <p className="font-medium">IP address</p>
+                      <p className="text-sm text-muted-foreground">
+                        The public IP address used to connect to your server via SSH.
+                      </p>
+                    </div>
+                    <Input
+                      value={formData.host}
+                      onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                      className="w-64"
+                    />
+                  </div>
 
-              {/* SSH Port */}
-              <div className="flex items-start justify-between py-4 border-b">
-                <div>
-                  <p className="font-medium">SSH port</p>
-                  <p className="text-sm text-muted-foreground">
-                    The port used to connect to your server via SSH.
-                  </p>
-                </div>
-                <Input
-                  type="number"
-                  value={formData.port}
-                  onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
-                  className="w-64"
-                />
-              </div>
+                  {/* SSH Port */}
+                  <div className="flex items-start justify-between py-4 border-b">
+                    <div>
+                      <p className="font-medium">SSH port</p>
+                      <p className="text-sm text-muted-foreground">
+                        The port used to connect to your server via SSH.
+                      </p>
+                    </div>
+                    <Input
+                      type="number"
+                      value={formData.port}
+                      onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
+                      className="w-64"
+                    />
+                  </div>
 
-              {/* SSH Username */}
-              <div className="flex items-start justify-between py-4 border-b">
-                <div>
-                  <p className="font-medium">SSH username</p>
-                  <p className="text-sm text-muted-foreground">
-                    The username used to authenticate via SSH.
-                  </p>
-                </div>
-                <Input
-                  value={formData.username}
-                  onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                  className="w-64"
-                />
-              </div>
+                  {/* SSH Username */}
+                  <div className="flex items-start justify-between py-4 border-b">
+                    <div>
+                      <p className="font-medium">SSH username</p>
+                      <p className="text-sm text-muted-foreground">
+                        The username used to authenticate via SSH.
+                      </p>
+                    </div>
+                    <Input
+                      value={formData.username}
+                      onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                      className="w-64"
+                    />
+                  </div>
+                </>
+              )}
 
               {/* Status */}
               <div className="flex items-start justify-between py-4">
                 <div>
-                  <p className="font-medium">Connection status</p>
+                  <p className="font-medium">{server.is_local ? 'Local execution' : 'Connection status'}</p>
                   <p className="text-sm text-muted-foreground">
-                    Test the SSH connection to your server.
+                    {server.is_local ? 'Test local command execution.' : 'Test the SSH connection to your server.'}
                   </p>
                 </div>
                 <Button variant="outline" onClick={handleTestConnection} disabled={testing}>
                   {testing && <LoadingSpinner size="sm" className="mr-2" />}
-                  Test Connection
+                  Test {server.is_local ? 'Execution' : 'Connection'}
                 </Button>
               </div>
 

@@ -12,6 +12,7 @@ import {
   TableRow,
 } from '@/components/ui/table'
 import { StatusBadge, LoadingSpinner } from '@/components/custom'
+import { Badge } from '@/components/ui/badge'
 import { PlusIcon } from '@heroicons/react/24/outline'
 
 export default function ServerList() {
@@ -68,15 +69,20 @@ export default function ServerList() {
                 {servers.map((server) => (
                   <TableRow key={server.id}>
                     <TableCell>
-                      <Link
-                        to={`/servers/${server.id}`}
-                        className="text-primary hover:underline font-medium"
-                      >
-                        {server.name}
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/servers/${server.id}`}
+                          className="text-primary hover:underline font-medium"
+                        >
+                          {server.name}
+                        </Link>
+                        {server.is_local && (
+                          <Badge variant="secondary" className="text-xs">Local</Badge>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-muted-foreground">
-                      {server.host}:{server.port}
+                      {server.is_local ? 'localhost' : `${server.host}:${server.port}`}
                     </TableCell>
                     <TableCell>
                       <StatusBadge status={server.status} />

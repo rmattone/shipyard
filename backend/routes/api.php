@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\NginxController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\SSHKeyController;
+use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
@@ -120,4 +121,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Deployments
     Route::get('/deployments/{deployment}', [DeploymentController::class, 'show']);
+
+    // System
+    Route::get('/system/version', [SystemController::class, 'version']);
+    Route::post('/system/update', [SystemController::class, 'update']);
+    Route::get('/system/update-status', [SystemController::class, 'updateStatus']);
 });
