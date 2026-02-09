@@ -124,6 +124,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // System
     Route::get('/system/version', [SystemController::class, 'version']);
+    Route::get('/system/environment', [SystemController::class, 'environment']);
     Route::post('/system/update', [SystemController::class, 'update']);
     Route::get('/system/update-status', [SystemController::class, 'updateStatus']);
 });

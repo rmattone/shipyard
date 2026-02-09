@@ -570,8 +570,14 @@ export interface UpdateStatus {
   log: string
 }
 
+export interface SystemEnvironment {
+  is_docker: boolean
+  docker_host_ip: string | null
+}
+
 export const systemApi = {
   getVersion: () => api.get<SystemVersion>('/system/version'),
+  getEnvironment: () => api.get<SystemEnvironment>('/system/environment'),
   startUpdate: () => api.post<{ success: boolean; message: string }>('/system/update'),
   getUpdateStatus: () => api.get<UpdateStatus>('/system/update-status'),
 }

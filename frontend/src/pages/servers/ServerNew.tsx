@@ -1,6 +1,6 @@
-import { useState, FormEvent } from 'react'
+import { useState, useEffect, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { serversApi, sshKeysApi } from '../../services/api'
+import { serversApi, sshKeysApi, systemApi } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -17,13 +17,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { LoadingSpinner } from '@/components/custom'
-import { KeyIcon, ComputerDesktopIcon } from '@heroicons/react/24/outline'
+import { KeyIcon, ComputerDesktopIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 
 export default function ServerNew() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [publicKey, setPublicKey] = useState('')
+  const [isDocker, setIsDocker] = useState(false)
+  const [dockerHostIp, setDockerHostIp] = useState<string | null>(null)
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -33,6 +35,15 @@ export default function ServerNew() {
     status: 'active' as 'active' | 'inactive',
     is_local: false,
   })
+
+  useEffect(() => {
+    systemApi.getEnvironment().then((res) => {
+      setIsDocker(res.data.is_docker)
+      setDockerHostIp(res.data.docker_host_ip)
+    }).catch(() => {
+      // Ignore errors - assume not Docker
+    })
+  }, [])
 
   const handleGenerateKey = async () => {
     setGenerating(true)
@@ -200,7 +211,34 @@ export default function ServerNew() {
               </Alert>
             )}
 
-            {formData.is_local && (
+            {formData.is_local && isDocker && (
+              <Alert className="bg-amber-50 border-amber-200">
+                <AlertDescription>
+                  <div className="flex gap-3">
+                    <ExclamationTriangleIcon className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-amber-800 mb-2">
+                        Local server mode is not recommended with Docker
+                      </p>
+                      <p className="text-sm text-amber-700 mb-3">
+                        ShipYard runs inside a Docker container and cannot directly manage the host server.
+                        Use SSH to connect to the host instead.
+                      </p>
+                      <div className="text-sm text-amber-700">
+                        <strong>To manage this server via SSH:</strong>
+                        <ol className="list-decimal list-inside mt-1 space-y-1">
+                          <li>Disable "Local Server" above</li>
+                          <li>Use host: <code className="bg-amber-100 px-1 rounded">{dockerHostIp || '172.17.0.1'}</code> or the server's IP</li>
+                          <li>Generate an SSH key and add it to the host's authorized_keys</li>
+                        </ol>
+                      </div>
+                    </div>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {formData.is_local && !isDocker && (
               <Alert className="bg-green-50 border-green-200">
                 <AlertDescription>
                   <p className="text-sm text-green-800">
