@@ -412,7 +412,6 @@ EOF
     info "Optimizing application..."
     $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan config:cache
     $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan route:cache
-    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan view:cache
 
     echo "" >&2
     echo -e "${GREEN}${BOLD}" >&2
