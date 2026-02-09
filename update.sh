@@ -50,8 +50,20 @@ cp -f backend/.env backend/.env.backup 2>/dev/null || true
 
 # Step 3: Pull latest code
 echo -e "${YELLOW}[3/7]${NC} Pulling latest changes..."
-git fetch origin
-git pull origin main
+if [ -d ".git" ]; then
+    git fetch origin
+    git pull origin main
+else
+    # No git repo - download and extract latest
+    echo "No git repository found, downloading latest release..."
+    curl -fsSL https://github.com/rmattone/shipyard/archive/refs/heads/main.tar.gz -o /tmp/shipyard-update.tar.gz
+    tar -xzf /tmp/shipyard-update.tar.gz -C /tmp
+
+    # Copy new files (preserving .env files)
+    rsync -a --exclude='.env' --exclude='backend/.env' /tmp/shipyard-main/ "$INSTALL_DIR/"
+
+    rm -rf /tmp/shipyard-update.tar.gz /tmp/shipyard-main
+fi
 
 # Step 4: Install PHP dependencies
 echo -e "${YELLOW}[4/7]${NC} Installing PHP dependencies..."
