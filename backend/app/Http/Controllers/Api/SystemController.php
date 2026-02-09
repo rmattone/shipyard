@@ -9,6 +9,25 @@ use Illuminate\Support\Facades\Process;
 
 class SystemController extends Controller
 {
+    public function environment(): JsonResponse
+    {
+        return response()->json([
+            'is_docker' => $this->isRunningInDocker(),
+            'docker_host_ip' => $this->isRunningInDocker() ? $this->getDockerHostIp() : null,
+        ]);
+    }
+
+    private function isRunningInDocker(): bool
+    {
+        return file_exists('/.dockerenv') || str_contains(file_get_contents('/proc/1/cgroup') ?? '', 'docker');
+    }
+
+    private function getDockerHostIp(): string
+    {
+        // Default Docker bridge gateway
+        return '172.17.0.1';
+    }
+
     public function version(): JsonResponse
     {
         $currentVersion = $this->getCurrentVersion();
