@@ -7,16 +7,24 @@ use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Net\SSH2;
 use phpseclib3\Net\SFTP;
 use RuntimeException;
+use Symfony\Component\Process\Process;
 
 class SSHService
 {
     private ?SSH2 $ssh = null;
     private ?SFTP $sftp = null;
     private ?Server $server = null;
+    private bool $isLocal = false;
 
     public function connect(Server $server): self
     {
         $this->server = $server;
+        $this->isLocal = $server->isLocal();
+
+        if ($this->isLocal) {
+            return $this;
+        }
+
         $this->ssh = new SSH2($server->host, $server->port);
         $this->ssh->setTimeout(30);
 
@@ -32,6 +40,12 @@ class SSHService
     public function connectSftp(Server $server): self
     {
         $this->server = $server;
+        $this->isLocal = $server->isLocal();
+
+        if ($this->isLocal) {
+            return $this;
+        }
+
         $this->sftp = new SFTP($server->host, $server->port);
         $this->sftp->setTimeout(30);
 
@@ -46,6 +60,12 @@ class SSHService
 
     public function disconnect(): void
     {
+        if ($this->isLocal) {
+            $this->server = null;
+            $this->isLocal = false;
+            return;
+        }
+
         if ($this->ssh) {
             $this->ssh->disconnect();
             $this->ssh = null;
@@ -58,6 +78,10 @@ class SSHService
 
     public function execute(string $command, int $timeout = 300): array
     {
+        if ($this->isLocal) {
+            return $this->executeLocal($command, $timeout);
+        }
+
         if (!$this->ssh) {
             throw new RuntimeException('Not connected to any server');
         }
@@ -73,8 +97,30 @@ class SSHService
         ];
     }
 
+    private function executeLocal(string $command, int $timeout = 300): array
+    {
+        $process = Process::fromShellCommandline($command);
+        $process->setTimeout($timeout);
+
+        $process->run();
+
+        return [
+            'output' => $process->getOutput() . $process->getErrorOutput(),
+            'exit_code' => $process->getExitCode(),
+            'success' => $process->isSuccessful(),
+        ];
+    }
+
     public function upload(string $localPath, string $remotePath): bool
     {
+        if ($this->isLocal) {
+            $dir = dirname($remotePath);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            return copy($localPath, $remotePath);
+        }
+
         if (!$this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -88,6 +134,14 @@ class SSHService
 
     public function uploadContent(string $content, string $remotePath): bool
     {
+        if ($this->isLocal) {
+            $dir = dirname($remotePath);
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+            return file_put_contents($remotePath, $content) !== false;
+        }
+
         if (!$this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -101,6 +155,13 @@ class SSHService
 
     public function download(string $remotePath): ?string
     {
+        if ($this->isLocal) {
+            if (!file_exists($remotePath)) {
+                return null;
+            }
+            return file_get_contents($remotePath);
+        }
+
         if (!$this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -114,6 +175,10 @@ class SSHService
 
     public function fileExists(string $remotePath): bool
     {
+        if ($this->isLocal) {
+            return file_exists($remotePath);
+        }
+
         if (!$this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -132,9 +197,11 @@ class SSHService
             $result = $this->execute('echo "Connection successful" && uname -a');
             $this->disconnect();
 
+            $message = $server->isLocal() ? 'Local execution ready' : 'Connection successful';
+
             return [
                 'success' => true,
-                'message' => 'Connection successful',
+                'message' => $message,
                 'system_info' => trim($result['output']),
             ];
         } catch (\Exception $e) {

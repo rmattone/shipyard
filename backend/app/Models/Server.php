@@ -17,6 +17,7 @@ class Server extends Model
         'username',
         'private_key',
         'status',
+        'is_local',
     ];
 
     protected $hidden = [
@@ -28,7 +29,13 @@ class Server extends Model
         return [
             'private_key' => 'encrypted',
             'port' => 'integer',
+            'is_local' => 'boolean',
         ];
+    }
+
+    public function isLocal(): bool
+    {
+        return $this->is_local;
     }
 
     public function applications(): HasMany

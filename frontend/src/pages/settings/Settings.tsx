@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { gitProvidersApi, GitProvider } from '../../services/api'
+import { gitProvidersApi, systemApi, GitProvider, SystemVersion, UpdateStatus } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,8 +12,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
+import { Badge } from '@/components/ui/badge'
 import { StatusBadge, LoadingSpinner } from '@/components/custom'
-import { PlusIcon, TrashIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ArrowPathIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,7 +27,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 
-type SettingsSection = 'source-control' | 'general'
+type SettingsSection = 'source-control' | 'general' | 'system'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -36,9 +37,29 @@ export default function Settings() {
   const [deleting, setDeleting] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('source-control')
 
+  // System update state
+  const [versionInfo, setVersionInfo] = useState<SystemVersion | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null)
+  const [updating, setUpdating] = useState(false)
+  const [checkingVersion, setCheckingVersion] = useState(false)
+  const logRef = useRef<HTMLPreElement>(null)
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
   useEffect(() => {
     loadProviders()
   }, [])
+
+  // Load version info when switching to system section
+  useEffect(() => {
+    if (activeSection === 'system') {
+      checkVersion()
+    }
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current)
+      }
+    }
+  }, [activeSection])
 
   const loadProviders = async () => {
     try {
@@ -79,9 +100,65 @@ export default function Settings() {
     }
   }
 
+  const checkVersion = async () => {
+    setCheckingVersion(true)
+    try {
+      const response = await systemApi.getVersion()
+      setVersionInfo(response.data)
+    } catch {
+      toast.error('Failed to check for updates')
+    } finally {
+      setCheckingVersion(false)
+    }
+  }
+
+  const startUpdate = async () => {
+    setUpdating(true)
+    setUpdateStatus({ running: true, status: 'running', log: 'Starting update...\n' })
+
+    try {
+      await systemApi.startUpdate()
+
+      // Start polling for status
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const response = await systemApi.getUpdateStatus()
+          setUpdateStatus(response.data)
+
+          // Auto-scroll log
+          if (logRef.current) {
+            logRef.current.scrollTop = logRef.current.scrollHeight
+          }
+
+          // Stop polling when complete
+          if (response.data.status === 'completed' || response.data.status === 'failed') {
+            if (pollIntervalRef.current) {
+              clearInterval(pollIntervalRef.current)
+            }
+            setUpdating(false)
+
+            if (response.data.status === 'completed') {
+              toast.success('Update completed successfully!')
+              checkVersion() // Refresh version info
+            } else {
+              toast.error('Update failed. Check the log for details.')
+            }
+          }
+        } catch {
+          // Ignore polling errors (app might be restarting)
+        }
+      }, 2000)
+    } catch {
+      toast.error('Failed to start update')
+      setUpdating(false)
+      setUpdateStatus(null)
+    }
+  }
+
   const sidebarItems = [
     { id: 'source-control' as const, label: 'Source Control' },
     { id: 'general' as const, label: 'General' },
+    { id: 'system' as const, label: 'System' },
   ]
 
   if (loading) {
@@ -231,6 +308,131 @@ export default function Settings() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {activeSection === 'system' && (
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>System Updates</CardTitle>
+                <CardDescription>
+                  Keep ShipYard up to date with the latest features and fixes.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  {/* Version Info */}
+                  <div className="flex items-start justify-between py-4 border-b">
+                    <div>
+                      <p className="font-medium">Current Version</p>
+                      <p className="text-sm text-muted-foreground">
+                        The version of ShipYard you're running.
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {checkingVersion ? (
+                        <LoadingSpinner size="sm" />
+                      ) : (
+                        <>
+                          <Badge variant="outline" className="font-mono">
+                            v{versionInfo?.current_version || '...'}
+                          </Badge>
+                          <Button variant="ghost" size="sm" onClick={checkVersion}>
+                            <ArrowPathIcon className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Update Status */}
+                  <div className="flex items-start justify-between py-4">
+                    <div>
+                      <p className="font-medium">Updates</p>
+                      {versionInfo?.update_available ? (
+                        <p className="text-sm text-green-600">
+                          New version available: v{versionInfo.latest_version}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          You're running the latest version.
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      onClick={startUpdate}
+                      disabled={updating || checkingVersion}
+                    >
+                      {updating ? (
+                        <>
+                          <LoadingSpinner size="sm" className="mr-2" />
+                          Updating...
+                        </>
+                      ) : (
+                        <>
+                          <ArrowPathIcon className="h-4 w-4 mr-2" />
+                          {versionInfo?.update_available ? 'Update Now' : 'Check & Update'}
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {/* Update Log */}
+                  {updateStatus && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-sm">Update Log</p>
+                        {updateStatus.status === 'completed' && (
+                          <CheckCircleIcon className="h-4 w-4 text-green-600" />
+                        )}
+                        {updateStatus.status === 'failed' && (
+                          <ExclamationCircleIcon className="h-4 w-4 text-red-600" />
+                        )}
+                      </div>
+                      <pre
+                        ref={logRef}
+                        className="bg-muted p-4 rounded-lg text-xs font-mono overflow-auto max-h-64 whitespace-pre-wrap"
+                      >
+                        {updateStatus.log || 'Waiting for output...'}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>System Information</CardTitle>
+                <CardDescription>
+                  Technical details about your installation.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4 text-sm">
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Application</span>
+                    <span className="font-medium">ShipYard</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b">
+                    <span className="text-muted-foreground">Version</span>
+                    <span className="font-mono">{versionInfo?.current_version || '...'}</span>
+                  </div>
+                  <div className="flex justify-between py-2">
+                    <span className="text-muted-foreground">Documentation</span>
+                    <a
+                      href="https://github.com/rmattone/shipyard"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      View on GitHub
+                    </a>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         )}
       </div>
 

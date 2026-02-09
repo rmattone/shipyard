@@ -27,17 +27,26 @@ class ServerController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        $isLocal = $request->boolean('is_local');
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'host' => 'required|string|max:255',
+            'host' => $isLocal ? 'nullable|string|max:255' : 'required|string|max:255',
             'port' => 'nullable|integer|min:1|max:65535',
-            'username' => 'required|string|max:255',
-            'private_key' => 'required|string',
+            'username' => $isLocal ? 'nullable|string|max:255' : 'required|string|max:255',
+            'private_key' => $isLocal ? 'nullable|string' : 'required|string',
             'status' => 'nullable|in:active,inactive',
+            'is_local' => 'nullable|boolean',
         ]);
 
         $validated['port'] = $validated['port'] ?? 22;
         $validated['status'] = $validated['status'] ?? 'active';
+        $validated['is_local'] = $isLocal;
+
+        if ($isLocal) {
+            $validated['host'] = $validated['host'] ?? 'localhost';
+            $validated['username'] = $validated['username'] ?? get_current_user();
+        }
 
         $server = Server::create($validated);
 

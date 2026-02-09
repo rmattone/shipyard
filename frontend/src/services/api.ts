@@ -47,6 +47,7 @@ export interface Server {
   port: number
   username: string
   status: 'active' | 'inactive'
+  is_local: boolean
   applications_count?: number
   created_at: string
 }
@@ -554,6 +555,25 @@ export const logsApi = {
     api.get<LogContent>('/applications/' + appId + '/logs/' + encodeURIComponent(filename), {
       params: { lines, search: search || undefined },
     }),
+}
+
+// System
+export interface SystemVersion {
+  current_version: string
+  latest_version: string
+  update_available: boolean
+}
+
+export interface UpdateStatus {
+  running: boolean
+  status: 'idle' | 'running' | 'completed' | 'failed'
+  log: string
+}
+
+export const systemApi = {
+  getVersion: () => api.get<SystemVersion>('/system/version'),
+  startUpdate: () => api.post<{ success: boolean; message: string }>('/system/update'),
+  getUpdateStatus: () => api.get<UpdateStatus>('/system/update-status'),
 }
 
 export default api
