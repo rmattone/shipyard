@@ -99,6 +99,11 @@ class SSHService
 
     private function executeLocal(string $command, int $timeout = 300): array
     {
+        // Commands that require sudo on local server
+        if ($this->commandRequiresSudo($command)) {
+            $command = 'sudo ' . $command;
+        }
+
         $process = Process::fromShellCommandline($command);
         $process->setTimeout($timeout);
 
@@ -109,6 +114,30 @@ class SSHService
             'exit_code' => $process->getExitCode(),
             'success' => $process->isSuccessful(),
         ];
+    }
+
+    /**
+     * Check if a command requires sudo for local execution.
+     */
+    private function commandRequiresSudo(string $command): bool
+    {
+        $sudoCommands = [
+            'nginx ',
+            'nginx -t',
+            'systemctl ',
+            'certbot ',
+            'ln -sf /etc/nginx',
+            'rm -f /etc/nginx',
+            'rm -f /etc/letsencrypt',
+        ];
+
+        foreach ($sudoCommands as $sudoCommand) {
+            if (str_starts_with($command, $sudoCommand)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public function upload(string $localPath, string $remotePath): bool
@@ -135,6 +164,24 @@ class SSHService
     public function uploadContent(string $content, string $remotePath): bool
     {
         if ($this->isLocal) {
+            // Use sudo for system paths that require elevated permissions
+            if ($this->requiresSudo($remotePath)) {
+                // Write to temp file first, then sudo cp to destination
+                $tempFile = tempnam(sys_get_temp_dir(), 'srv_');
+                file_put_contents($tempFile, $content);
+
+                $process = Process::fromShellCommandline(
+                    sprintf('sudo cp %s %s && sudo chmod 644 %s',
+                        escapeshellarg($tempFile),
+                        escapeshellarg($remotePath),
+                        escapeshellarg($remotePath)
+                    )
+                );
+                $process->run();
+                unlink($tempFile);
+
+                return $process->isSuccessful();
+            }
             $dir = dirname($remotePath);
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
@@ -216,5 +263,26 @@ class SSHService
     public function __destruct()
     {
         $this->disconnect();
+    }
+
+    /**
+     * Check if a path requires sudo for local execution.
+     */
+    private function requiresSudo(string $path): bool
+    {
+        $sudoPaths = [
+            '/etc/nginx',
+            '/etc/letsencrypt',
+            '/etc/systemd',
+            '/var/log/nginx',
+        ];
+
+        foreach ($sudoPaths as $sudoPath) {
+            if (str_starts_with($path, $sudoPath)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

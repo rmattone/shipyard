@@ -36,15 +36,28 @@ class SystemController extends Controller
         Cache::put('system_update_log', "Starting update...\n", 600);
         Cache::put('system_update_status', 'running', 600);
 
-        // Run update in background
-        $scriptPath = base_path('../update.sh');
+        // Run update in background - try multiple paths
+        $possiblePaths = [
+            '/var/www/update.sh',  // Docker mount path
+            base_path('../update.sh'),
+            '/var/www/shipyard/update.sh',
+            dirname(base_path()) . '/update.sh',
+        ];
 
-        if (!file_exists($scriptPath)) {
+        $scriptPath = null;
+        foreach ($possiblePaths as $path) {
+            if (file_exists($path)) {
+                $scriptPath = $path;
+                break;
+            }
+        }
+
+        if (!$scriptPath) {
             Cache::forget('system_update_running');
             Cache::put('system_update_status', 'failed', 600);
             return response()->json([
                 'success' => false,
-                'message' => 'Update script not found',
+                'message' => 'Update script not found. Checked: ' . implode(', ', $possiblePaths),
             ], 404);
         }
 
