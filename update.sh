@@ -39,13 +39,6 @@ echo -e "${NC}"
 echo "Updating ShipYard..."
 echo ""
 
-# Check if app container is running
-if ! docker compose exec -T app echo "ok" &>/dev/null; then
-    echo -e "${RED}Error: Docker containers are not running${NC}"
-    echo "Please start Docker first: docker compose up -d"
-    exit 1
-fi
-
 # Step 1: Enable maintenance mode
 echo -e "${YELLOW}[1/7]${NC} Enabling maintenance mode..."
 docker compose exec -T app php artisan down --retry=60 2>/dev/null || true
