@@ -43,7 +43,7 @@ export default function Settings() {
   const [updating, setUpdating] = useState(false)
   const [checkingVersion, setCheckingVersion] = useState(false)
   const logRef = useRef<HTMLPreElement>(null)
-  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     loadProviders()

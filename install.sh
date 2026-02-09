@@ -280,12 +280,13 @@ main() {
     ADMIN_PASSWORD=$(prompt_password "Admin password")
 
     echo "" >&2
-    echo -e "${BOLD}=== Application Settings ===${NC}" >&2
+    echo -e "${BOLD}=== Server Configuration ===${NC}" >&2
     echo "" >&2
 
-    # Get app URL
-    DEFAULT_URL="http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost')"
-    APP_URL=$(prompt_with_default "Application URL" "$DEFAULT_URL")
+    # Auto-detect server IP for APP_URL
+    SERVER_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || curl -s ifconfig.me 2>/dev/null || echo 'localhost')
+    APP_URL="http://${SERVER_IP}"
+    info "Detected server IP: ${SERVER_IP}"
 
     # Get ports (with availability check)
     HTTP_PORT=$(prompt_port "HTTP port" "80")
@@ -389,29 +390,29 @@ EOF
 
     echo "" >&2
     info "Installing PHP dependencies..."
-    $DOCKER_COMPOSE exec -T app composer install --no-dev --optimize-autoloader
+    $DOCKER_COMPOSE exec -T -w /var/www/html app composer install --no-dev --optimize-autoloader
 
     echo "" >&2
     info "Generating application key..."
-    $DOCKER_COMPOSE exec -T app php artisan key:generate --force
+    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan key:generate --force
 
     echo "" >&2
     info "Running database migrations..."
-    $DOCKER_COMPOSE exec -T app php artisan migrate --force
+    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan migrate --force
 
     echo "" >&2
     info "Creating admin user..."
-    $DOCKER_COMPOSE exec -T app php artisan db:seed --force
-
-    echo "" >&2
-    info "Optimizing application..."
-    $DOCKER_COMPOSE exec -T app php artisan config:cache
-    $DOCKER_COMPOSE exec -T app php artisan route:cache
-    $DOCKER_COMPOSE exec -T app php artisan view:cache
+    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan db:seed --force
 
     echo "" >&2
     info "Building frontend (inside Docker)..."
     $DOCKER_COMPOSE exec -T app bash -c "cd /var/www/frontend && npm install && npm run build"
+
+    echo "" >&2
+    info "Optimizing application..."
+    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan config:cache
+    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan route:cache
+    $DOCKER_COMPOSE exec -T -w /var/www/html app php artisan view:cache
 
     echo "" >&2
     echo -e "${GREEN}${BOLD}" >&2
@@ -420,7 +421,11 @@ EOF
     echo "==============================================" >&2
     echo -e "${NC}" >&2
     echo "" >&2
-    echo -e "Access your dashboard at: ${CYAN}${APP_URL}/app${NC}" >&2
+    echo -e "${BOLD}Access your dashboard:${NC}" >&2
+    echo -e "  ${CYAN}http://${SERVER_IP}/app${NC}" >&2
+    if [ "$HTTP_PORT" != "80" ]; then
+        echo -e "  ${CYAN}http://${SERVER_IP}:${HTTP_PORT}/app${NC}" >&2
+    fi
     echo "" >&2
     echo -e "${BOLD}Login credentials:${NC}" >&2
     echo -e "  Email:    ${CYAN}${ADMIN_EMAIL}${NC}" >&2
@@ -431,6 +436,10 @@ EOF
     echo "  Stop services:  $DOCKER_COMPOSE down" >&2
     echo "  Start services: $DOCKER_COMPOSE up -d" >&2
     echo "  Restart:        $DOCKER_COMPOSE restart" >&2
+    echo "" >&2
+    echo -e "${BOLD}Custom domain:${NC}" >&2
+    echo "  Point your domain's DNS A record to ${SERVER_IP}" >&2
+    echo "  Then access via: http://yourdomain.com/app" >&2
     echo "" >&2
     echo -e "${YELLOW}Security reminder:${NC}" >&2
     echo "  - Set up SSL/TLS certificates for production use" >&2
