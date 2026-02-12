@@ -35,12 +35,23 @@ class WebhookController extends Controller
                 ]);
             }
 
+            // For atomic deployments, generate release_id and release_path
+            $releaseId = null;
+            $releasePath = null;
+            if ($application->usesAtomicDeployments()) {
+                $releaseId = Deployment::generateReleaseId();
+                $releasePath = "{$application->getReleasesPath()}/{$releaseId}";
+            }
+
             // Create deployment record
             $deployment = Deployment::create([
                 'application_id' => $application->id,
                 'commit_hash' => $webhookData['commit_hash'],
                 'commit_message' => $webhookData['commit_message'],
                 'status' => 'pending',
+                'type' => 'deploy',
+                'release_id' => $releaseId,
+                'release_path' => $releasePath,
             ]);
 
             // Queue deployment
