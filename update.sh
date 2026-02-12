@@ -13,12 +13,12 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Find installation directory
-if [ -f "docker-compose.yml" ] && grep -q "shipyard" docker-compose.yml 2>/dev/null; then
+# Find installation directory - prioritize current directory
+if [ -f "docker-compose.yml" ] && [ -d "backend" ]; then
     INSTALL_DIR="$(pwd)"
-elif [ -d "/var/www/shipyard" ]; then
+elif [ -d "/var/www/shipyard" ] && [ -f "/var/www/shipyard/docker-compose.yml" ]; then
     INSTALL_DIR="/var/www/shipyard"
-elif [ -d "$HOME/shipyard" ]; then
+elif [ -d "$HOME/shipyard" ] && [ -f "$HOME/shipyard/docker-compose.yml" ]; then
     INSTALL_DIR="$HOME/shipyard"
 else
     echo -e "${RED}Error: Could not find ShipYard installation directory${NC}"
