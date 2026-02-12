@@ -28,6 +28,18 @@ fi
 
 cd "$INSTALL_DIR"
 
+# Check for .env file
+if [ ! -f ".env" ]; then
+    echo -e "${RED}Error: .env file not found in $INSTALL_DIR${NC}"
+    echo "Please ensure you have a .env file with database credentials."
+    exit 1
+fi
+
+# Export env vars for docker compose
+set -a
+source .env
+set +a
+
 echo -e "${GREEN}"
 echo "  ____  _     _       __   __            _ "
 echo " / ___|| |__ (_)_ __ \ \ / /_ _ _ __ __| |"
