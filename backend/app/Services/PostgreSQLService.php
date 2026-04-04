@@ -308,6 +308,10 @@ class PostgreSQLService implements DatabaseDriverInterface
         $targetDb = $dbName ?? 'postgres';
         $options = $tupleOnly ? '-t -A' : '';
 
+        // Escape characters that bash interprets inside double quotes:
+        // " (quote delimiter), ` (command substitution), $ (variable expansion), \ (escape char)
+        $escapedSql = addcslashes($sql, '"`$\\');
+
         return sprintf(
             "PGPASSWORD='%s' psql -h %s -p %d -U %s -d %s %s -c \"%s\"",
             addcslashes($database->admin_password, "'"),
@@ -316,7 +320,7 @@ class PostgreSQLService implements DatabaseDriverInterface
             escapeshellarg($database->admin_user),
             escapeshellarg($targetDb),
             $options,
-            addcslashes($sql, '"')
+            $escapedSql
         );
     }
 

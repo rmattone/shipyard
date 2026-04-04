@@ -253,13 +253,17 @@ class MySQLService implements DatabaseDriverInterface
     {
         $password = addcslashes($database->admin_password, "'\\");
 
+        // Escape characters that bash interprets inside double quotes:
+        // " (quote delimiter), ` (command substitution), $ (variable expansion), \ (escape char)
+        $escapedSql = addcslashes($sql, '"`$\\');
+
         return sprintf(
             "mysql -h %s -P %d -u %s -p'%s' -N -e \"%s\" 2>/dev/null",
             escapeshellarg($database->host),
             $database->port,
             escapeshellarg($database->admin_user),
             $password,
-            addcslashes($sql, '"')
+            $escapedSql
         );
     }
 
