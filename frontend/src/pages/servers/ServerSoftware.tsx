@@ -26,18 +26,26 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/custom'
 import { serversApi, databasesApi, type Server, type ServerSoftware as ServerSoftwareType } from '@/services/api'
 
-type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php'
+type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node'
 
 const ENGINE_LABELS: Record<InstallableEngine, string> = {
   pm2: 'pm2',
   mysql: 'MySQL',
   postgresql: 'PostgreSQL',
   php: 'PHP',
+  node: 'Node.js',
 }
 
 const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
@@ -45,6 +53,7 @@ const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
   mysql: 'Popular relational database server',
   postgresql: 'Advanced open-source relational database',
   php: 'PHP with PHP-FPM and Composer for Laravel',
+  node: 'JavaScript runtime and package manager via NVM',
 }
 
 const ENGINE_COLORS: Record<InstallableEngine, string> = {
@@ -52,6 +61,7 @@ const ENGINE_COLORS: Record<InstallableEngine, string> = {
   mysql: 'bg-blue-500/10 text-blue-500',
   postgresql: 'bg-indigo-500/10 text-indigo-500',
   php: 'bg-purple-500/10 text-purple-500',
+  node: 'bg-amber-500/10 text-amber-500',
 }
 
 interface ComingSoonItem {
@@ -61,7 +71,6 @@ interface ComingSoonItem {
 
 const COMING_SOON: ComingSoonItem[] = [
   { name: 'nginx', description: 'High-performance web server and reverse proxy' },
-  { name: 'Node.js / npm', description: 'JavaScript runtime and package manager' },
 ]
 
 export default function ServerSoftware() {
@@ -82,6 +91,11 @@ export default function ServerSoftware() {
   const [installStatus, setInstallStatus] = useState<'pending' | 'running' | 'success' | 'failed' | null>(null)
   const eventSourceRef = useRef<EventSource | null>(null)
   const logEndRef = useRef<HTMLDivElement>(null)
+
+  // Node.js version states
+  const [nodeVersions, setNodeVersions] = useState<string[]>([])
+  const [selectedNodeVersion, setSelectedNodeVersion] = useState<string>('--lts')
+  const [loadingVersions, setLoadingVersions] = useState(false)
 
   useEffect(() => {
     loadServer()
@@ -128,8 +142,23 @@ export default function ServerSoftware() {
     }
   }
 
-  const openInstallDialog = (engine: InstallableEngine) => {
+  const openInstallDialog = async (engine: InstallableEngine) => {
     setInstallEngine(engine)
+    setSelectedNodeVersion('--lts')
+
+    if (engine === 'node') {
+      setLoadingVersions(true)
+      try {
+        const res = await serversApi.getRemoteNodeVersions(serverId)
+        setNodeVersions(res.data.versions)
+      } catch {
+        // Non-critical, we can still install LTS
+        setNodeVersions([])
+      } finally {
+        setLoadingVersions(false)
+      }
+    }
+
     setShowInstallDialog(true)
   }
 
@@ -141,7 +170,11 @@ export default function ServerSoftware() {
     setShowInstallLogDialog(true)
 
     try {
-      const response = await databasesApi.install(serverId, installEngine)
+      // For node engine, pass version if not LTS
+      const version = installEngine === 'node' && selectedNodeVersion !== '--lts'
+        ? selectedNodeVersion
+        : undefined
+      const response = await databasesApi.install(serverId, installEngine, version)
       const installationId = response.data.id
 
       // Connect to SSE stream
@@ -299,7 +332,7 @@ export default function ServerSoftware() {
                 <div className="flex items-center gap-3">
                   <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${ENGINE_COLORS[engine].split(' ')[0]}`}>
                     <span className={`text-sm font-bold ${ENGINE_COLORS[engine].split(' ')[1]}`}>
-                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : 'Pg'}
+                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : engine === 'node' ? 'Nd' : 'Pg'}
                     </span>
                   </div>
                   <div>
@@ -350,30 +383,62 @@ export default function ServerSoftware() {
             <AlertDialogTitle>
               Install {ENGINE_LABELS[installEngine]}
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {installEngine === 'pm2' ? (
-                <>
-                  This will install {ENGINE_LABELS[installEngine]} globally on {server.name} via npm.
-                  Node.js and npm must already be installed. This operation requires Ubuntu or Debian.
-                </>
-              ) : installEngine === 'php' ? (
-                <>
-                  This will install the latest PHP version with PHP-FPM and Composer on {server.name}.
-                  PHP extensions for MySQL, PostgreSQL, Redis, and common Laravel requirements will be included.
-                  This operation requires Ubuntu or Debian.
-                </>
-              ) : (
-                <>
-                  This will install {ENGINE_LABELS[installEngine]} on {server.name}.
-                  The installation will run in the background and a root/admin password will be
-                  auto-generated. This operation requires Ubuntu or Debian.
-                </>
-              )}
+            <AlertDialogDescription asChild>
+              <div className="space-y-4">
+                {installEngine === 'pm2' ? (
+                  <p>
+                    This will install {ENGINE_LABELS[installEngine]} globally on {server.name} via npm.
+                    Node.js and npm must already be installed. This operation requires Ubuntu or Debian.
+                  </p>
+                ) : installEngine === 'php' ? (
+                  <p>
+                    This will install the latest PHP version with PHP-FPM and Composer on {server.name}.
+                    PHP extensions for MySQL, PostgreSQL, Redis, and common Laravel requirements will be included.
+                    This operation requires Ubuntu or Debian.
+                  </p>
+                ) : installEngine === 'node' ? (
+                  <>
+                    <p>
+                      This will install Node.js and npm on {server.name} via NVM (Node Version Manager).
+                      This operation requires Ubuntu or Debian.
+                    </p>
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-foreground">Node.js Version</label>
+                      {loadingVersions ? (
+                        <div className="flex items-center gap-2 py-2">
+                          <LoadingSpinner size="sm" />
+                          <span className="text-sm text-muted-foreground">Loading versions...</span>
+                        </div>
+                      ) : (
+                        <Select value={selectedNodeVersion} onValueChange={setSelectedNodeVersion}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select version" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="--lts">Latest LTS (Recommended)</SelectItem>
+                            {nodeVersions.map((version) => (
+                              <SelectItem key={version} value={version}>
+                                v{version}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <p>
+                    This will install {ENGINE_LABELS[installEngine]} on {server.name}.
+                    The installation will run in the background and a root/admin password will be
+                    auto-generated. This operation requires Ubuntu or Debian.
+                  </p>
+                )}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmInstall}>
+            <AlertDialogAction onClick={confirmInstall} disabled={loadingVersions}>
               Install
             </AlertDialogAction>
           </AlertDialogFooter>

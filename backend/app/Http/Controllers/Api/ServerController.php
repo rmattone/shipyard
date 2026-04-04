@@ -110,6 +110,26 @@ class ServerController extends Controller
         ]);
     }
 
+    public function getRemoteNodeVersions(Server $server): JsonResponse
+    {
+        $versions = $this->nodeVersionService->getRemoteLtsVersions($server);
+
+        return response()->json([
+            'versions' => $versions,
+        ]);
+    }
+
+    public function setDefaultNodeVersion(Request $request, Server $server): JsonResponse
+    {
+        $validated = $request->validate([
+            'version' => 'required|string|max:50',
+        ]);
+
+        $result = $this->nodeVersionService->setDefaultVersion($server, $validated['version']);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
     public function checkSoftware(Server $server): JsonResponse
     {
         try {

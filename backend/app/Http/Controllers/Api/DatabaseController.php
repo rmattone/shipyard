@@ -39,7 +39,8 @@ class DatabaseController extends Controller
     public function install(Request $request, Server $server): JsonResponse
     {
         $validated = $request->validate([
-            'engine' => 'required|in:mysql,postgresql,pm2,php',
+            'engine' => 'required|in:mysql,postgresql,pm2,php,node',
+            'version' => 'nullable|string|max:50',
         ]);
 
         // Check for duplicate running installation
@@ -54,10 +55,17 @@ class DatabaseController extends Controller
             ], 409);
         }
 
-        $installation = $server->databaseInstallations()->create([
+        $installationData = [
             'engine' => $validated['engine'],
             'status' => 'pending',
-        ]);
+        ];
+
+        // Add version_requested for node engine
+        if ($validated['engine'] === 'node' && !empty($validated['version'])) {
+            $installationData['version_requested'] = $validated['version'];
+        }
+
+        $installation = $server->databaseInstallations()->create($installationData);
 
         ProcessDatabaseInstallation::dispatch($installation);
 
