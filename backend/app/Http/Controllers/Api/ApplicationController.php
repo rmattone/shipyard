@@ -86,9 +86,11 @@ class ApplicationController extends Controller
             $query->latest()->limit(10);
         }]);
 
-        // Include deploy_script in the response
+        // Include deploy_script and webhook info in the response
         $response = $application->toArray();
         $response['deploy_script'] = $application->deploy_script;
+        $response['webhook_url'] = $application->getWebhookUrl();
+        $response['webhook_secret'] = $application->webhook_secret;
 
         return response()->json($response);
     }

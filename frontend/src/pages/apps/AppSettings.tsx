@@ -26,11 +26,11 @@ import {
 } from '@/components/ui/alert-dialog'
 import { LoadingSpinner } from '@/components/custom'
 import { TagMultiSelect } from '@/components/custom/TagMultiSelect'
-import { EyeIcon, EyeSlashIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { EyeIcon, EyeSlashIcon, ExclamationTriangleIcon, ClipboardDocumentIcon, CheckIcon } from '@heroicons/react/24/outline'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 
-type SettingsSection = 'general' | 'deployments' | 'environment' | 'danger'
+type SettingsSection = 'general' | 'deployments' | 'environment' | 'webhook' | 'danger'
 
 export default function AppSettings() {
   const { id } = useParams<{ id: string }>()
@@ -68,6 +68,11 @@ export default function AppSettings() {
   const [serverTags, setServerTags] = useState<Tag[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [savingTags, setSavingTags] = useState(false)
+
+  // Webhook state
+  const [webhookSecretRevealed, setWebhookSecretRevealed] = useState(false)
+  const [copiedUrl, setCopiedUrl] = useState(false)
+  const [copiedSecret, setCopiedSecret] = useState(false)
 
   const appId = parseInt(id || '0')
 
@@ -219,6 +224,22 @@ export default function AppSettings() {
     }
   }
 
+  const copyToClipboard = async (text: string, type: 'url' | 'secret') => {
+    try {
+      await navigator.clipboard.writeText(text)
+      if (type === 'url') {
+        setCopiedUrl(true)
+        setTimeout(() => setCopiedUrl(false), 2000)
+      } else {
+        setCopiedSecret(true)
+        setTimeout(() => setCopiedSecret(false), 2000)
+      }
+      toast.success('Copied to clipboard')
+    } catch {
+      toast.error('Failed to copy')
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-12">
@@ -233,6 +254,7 @@ export default function AppSettings() {
     { id: 'general' as const, label: 'General' },
     { id: 'deployments' as const, label: 'Deployments' },
     { id: 'environment' as const, label: 'Environment' },
+    { id: 'webhook' as const, label: 'Webhook' },
     { id: 'danger' as const, label: 'Danger Zone' },
   ]
 
@@ -546,6 +568,98 @@ export default function AppSettings() {
                 <p className="text-sm text-yellow-800 dark:text-yellow-200">
                   <strong>Security Notice:</strong> Environment variables are encrypted at rest and only decrypted during deployment.
                 </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {activeSection === 'webhook' && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Webhook</CardTitle>
+              <CardDescription>
+                Configure your Git provider to trigger automatic deployments when code is pushed.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Webhook URL */}
+              <div className="space-y-2">
+                <Label>Webhook URL</Label>
+                <p className="text-sm text-muted-foreground">
+                  Add this URL to your Git provider's webhook settings.
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={app.webhook_url || ''}
+                    readOnly
+                    className="font-mono text-sm"
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => app.webhook_url && copyToClipboard(app.webhook_url, 'url')}
+                    disabled={!app.webhook_url}
+                  >
+                    {copiedUrl ? (
+                      <CheckIcon className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <ClipboardDocumentIcon className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Webhook Secret */}
+              <div className="space-y-2">
+                <Label>Webhook Secret</Label>
+                <p className="text-sm text-muted-foreground">
+                  Use this secret token to validate webhook requests from your Git provider.
+                </p>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      value={webhookSecretRevealed ? (app.webhook_secret || '') : '••••••••••••••••••••••••••••••••••••••••'}
+                      readOnly
+                      className="font-mono text-sm pr-10"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full"
+                      onClick={() => setWebhookSecretRevealed(!webhookSecretRevealed)}
+                    >
+                      {webhookSecretRevealed ? (
+                        <EyeSlashIcon className="h-4 w-4" />
+                      ) : (
+                        <EyeIcon className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={() => app.webhook_secret && copyToClipboard(app.webhook_secret, 'secret')}
+                    disabled={!app.webhook_secret}
+                  >
+                    {copiedSecret ? (
+                      <CheckIcon className="h-4 w-4 text-green-500" />
+                    ) : (
+                      <ClipboardDocumentIcon className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+
+              {/* Instructions */}
+              <div className="p-4 rounded-lg border bg-muted/50">
+                <p className="text-sm font-medium mb-2">Setup Instructions</p>
+                <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                  <li>Go to your repository's webhook settings in your Git provider</li>
+                  <li>Add the webhook URL above as the payload URL</li>
+                  <li>Set the content type to <code className="bg-muted px-1 py-0.5 rounded text-xs">application/json</code></li>
+                  <li>Add the secret token for signature verification</li>
+                  <li>Select "Push events" or similar trigger</li>
+                </ol>
               </div>
             </CardContent>
           </Card>
