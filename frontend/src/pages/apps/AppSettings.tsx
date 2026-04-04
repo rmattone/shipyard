@@ -26,7 +26,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { LoadingSpinner } from '@/components/custom'
 import { TagMultiSelect } from '@/components/custom/TagMultiSelect'
-import { EyeIcon, EyeSlashIcon } from '@heroicons/react/24/outline'
+import { EyeIcon, EyeSlashIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
+import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 
 type SettingsSection = 'general' | 'deployments' | 'environment' | 'danger'
@@ -42,6 +43,7 @@ export default function AppSettings() {
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteFiles, setDeleteFiles] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('general')
 
   // Form states
@@ -204,8 +206,8 @@ export default function AppSettings() {
     if (!app) return
     setDeleting(true)
     try {
-      await applicationsApi.delete(app.id)
-      toast.success('Application deleted')
+      await applicationsApi.delete(app.id, { deleteFiles })
+      toast.success(deleteFiles ? 'Application and server files deleted' : 'Application deleted')
       navigate(`/servers/${app.server_id}`)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
@@ -213,6 +215,7 @@ export default function AppSettings() {
     } finally {
       setDeleting(false)
       setShowDeleteDialog(false)
+      setDeleteFiles(false)
     }
   }
 
@@ -574,15 +577,49 @@ export default function AppSettings() {
       </div>
 
       {/* Delete Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <AlertDialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open)
+        if (!open) setDeleteFiles(false)
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Application</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete "{app.name}"? This will remove all deployments,
-              environment variables, and configuration. This action cannot be undone.
+              environment variables, and configuration from Shipyard. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          <div className="py-4">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="delete-files"
+                checked={deleteFiles}
+                onCheckedChange={(checked) => setDeleteFiles(checked === true)}
+              />
+              <div className="grid gap-1.5 leading-none">
+                <label
+                  htmlFor="delete-files"
+                  className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
+                >
+                  Also delete files from server
+                </label>
+                <p className="text-sm text-muted-foreground">
+                  Remove <code className="bg-muted px-1 py-0.5 rounded text-xs">{app.deploy_path}</code> from the server
+                </p>
+              </div>
+            </div>
+
+            {deleteFiles && (
+              <div className="mt-4 p-3 rounded-lg border border-yellow-200 bg-yellow-50 dark:bg-yellow-950/20 dark:border-yellow-900 flex items-start gap-2">
+                <ExclamationTriangleIcon className="h-5 w-5 text-yellow-600 dark:text-yellow-500 flex-shrink-0 mt-0.5" />
+                <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                  This will permanently delete all files in the deployment directory. Make sure you have backups if needed.
+                </p>
+              </div>
+            )}
+          </div>
+
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
