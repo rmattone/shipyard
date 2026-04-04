@@ -31,6 +31,8 @@ class DatabaseInstallationService
                 $this->installNode($installation);
             } elseif ($installation->engine === 'nginx') {
                 $this->installNginx($installation);
+            } elseif ($installation->engine === 'certbot') {
+                $this->installCertbot($installation);
             } else {
                 $password = Str::random(32);
 
@@ -355,6 +357,25 @@ class DatabaseInstallationService
         }
 
         $installation->appendLog("nginx is running and configured.");
+    }
+
+    private function installCertbot(DatabaseInstallation $installation): void
+    {
+        $installation->appendLog("Updating package lists...");
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -y', 120);
+
+        $installation->appendLog("Installing certbot and nginx plugin...");
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y certbot python3-certbot-nginx', 300);
+
+        $installation->appendLog("Verifying certbot installation...");
+        $versionResult = $this->sshService->execute('certbot --version 2>/dev/null', 15);
+        if (!$versionResult['success'] || empty(trim($versionResult['output']))) {
+            throw new RuntimeException('Certbot installation verification failed.');
+        }
+
+        $version = trim($versionResult['output']);
+        $installation->update(['version_installed' => $version]);
+        $installation->appendLog("Certbot installed successfully: {$version}");
     }
 
     private function nvmPrefix(): string

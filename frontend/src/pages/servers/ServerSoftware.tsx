@@ -38,7 +38,7 @@ import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/custom'
 import { serversApi, databasesApi, type Server, type ServerSoftware as ServerSoftwareType } from '@/services/api'
 
-type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx'
+type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx' | 'certbot'
 
 const ENGINE_LABELS: Record<InstallableEngine, string> = {
   pm2: 'pm2',
@@ -47,6 +47,7 @@ const ENGINE_LABELS: Record<InstallableEngine, string> = {
   php: 'PHP',
   node: 'Node.js',
   nginx: 'nginx',
+  certbot: 'Certbot',
 }
 
 const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
@@ -56,6 +57,7 @@ const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
   php: 'PHP with PHP-FPM and Composer for Laravel',
   node: 'JavaScript runtime and package manager via NVM',
   nginx: 'High-performance web server and reverse proxy',
+  certbot: "Let's Encrypt SSL certificate tool with nginx plugin",
 }
 
 const ENGINE_COLORS: Record<InstallableEngine, string> = {
@@ -65,6 +67,7 @@ const ENGINE_COLORS: Record<InstallableEngine, string> = {
   php: 'bg-purple-500/10 text-purple-500',
   node: 'bg-amber-500/10 text-amber-500',
   nginx: 'bg-emerald-500/10 text-emerald-500',
+  certbot: 'bg-orange-500/10 text-orange-500',
 }
 
 interface ComingSoonItem {
@@ -333,7 +336,7 @@ export default function ServerSoftware() {
                 <div className="flex items-center gap-3">
                   <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${ENGINE_COLORS[engine].split(' ')[0]}`}>
                     <span className={`text-sm font-bold ${ENGINE_COLORS[engine].split(' ')[1]}`}>
-                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : engine === 'node' ? 'Nd' : engine === 'nginx' ? 'Nx' : 'Pg'}
+                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : engine === 'node' ? 'Nd' : engine === 'nginx' ? 'Nx' : engine === 'certbot' ? 'Cb' : 'Pg'}
                     </span>
                   </div>
                   <div>
@@ -431,6 +434,12 @@ export default function ServerSoftware() {
                   <p>
                     This will install nginx on {server.name}.
                     Nginx will be configured as a systemd service and started automatically.
+                    This operation requires Ubuntu or Debian.
+                  </p>
+                ) : installEngine === 'certbot' ? (
+                  <p>
+                    This will install Certbot with the nginx plugin on {server.name}.
+                    Certbot is used to obtain and manage SSL certificates from Let's Encrypt.
                     This operation requires Ubuntu or Debian.
                   </p>
                 ) : (

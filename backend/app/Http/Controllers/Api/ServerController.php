@@ -236,6 +236,18 @@ class ServerController extends Controller
                 $software['composer'] = ['installed' => false, 'version' => null];
             }
 
+            // Check Certbot
+            $certbot = $this->sshService->execute('which certbot 2>/dev/null || command -v certbot 2>/dev/null');
+            if ($certbot['success'] && !empty(trim($certbot['output']))) {
+                $version = $this->sshService->execute('certbot --version 2>/dev/null');
+                $software['certbot'] = [
+                    'installed' => true,
+                    'version' => trim($version['output'] ?? ''),
+                ];
+            } else {
+                $software['certbot'] = ['installed' => false, 'version' => null];
+            }
+
             $this->sshService->disconnect();
 
             return response()->json($software);
