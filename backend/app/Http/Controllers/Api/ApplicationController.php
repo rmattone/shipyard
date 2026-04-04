@@ -133,17 +133,57 @@ class ApplicationController extends Controller
         return response()->json($application);
     }
 
-    public function destroy(Application $application): JsonResponse
+    public function destroy(Request $request, Application $application): JsonResponse
     {
+        $deleteFiles = $request->boolean('delete_files', false);
+
+        // Remove nginx config
         try {
             $this->nginxService->remove($application);
         } catch (\Exception $e) {
             // Log but continue with deletion
         }
 
+        // Delete files from server if requested
+        if ($deleteFiles) {
+            try {
+                $this->deleteServerFiles($application);
+            } catch (\Exception $e) {
+                // Log but continue with deletion
+            }
+        }
+
         $application->delete();
 
         return response()->json(null, 204);
+    }
+
+    /**
+     * Delete application files from the server.
+     */
+    private function deleteServerFiles(Application $application): void
+    {
+        $sshService = app(\App\Services\SSHService::class);
+        $sshService->connect($application->server);
+
+        $deployPath = $application->deploy_path;
+
+        // Stop PM2 process for Node.js apps
+        if ($application->type === 'nodejs') {
+            $appName = $application->name;
+            $sshService->execute("pm2 delete {$appName} 2>/dev/null || true");
+            $sshService->execute("pm2 save 2>/dev/null || true");
+        }
+
+        // Remove the deployment directory
+        if (!empty($deployPath) && $deployPath !== '/' && $deployPath !== '/var/www') {
+            // Safety check: ensure it's under a reasonable path
+            if (str_starts_with($deployPath, '/var/www/') || str_starts_with($deployPath, '/home/')) {
+                $sshService->execute("rm -rf {$deployPath}");
+            }
+        }
+
+        $sshService->disconnect();
     }
 
     public function deploy(Request $request, Application $application): JsonResponse

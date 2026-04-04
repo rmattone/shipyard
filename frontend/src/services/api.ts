@@ -464,7 +464,8 @@ export const applicationsApi = {
     ),
   update: (id: number, data: Partial<Application>) =>
     api.put<Application>('/applications/' + id, data),
-  delete: (id: number) => api.delete('/applications/' + id),
+  delete: (id: number, options?: { deleteFiles?: boolean }) =>
+    api.delete('/applications/' + id, { params: { delete_files: options?.deleteFiles ? 1 : 0 } }),
   deploy: (id: number, commitHash?: string) =>
     api.post<{ message: string; deployment_id: number }>('/applications/' + id + '/deploy', { commit_hash: commitHash }),
   setupSsl: (id: number, email: string) =>
