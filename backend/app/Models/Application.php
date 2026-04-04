@@ -375,7 +375,7 @@ SCRIPT;
 
     public function getWebhookUrl(): string
     {
-        return url("/api/webhook/{$this->id}");
+        return secure_url("/api/webhook/{$this->id}");
     }
 
     public function getDeployScriptWithVariables(?string $releasePath = null): string
