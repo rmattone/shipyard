@@ -74,13 +74,6 @@ class DatabaseInstallationService
         $installation->appendLog("Updating package lists...");
         $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -y', 120);
 
-        $installation->appendLog("Pre-seeding MySQL root password...");
-        $debconfCommands = implode(' && ', [
-            "echo 'mysql-server mysql-server/root_password password {$password}' | sudo debconf-set-selections",
-            "echo 'mysql-server mysql-server/root_password_again password {$password}' | sudo debconf-set-selections",
-        ]);
-        $this->runCommand($installation, $debconfCommands, 30);
-
         $installation->appendLog("Installing MySQL server...");
         $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server', 600);
 
@@ -89,7 +82,9 @@ class DatabaseInstallationService
 
         $installation->appendLog("Configuring MySQL root user authentication...");
         $escapedPassword = str_replace("'", "'\\''", $password);
-        $alterCmd = "sudo mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{$escapedPassword}'; FLUSH PRIVILEGES;\"";
+        // MySQL 8.0 on Ubuntu/Debian: use debian-sys-maint credentials to connect,
+        // which are auto-generated during installation and stored in /etc/mysql/debian.cnf
+        $alterCmd = "sudo mysql --defaults-file=/etc/mysql/debian.cnf --execute=\"ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{$escapedPassword}'; FLUSH PRIVILEGES;\"";
         $this->runCommand($installation, $alterCmd, 30);
 
         $installation->appendLog("Verifying MySQL service is active...");
