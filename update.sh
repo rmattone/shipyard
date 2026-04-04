@@ -89,12 +89,13 @@ docker compose exec -T app php artisan migrate --force
 echo -e "${YELLOW}[6/7]${NC} Building frontend..."
 docker compose exec -T app bash -c "cd /var/www/frontend && npm install && npm run build"
 
-# Step 7: Clear caches and disable maintenance mode
+# Step 7: Clear caches, restart queue, and disable maintenance mode
 echo -e "${YELLOW}[7/7]${NC} Finalizing update..."
 docker compose exec -T app php artisan config:clear
 docker compose exec -T app php artisan cache:clear
 docker compose exec -T app php artisan view:clear
 docker compose exec -T app php artisan route:clear
+docker compose exec -T app php artisan queue:restart
 docker compose exec -T app php artisan up
 
 echo ""
