@@ -29,6 +29,8 @@ class DatabaseInstallationService
                 $this->installPhp($installation);
             } elseif ($installation->engine === 'node') {
                 $this->installNode($installation);
+            } elseif ($installation->engine === 'nginx') {
+                $this->installNginx($installation);
             } else {
                 $password = Str::random(32);
 
@@ -327,6 +329,32 @@ class DatabaseInstallationService
         $npmVersion = trim($npmVersionResult['output']);
         $installation->update(['version_installed' => "Node.js {$nodeVersion} / npm v{$npmVersion}"]);
         $installation->appendLog("Node.js {$nodeVersion} and npm v{$npmVersion} installed successfully.");
+    }
+
+    private function installNginx(DatabaseInstallation $installation): void
+    {
+        $installation->appendLog("Updating package lists...");
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -y', 120);
+
+        $installation->appendLog("Installing nginx...");
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx', 300);
+
+        $installation->appendLog("Enabling and starting nginx service...");
+        $this->runCommand($installation, 'sudo systemctl enable nginx && sudo systemctl start nginx', 60);
+
+        $installation->appendLog("Verifying nginx service is active...");
+        $result = $this->sshService->execute('sudo systemctl is-active nginx', 15);
+        if (!$result['success'] || trim($result['output']) !== 'active') {
+            throw new RuntimeException('nginx service is not running after installation.');
+        }
+
+        // Detect installed version (nginx outputs to stderr)
+        $versionResult = $this->sshService->execute('nginx -v 2>&1', 15);
+        if ($versionResult['success']) {
+            $installation->update(['version_installed' => trim($versionResult['output'])]);
+        }
+
+        $installation->appendLog("nginx is running and configured.");
     }
 
     private function nvmPrefix(): string

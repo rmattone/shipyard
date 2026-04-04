@@ -38,7 +38,7 @@ import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/custom'
 import { serversApi, databasesApi, type Server, type ServerSoftware as ServerSoftwareType } from '@/services/api'
 
-type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node'
+type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx'
 
 const ENGINE_LABELS: Record<InstallableEngine, string> = {
   pm2: 'pm2',
@@ -46,6 +46,7 @@ const ENGINE_LABELS: Record<InstallableEngine, string> = {
   postgresql: 'PostgreSQL',
   php: 'PHP',
   node: 'Node.js',
+  nginx: 'nginx',
 }
 
 const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
@@ -54,6 +55,7 @@ const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
   postgresql: 'Advanced open-source relational database',
   php: 'PHP with PHP-FPM and Composer for Laravel',
   node: 'JavaScript runtime and package manager via NVM',
+  nginx: 'High-performance web server and reverse proxy',
 }
 
 const ENGINE_COLORS: Record<InstallableEngine, string> = {
@@ -62,6 +64,7 @@ const ENGINE_COLORS: Record<InstallableEngine, string> = {
   postgresql: 'bg-indigo-500/10 text-indigo-500',
   php: 'bg-purple-500/10 text-purple-500',
   node: 'bg-amber-500/10 text-amber-500',
+  nginx: 'bg-emerald-500/10 text-emerald-500',
 }
 
 interface ComingSoonItem {
@@ -69,9 +72,7 @@ interface ComingSoonItem {
   description: string
 }
 
-const COMING_SOON: ComingSoonItem[] = [
-  { name: 'nginx', description: 'High-performance web server and reverse proxy' },
-]
+const COMING_SOON: ComingSoonItem[] = []
 
 export default function ServerSoftware() {
   const { id } = useParams<{ id: string }>()
@@ -332,7 +333,7 @@ export default function ServerSoftware() {
                 <div className="flex items-center gap-3">
                   <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${ENGINE_COLORS[engine].split(' ')[0]}`}>
                     <span className={`text-sm font-bold ${ENGINE_COLORS[engine].split(' ')[1]}`}>
-                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : engine === 'node' ? 'Nd' : 'Pg'}
+                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : engine === 'node' ? 'Nd' : engine === 'nginx' ? 'Nx' : 'Pg'}
                     </span>
                   </div>
                   <div>
@@ -426,6 +427,12 @@ export default function ServerSoftware() {
                       )}
                     </div>
                   </>
+                ) : installEngine === 'nginx' ? (
+                  <p>
+                    This will install nginx on {server.name}.
+                    Nginx will be configured as a systemd service and started automatically.
+                    This operation requires Ubuntu or Debian.
+                  </p>
                 ) : (
                   <p>
                     This will install {ENGINE_LABELS[installEngine]} on {server.name}.

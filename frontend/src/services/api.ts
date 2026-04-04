@@ -198,7 +198,7 @@ export interface Database {
 export interface DatabaseInstallation {
   id: number
   server_id: number
-  engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node'
+  engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx'
   version_requested: string | null
   status: 'pending' | 'running' | 'success' | 'failed'
   log: string | null
@@ -376,7 +376,7 @@ export const databasesApi = {
       { data: { name } }
     ),
   // Database installation
-  install: (serverId: number, engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node', version?: string) =>
+  install: (serverId: number, engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx', version?: string) =>
     api.post<DatabaseInstallation>('/servers/' + serverId + '/databases/install', { engine, version }),
   installations: (serverId: number) =>
     api.get<DatabaseInstallation[]>('/servers/' + serverId + '/database-installations'),
