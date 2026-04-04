@@ -31,24 +31,27 @@ import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/custom'
 import { serversApi, databasesApi, type Server, type ServerSoftware as ServerSoftwareType } from '@/services/api'
 
-type InstallableEngine = 'mysql' | 'postgresql' | 'pm2'
+type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php'
 
 const ENGINE_LABELS: Record<InstallableEngine, string> = {
   pm2: 'pm2',
   mysql: 'MySQL',
   postgresql: 'PostgreSQL',
+  php: 'PHP',
 }
 
 const ENGINE_DESCRIPTIONS: Record<InstallableEngine, string> = {
   pm2: 'Node.js process manager with built-in load balancer',
   mysql: 'Popular relational database server',
   postgresql: 'Advanced open-source relational database',
+  php: 'PHP with PHP-FPM and Composer for Laravel',
 }
 
 const ENGINE_COLORS: Record<InstallableEngine, string> = {
   pm2: 'bg-green-500/10 text-green-500',
   mysql: 'bg-blue-500/10 text-blue-500',
   postgresql: 'bg-indigo-500/10 text-indigo-500',
+  php: 'bg-purple-500/10 text-purple-500',
 }
 
 interface ComingSoonItem {
@@ -58,7 +61,6 @@ interface ComingSoonItem {
 
 const COMING_SOON: ComingSoonItem[] = [
   { name: 'nginx', description: 'High-performance web server and reverse proxy' },
-  { name: 'PHP', description: 'Server-side scripting language' },
   { name: 'Node.js / npm', description: 'JavaScript runtime and package manager' },
 ]
 
@@ -297,7 +299,7 @@ export default function ServerSoftware() {
                 <div className="flex items-center gap-3">
                   <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${ENGINE_COLORS[engine].split(' ')[0]}`}>
                     <span className={`text-sm font-bold ${ENGINE_COLORS[engine].split(' ')[1]}`}>
-                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : 'Pg'}
+                      {engine === 'pm2' ? 'PM' : engine === 'mysql' ? 'My' : engine === 'php' ? 'PHP' : 'Pg'}
                     </span>
                   </div>
                   <div>
@@ -353,6 +355,12 @@ export default function ServerSoftware() {
                 <>
                   This will install {ENGINE_LABELS[installEngine]} globally on {server.name} via npm.
                   Node.js and npm must already be installed. This operation requires Ubuntu or Debian.
+                </>
+              ) : installEngine === 'php' ? (
+                <>
+                  This will install the latest PHP version with PHP-FPM and Composer on {server.name}.
+                  PHP extensions for MySQL, PostgreSQL, Redis, and common Laravel requirements will be included.
+                  This operation requires Ubuntu or Debian.
                 </>
               ) : (
                 <>

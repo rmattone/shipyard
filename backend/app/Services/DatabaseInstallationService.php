@@ -25,6 +25,8 @@ class DatabaseInstallationService
 
             if ($installation->engine === 'pm2') {
                 $this->installPm2($installation);
+            } elseif ($installation->engine === 'php') {
+                $this->installPhp($installation);
             } else {
                 $password = Str::random(32);
 
@@ -208,6 +210,64 @@ class DatabaseInstallationService
         $version = trim($versionResult['output']);
         $installation->update(['version_installed' => "pm2 v{$version}"]);
         $installation->appendLog("pm2 v{$version} installed and configured.");
+    }
+
+    private function installPhp(DatabaseInstallation $installation): void
+    {
+        // 1. Add Ondrej's PPA (latest PHP versions)
+        $installation->appendLog("Adding PHP repository...");
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common', 120);
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:ondrej/php', 60);
+
+        // 2. Update and install PHP packages
+        $installation->appendLog("Updating package lists...");
+        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -y', 120);
+
+        $installation->appendLog("Installing PHP and extensions...");
+        $packages = 'php php-fpm php-cli php-mysql php-pgsql php-mbstring php-xml php-curl php-zip php-bcmath php-gd php-intl php-redis';
+        $this->runCommand($installation, "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {$packages}", 600);
+
+        // 3. Detect installed PHP version and enable FPM service
+        $installation->appendLog("Detecting PHP version...");
+        $versionResult = $this->sshService->execute('php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;"', 15);
+        $phpVersion = trim($versionResult['output']);
+        if (empty($phpVersion)) {
+            $phpVersion = '8.3'; // Fallback
+        }
+
+        $installation->appendLog("Enabling and starting php{$phpVersion}-fpm service...");
+        $this->runCommand($installation, "sudo systemctl enable php{$phpVersion}-fpm && sudo systemctl start php{$phpVersion}-fpm", 60);
+
+        // 4. Install Composer
+        $installation->appendLog("Installing Composer...");
+        $this->runCommand($installation, 'curl -sS https://getcomposer.org/installer -o /tmp/composer-setup.php', 60);
+        $this->runCommand($installation, 'sudo php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer', 60);
+        $this->runCommand($installation, 'rm /tmp/composer-setup.php', 15);
+
+        // 5. Verify installations
+        $installation->appendLog("Verifying PHP installation...");
+        $phpVersionResult = $this->sshService->execute('php --version 2>/dev/null | head -1', 15);
+        if (!$phpVersionResult['success'] || empty(trim($phpVersionResult['output']))) {
+            throw new RuntimeException('PHP installation verification failed.');
+        }
+
+        $installation->appendLog("Verifying Composer installation...");
+        $composerVersionResult = $this->sshService->execute('composer --version 2>/dev/null | head -1', 15);
+        if (!$composerVersionResult['success'] || empty(trim($composerVersionResult['output']))) {
+            throw new RuntimeException('Composer installation verification failed.');
+        }
+
+        $installation->appendLog("Verifying php{$phpVersion}-fpm service is active...");
+        $fpmResult = $this->sshService->execute("sudo systemctl is-active php{$phpVersion}-fpm", 15);
+        if (!$fpmResult['success'] || trim($fpmResult['output']) !== 'active') {
+            throw new RuntimeException("PHP-FPM service is not running after installation.");
+        }
+
+        // Store version info
+        $phpVersionShort = trim($phpVersionResult['output']);
+        $composerVersion = trim($composerVersionResult['output']);
+        $installation->update(['version_installed' => "{$phpVersionShort} + {$composerVersion}"]);
+        $installation->appendLog("PHP and Composer installed successfully.");
     }
 
     private function nvmPrefix(): string

@@ -192,6 +192,30 @@ class ServerController extends Controller
                 $software['nginx'] = ['installed' => false, 'version' => null];
             }
 
+            // Check PHP
+            $php = $this->sshService->execute('which php 2>/dev/null || command -v php 2>/dev/null');
+            if ($php['success'] && !empty(trim($php['output']))) {
+                $version = $this->sshService->execute('php --version 2>/dev/null | head -1');
+                $software['php'] = [
+                    'installed' => true,
+                    'version' => trim($version['output'] ?? ''),
+                ];
+            } else {
+                $software['php'] = ['installed' => false, 'version' => null];
+            }
+
+            // Check Composer
+            $composer = $this->sshService->execute('which composer 2>/dev/null || command -v composer 2>/dev/null');
+            if ($composer['success'] && !empty(trim($composer['output']))) {
+                $version = $this->sshService->execute('composer --version 2>/dev/null | head -1');
+                $software['composer'] = [
+                    'installed' => true,
+                    'version' => trim($version['output'] ?? ''),
+                ];
+            } else {
+                $software['composer'] = ['installed' => false, 'version' => null];
+            }
+
             $this->sshService->disconnect();
 
             return response()->json($software);
