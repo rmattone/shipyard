@@ -68,6 +68,7 @@ export interface Application {
   post_deploy_commands: string[] | null
   ssl_enabled: boolean
   status: 'active' | 'deploying' | 'failed'
+  webhook_url?: string
   webhook_secret?: string
   deployments_count?: number
   server?: Server
@@ -198,7 +199,7 @@ export interface Database {
 export interface DatabaseInstallation {
   id: number
   server_id: number
-  engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx'
+  engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx' | 'certbot'
   version_requested: string | null
   status: 'pending' | 'running' | 'success' | 'failed'
   log: string | null
@@ -376,7 +377,7 @@ export const databasesApi = {
       { data: { name } }
     ),
   // Database installation
-  install: (serverId: number, engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx', version?: string) =>
+  install: (serverId: number, engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx' | 'certbot', version?: string) =>
     api.post<DatabaseInstallation>('/servers/' + serverId + '/databases/install', { engine, version }),
   installations: (serverId: number) =>
     api.get<DatabaseInstallation[]>('/servers/' + serverId + '/database-installations'),

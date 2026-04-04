@@ -39,7 +39,7 @@ class DatabaseController extends Controller
     public function install(Request $request, Server $server): JsonResponse
     {
         $validated = $request->validate([
-            'engine' => 'required|in:mysql,postgresql,pm2,php,node,nginx',
+            'engine' => 'required|in:mysql,postgresql,pm2,php,node,nginx,certbot',
             'version' => 'nullable|string|max:50',
         ]);
 
