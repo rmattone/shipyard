@@ -198,7 +198,8 @@ export interface Database {
 export interface DatabaseInstallation {
   id: number
   server_id: number
-  engine: 'mysql' | 'postgresql' | 'pm2' | 'php'
+  engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node'
+  version_requested: string | null
   status: 'pending' | 'running' | 'success' | 'failed'
   log: string | null
   version_installed: string | null
@@ -301,6 +302,10 @@ export const serversApi = {
     ),
   getNodeVersions: (id: number) =>
     api.get<{ versions: string[] }>('/servers/' + id + '/node-versions'),
+  getRemoteNodeVersions: (id: number) =>
+    api.get<{ versions: string[] }>('/servers/' + id + '/node-versions/remote'),
+  setDefaultNodeVersion: (id: number, version: string) =>
+    api.post<{ success: boolean; message: string }>('/servers/' + id + '/node-versions/default', { version }),
   getMetrics: (id: number) =>
     api.get<ServerMetrics>('/servers/' + id + '/metrics'),
   checkSoftware: (id: number) =>
@@ -371,8 +376,8 @@ export const databasesApi = {
       { data: { name } }
     ),
   // Database installation
-  install: (serverId: number, engine: 'mysql' | 'postgresql' | 'pm2' | 'php') =>
-    api.post<DatabaseInstallation>('/servers/' + serverId + '/databases/install', { engine }),
+  install: (serverId: number, engine: 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node', version?: string) =>
+    api.post<DatabaseInstallation>('/servers/' + serverId + '/databases/install', { engine, version }),
   installations: (serverId: number) =>
     api.get<DatabaseInstallation[]>('/servers/' + serverId + '/database-installations'),
   installationStatus: (installationId: number) =>

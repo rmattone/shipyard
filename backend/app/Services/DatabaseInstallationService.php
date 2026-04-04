@@ -27,6 +27,8 @@ class DatabaseInstallationService
                 $this->installPm2($installation);
             } elseif ($installation->engine === 'php') {
                 $this->installPhp($installation);
+            } elseif ($installation->engine === 'node') {
+                $this->installNode($installation);
             } else {
                 $password = Str::random(32);
 
@@ -268,6 +270,63 @@ class DatabaseInstallationService
         $composerVersion = trim($composerVersionResult['output']);
         $installation->update(['version_installed' => "{$phpVersionShort} + {$composerVersion}"]);
         $installation->appendLog("PHP and Composer installed successfully.");
+    }
+
+    private function installNode(DatabaseInstallation $installation): void
+    {
+        $nvmPrefix = $this->nvmPrefix();
+
+        // Check if nvm is already installed
+        $installation->appendLog("Checking if nvm is installed...");
+        $nvmCheck = $this->sshService->execute($nvmPrefix . 'command -v nvm 2>/dev/null', 15);
+
+        if (!$nvmCheck['success'] || empty(trim($nvmCheck['output']))) {
+            // Install nvm
+            $installation->appendLog("nvm not found. Installing nvm...");
+            $this->runCommand(
+                $installation,
+                'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash',
+                120
+            );
+            $installation->appendLog("nvm installed successfully.");
+        } else {
+            $installation->appendLog("nvm is already installed.");
+        }
+
+        // Determine which version to install
+        $versionToInstall = $installation->version_requested ?: '--lts';
+        $isLts = $versionToInstall === '--lts';
+
+        $installation->appendLog("Installing Node.js " . ($isLts ? "LTS" : "v{$versionToInstall}") . " via nvm...");
+        $this->runCommand($installation, $nvmPrefix . "nvm install {$versionToInstall}", 180);
+
+        // Set as default version
+        $installation->appendLog("Setting Node.js as default version...");
+        if ($isLts) {
+            // For LTS, we need to get the actual version installed and set it as default
+            $this->runCommand($installation, $nvmPrefix . 'nvm alias default node', 30);
+        } else {
+            $this->runCommand($installation, $nvmPrefix . "nvm alias default {$versionToInstall}", 30);
+        }
+
+        // Verify Node.js installation
+        $installation->appendLog("Verifying Node.js installation...");
+        $nodeVersionResult = $this->sshService->execute($nvmPrefix . 'node --version 2>/dev/null', 15);
+        if (!$nodeVersionResult['success'] || empty(trim($nodeVersionResult['output']))) {
+            throw new RuntimeException('Node.js installation verification failed.');
+        }
+
+        // Verify npm installation
+        $installation->appendLog("Verifying npm installation...");
+        $npmVersionResult = $this->sshService->execute($nvmPrefix . 'npm --version 2>/dev/null', 15);
+        if (!$npmVersionResult['success'] || empty(trim($npmVersionResult['output']))) {
+            throw new RuntimeException('npm installation verification failed.');
+        }
+
+        $nodeVersion = trim($nodeVersionResult['output']);
+        $npmVersion = trim($npmVersionResult['output']);
+        $installation->update(['version_installed' => "Node.js {$nodeVersion} / npm v{$npmVersion}"]);
+        $installation->appendLog("Node.js {$nodeVersion} and npm v{$npmVersion} installed successfully.");
     }
 
     private function nvmPrefix(): string

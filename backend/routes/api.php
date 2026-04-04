@@ -43,6 +43,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('servers', ServerController::class);
     Route::post('/servers/{server}/test-connection', [ServerController::class, 'testConnection']);
     Route::get('/servers/{server}/node-versions', [ServerController::class, 'getNodeVersions']);
+    Route::get('/servers/{server}/node-versions/remote', [ServerController::class, 'getRemoteNodeVersions']);
+    Route::post('/servers/{server}/node-versions/default', [ServerController::class, 'setDefaultNodeVersion']);
     Route::get('/servers/{server}/metrics', [ServerController::class, 'getMetrics']);
     Route::get('/servers/{server}/software', [ServerController::class, 'checkSoftware']);
 

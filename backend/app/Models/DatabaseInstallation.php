@@ -14,6 +14,7 @@ class DatabaseInstallation extends Model
     protected $fillable = [
         'server_id',
         'engine',
+        'version_requested',
         'status',
         'log',
         'version_installed',
