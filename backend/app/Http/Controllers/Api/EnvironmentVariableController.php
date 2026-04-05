@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\EnvironmentVariable;
+use App\Services\EnvSyncService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -158,6 +159,21 @@ class EnvironmentVariableController extends Controller
             ]);
         }
 
-        return response()->json(['message' => 'Environment variables updated']);
+        // Auto-sync to server if the app has been deployed
+        $syncResult = null;
+        if ($application->deployments()->exists()) {
+            $syncService = app(EnvSyncService::class);
+            $syncResult = $syncService->syncToServer($application);
+        } else {
+            $syncResult = [
+                'synced' => false,
+                'message' => 'App not deployed yet',
+            ];
+        }
+
+        return response()->json([
+            'message' => 'Environment variables updated',
+            'sync_result' => $syncResult,
+        ]);
     }
 }

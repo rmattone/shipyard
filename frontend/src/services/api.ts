@@ -506,7 +506,7 @@ export const envApi = {
   getContent: (appId: number) =>
     api.get<{ content: string }>('/applications/' + appId + '/env-file'),
   updateContent: (appId: number, content: string) =>
-    api.put<{ message: string }>('/applications/' + appId + '/env-file', { content }),
+    api.put<{ message: string; sync_result: { synced: boolean; message: string; error?: string } }>('/applications/' + appId + '/env-file', { content }),
 }
 
 // Deployments

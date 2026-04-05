@@ -179,9 +179,17 @@ export default function AppSettings() {
   const handleSaveEnv = async () => {
     setSavingEnv(true)
     try {
-      await envApi.updateContent(appId, envContent)
+      const response = await envApi.updateContent(appId, envContent)
       setOriginalEnvContent(envContent)
-      toast.success('Environment variables saved')
+
+      const syncResult = response.data.sync_result
+      if (syncResult.synced) {
+        toast.success(`Environment saved and ${syncResult.message.toLowerCase()}`)
+      } else if (syncResult.error) {
+        toast.warning(`Environment saved, but sync failed: ${syncResult.error}`)
+      } else {
+        toast.success(`Environment saved (${syncResult.message.toLowerCase()})`)
+      }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err.response?.data?.message || 'Failed to save environment variables')
