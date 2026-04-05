@@ -99,18 +99,18 @@ class EnvSyncService
     }
 
     /**
-     * Run php artisan optimize on Laravel applications.
+     * Refresh Laravel config cache after .env changes.
      */
     private function runLaravelOptimize(Application $application): string
     {
         $workingDir = $this->getArtisanWorkingDir($application);
 
-        $command = "cd {$workingDir} && php artisan optimize";
+        $command = "cd {$workingDir} && php artisan config:clear && php artisan config:cache";
         $result = $this->sshService->execute($command);
 
         if (!$result['success']) {
             // Log the failure but don't throw - env was already synced
-            \Log::warning("Laravel optimize failed for app {$application->id}: " . $result['output']);
+            \Log::warning("Laravel config cache failed for app {$application->id}: " . $result['output']);
         }
 
         return $result['output'];
