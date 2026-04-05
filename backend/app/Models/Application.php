@@ -475,11 +475,7 @@ SCRIPT;
     {
         if ($type === 'laravel') {
             return [
-                'storage/app',
-                'storage/logs',
-                'storage/framework/cache',
-                'storage/framework/sessions',
-                'storage/framework/views',
+                'storage',
                 '.env',
             ];
         }

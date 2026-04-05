@@ -20,7 +20,6 @@ class AtomicDeploymentService
     public function initializeStructure(Application $app, Deployment $deployment): void
     {
         $this->ensureConnected($app);
-        $basePath = $app->getBasePath();
         $releasesPath = $app->getReleasesPath();
 
         $deployment->appendLog("Initializing atomic deployment structure...");
@@ -28,24 +27,25 @@ class AtomicDeploymentService
         // Create base and releases directories
         $this->sshService->execute("mkdir -p {$releasesPath}");
 
-        // Create shared directory and structure only for Laravel apps
+        // Create shared directory and full storage structure for Laravel apps
         if ($app->isLaravel()) {
             $sharedPath = $app->getSharedPath();
             $this->sshService->execute("mkdir -p {$sharedPath}");
 
-            // Create shared directory structure for Laravel
-            $sharedPaths = $app->getEffectiveSharedPaths();
-            foreach ($sharedPaths as $path) {
-                // Skip .env file - it's handled separately
-                if ($path === '.env') {
-                    continue;
-                }
+            // Create full Laravel storage structure in shared directory
+            $storageDirs = [
+                'storage/app/public',
+                'storage/framework/cache',
+                'storage/framework/sessions',
+                'storage/framework/views',
+                'storage/logs',
+            ];
 
-                $fullSharedPath = "{$sharedPath}/{$path}";
-                $this->sshService->execute("mkdir -p {$fullSharedPath}");
+            foreach ($storageDirs as $dir) {
+                $this->sshService->execute("mkdir -p {$sharedPath}/{$dir}");
             }
 
-            $deployment->appendLog("Created shared directories for Laravel app.");
+            $deployment->appendLog("Created shared storage structure for Laravel app.");
         }
 
         $deployment->appendLog("Atomic deployment structure initialized.");
