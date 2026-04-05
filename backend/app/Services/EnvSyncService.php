@@ -31,7 +31,7 @@ class EnvSyncService
             $this->sshService->disconnect();
 
             $message = $application->isLaravel()
-                ? 'Synced to server and optimized'
+                ? 'Synced to server and config cached'
                 : 'Synced to server';
 
             return [
