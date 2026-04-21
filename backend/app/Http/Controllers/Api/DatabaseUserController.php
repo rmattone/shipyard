@@ -185,12 +185,12 @@ class DatabaseUserController extends Controller
 
             // Update local privileges record
             $currentPrivileges = $user->privileges ?? [];
-            $currentPrivileges[$validated['database']] = array_unique(
+            $currentPrivileges[$validated['database']] = array_values(array_unique(
                 array_merge(
                     $currentPrivileges[$validated['database']] ?? [],
                     $validated['privileges']
                 )
-            );
+            ));
             $user->update(['privileges' => $currentPrivileges]);
 
             return response()->json([
