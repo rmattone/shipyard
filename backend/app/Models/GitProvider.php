@@ -148,12 +148,12 @@ class GitProvider extends Model
     {
         // SSH format: git@gitlab.com:user/repo.git
         if (preg_match('/^git@[^:]+:(.+?)(?:\.git)?$/', $repoUrl, $matches)) {
-            return ['path' => rtrim($matches[1], '.git')];
+            return ['path' => preg_replace('/\.git$/', '', $matches[1])];
         }
 
         // HTTPS format: https://gitlab.com/user/repo.git
         if (preg_match('/^https?:\/\/[^\/]+\/(.+?)(?:\.git)?$/', $repoUrl, $matches)) {
-            return ['path' => rtrim($matches[1], '.git')];
+            return ['path' => preg_replace('/\.git$/', '', $matches[1])];
         }
 
         // Simple format: user/repo
