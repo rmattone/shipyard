@@ -150,7 +150,11 @@ class PostgreSQLService implements DatabaseDriverInterface
                 $this->escapeName($dbName),
                 $this->escapeName($username)
             );
-            // Also grant schema privileges
+            // PostgreSQL 15+ revoked public CREATE on schema public by default
+            $commands[] = sprintf(
+                "GRANT ALL ON SCHEMA public TO \"%s\"",
+                $this->escapeName($username)
+            );
             $commands[] = sprintf(
                 "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"%s\"",
                 $this->escapeName($username)
@@ -165,6 +169,14 @@ class PostgreSQLService implements DatabaseDriverInterface
                         $this->escapeName($dbName),
                         $this->escapeName($username)
                     );
+                    // PostgreSQL 15+: database-level CREATE only allows creating schemas,
+                    // not objects within existing schemas — schema-level grant is also needed
+                    if ($privilege === 'CREATE') {
+                        $commands[] = sprintf(
+                            "GRANT CREATE ON SCHEMA public TO \"%s\"",
+                            $this->escapeName($username)
+                        );
+                    }
                 } else {
                     $commands[] = sprintf(
                         "GRANT %s ON ALL TABLES IN SCHEMA public TO \"%s\"",
@@ -198,6 +210,10 @@ class PostgreSQLService implements DatabaseDriverInterface
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
+                "REVOKE ALL ON SCHEMA public FROM \"%s\"",
+                $this->escapeName($username)
+            );
+            $commands[] = sprintf(
                 "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM \"%s\"",
                 $this->escapeName($username)
             );
@@ -211,6 +227,12 @@ class PostgreSQLService implements DatabaseDriverInterface
                         $this->escapeName($dbName),
                         $this->escapeName($username)
                     );
+                    if ($privilege === 'CREATE') {
+                        $commands[] = sprintf(
+                            "REVOKE CREATE ON SCHEMA public FROM \"%s\"",
+                            $this->escapeName($username)
+                        );
+                    }
                 } else {
                     $commands[] = sprintf(
                         "REVOKE %s ON ALL TABLES IN SCHEMA public FROM \"%s\"",
