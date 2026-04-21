@@ -429,7 +429,7 @@ export default function DatabaseDetail() {
                             <div className="flex gap-1 mt-1 flex-wrap">
                               {Object.entries(user.privileges).map(([db, privs]) => (
                                 <Badge key={db} variant="secondary" className="text-xs">
-                                  {db}: {Array.isArray(privs) ? privs.join(', ') : privs}
+                                  {db}: {Array.isArray(privs) ? privs.join(', ') : Object.values(privs as object).join(', ')}
                                 </Badge>
                               ))}
                             </div>
