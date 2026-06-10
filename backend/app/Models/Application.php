@@ -97,6 +97,14 @@ class Application extends Model
     private static function getDefaultLaravelScript(): string
     {
         return <<<'SCRIPT'
+#!/bin/bash
+set -e
+
+# Source profile to ensure node/npm are in PATH (nvm, etc.)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "/usr/local/nvm/nvm.sh" ] && \. "/usr/local/nvm/nvm.sh"
+
 cd $DEPLOY_PATH
 
 # Pull latest changes
@@ -208,6 +216,11 @@ SCRIPT;
         return <<<'SCRIPT'
 #!/bin/bash
 set -e
+
+# Source profile to ensure node/npm are in PATH (nvm, etc.)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "/usr/local/nvm/nvm.sh" ] && \. "/usr/local/nvm/nvm.sh"
 
 cd $DEPLOY_PATH
 
