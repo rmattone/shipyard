@@ -296,6 +296,7 @@ cd .. && rm -rf shipyard
 | `mysql` | Database server |
 | `redis` | Cache and queue backend |
 | `queue` | Background job processor |
+| `scheduler` | Laravel scheduler (stale deployment reaper, maintenance tasks) |
 
 ### Project Structure
 

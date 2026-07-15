@@ -72,6 +72,7 @@ The system supports two deployment modes:
 | `mysql` | Database (internal only) |
 | `redis` | Cache and queue (internal only) |
 | `queue` | Background job worker |
+| `scheduler` | Laravel scheduler (`schedule:work`) |
 
 ## Key Patterns
 
