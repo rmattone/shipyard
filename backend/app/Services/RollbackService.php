@@ -76,19 +76,67 @@ class RollbackService
             throw new RuntimeException('No active deployment found.');
         }
 
-        // Find the most recent successful deployment that is not the current one
-        $targetDeployment = $app->deployments()
-            ->where('status', 'success')
-            ->where('id', '!=', $currentDeployment->id)
-            ->whereNotNull('release_path')
-            ->orderByDesc('created_at')
-            ->first();
+        // Resolve the release the server is actually serving. "Previous" must
+        // mean the newest successful release older than the live one; picking
+        // "newest success that is not the active record" ping-pongs between
+        // two releases (after R5->R4, it would re-activate R5).
+        $currentReleasePath = $this->resolveCurrentReleasePath($app) ?? $currentDeployment->release_path;
+
+        $targetDeployment = $this->findPreviousDeployment($app, $currentReleasePath);
 
         if (! $targetDeployment) {
             throw new RuntimeException('No previous deployment available for rollback.');
         }
 
         return $this->rollback($app, $targetDeployment, $rollbackDeployment);
+    }
+
+    /**
+     * Resolve the release path the `current` symlink points to.
+     */
+    private function resolveCurrentReleasePath(Application $app): ?string
+    {
+        if (! $app->usesAtomicDeployments()) {
+            return null;
+        }
+
+        $this->sshService->connect($app->server);
+        $path = $this->atomicDeploymentService->getCurrentReleasePath($app);
+        $this->sshService->disconnect();
+
+        return $path;
+    }
+
+    /**
+     * Find the newest successful deployment whose release is older than the
+     * currently live release.
+     */
+    private function findPreviousDeployment(Application $app, ?string $currentReleasePath): ?Deployment
+    {
+        // The deployment that originally built the live release. Rollbacks
+        // reuse an existing release_path, so the earliest record for that
+        // path is the original deploy and marks the chronological cutoff.
+        $reference = $currentReleasePath
+            ? $app->deployments()
+                ->where('release_path', $currentReleasePath)
+                ->orderBy('id')
+                ->first()
+            : null;
+
+        $query = $app->deployments()
+            ->where('status', 'success')
+            ->whereNotNull('release_path')
+            ->orderByDesc('id');
+
+        if ($currentReleasePath) {
+            $query->where('release_path', '!=', $currentReleasePath);
+        }
+
+        if ($reference) {
+            $query->where('id', '<', $reference->id);
+        }
+
+        return $query->first();
     }
 
     /**

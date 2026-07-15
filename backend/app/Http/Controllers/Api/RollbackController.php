@@ -67,6 +67,15 @@ class RollbackController extends Controller
             ], 422);
         }
 
+        // Only roll back to a deployment that actually succeeded. A deployment
+        // that cloned but failed its build still has a release directory, and
+        // activating it would put broken code live.
+        if ($targetDeployment->status !== 'success') {
+            return response()->json([
+                'message' => 'Target deployment did not complete successfully and cannot be rolled back to.',
+            ], 422);
+        }
+
         // Verify target deployment is not already active
         if ($targetDeployment->is_active) {
             return response()->json([
