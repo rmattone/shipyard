@@ -68,9 +68,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Throughout `DeploymentService.php` (146, 156, 181, 195), `AtomicDeploymentService.php` (28, 99, 132, 139, 241, 280), `RollbackService.php` (103, 123, 181), `GitProviderService.php` (178, 214). Beyond injection (hardening, per threat model), it is a plain correctness bug: a path containing a space makes `rm -rf` delete a wrong prefix path; a `shared_paths` entry of `""` or `..` rm-rf's the release or releases dir.
   Fix: `escapeshellarg()` every interpolated value and validate `deploy_path`/`shared_paths` against a strict pattern.
 
-- [ ] **DEPLOY-10 (Medium): .env escaping corrupts values.**
+- [x] **DEPLOY-10 (Medium): .env escaping corrupts values.**
   `DeploymentService.php:360-368` and `AtomicDeploymentService.php:163-171` use `addslashes`: a value like `it's` becomes `it\'s` (dotenv does not unescape `\'`). Values containing `"` but no whitespace are not quoted at all; embedded newlines corrupt the file. If the admin deletes all env vars the method returns early and the stale remote `.env` survives.
   Fix: proper dotenv quoting (double quotes, escape `\`, `"`, `$`, newlines) shared with ENV-1, and write an empty file instead of returning early.
+  Fixed (July 2026): both deploy services use the shared `App\Support\EnvFile` serializer (same fix as ENV-1). Note: the empty-env early-return still leaves a stale remote `.env`; tracked as a small follow-up, not yet addressed.
 
 - [ ] **DEPLOY-11 (Low): Symlink swap is not actually atomic.**
   `ln -nfs` (`AtomicDeploymentService.php:241`, `RollbackService.php:123`) is unlink-then-symlink, leaving a window where `current` does not exist. Also, if `current` pre-exists as a real directory (app switched from in-place to atomic), `ln -nfs` creates the symlink inside it and exits 0 while old code keeps serving.
@@ -216,13 +217,15 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 6. Environment variables
 
-- [ ] **ENV-1 (Medium): Env sync corrupts values containing quotes or dollar signs.**
+- [x] **ENV-1 (Medium): Env sync corrupts values containing quotes or dollar signs.**
   `EnvSyncService.php:74-81`: `addslashes()` writes `\'` (invalid dotenv escape), and `$` is not in the quoting regex at all, so `pa$sword` is written unquoted and phpdotenv performs variable interpolation, silently mangling secrets. Value works in the panel, deployed app gets a different one.
   Fix: single shared dotenv serializer with correct double-quote escaping of `\`, `"`, `$`, and newlines (same fix as DEPLOY-10).
+  Fixed (July 2026): `App\Support\EnvFile` quotes/escapes only what phpdotenv v5 unescapes (verified against the vendored parser), escaping `$` so it is never interpolated. Used by the sync service, both deploy services, and the env-file editor. Unit tests round-trip quotes, `$`, backslashes, and empties.
 
-- [ ] **ENV-2 (Medium): `updateEnvFile` deletes all vars then recreates, without a transaction.**
+- [x] **ENV-2 (Medium): `updateEnvFile` deletes all vars then recreates, without a transaction.**
   `EnvironmentVariableController.php:151-160`: an encryption/DB error mid-loop permanently destroys the app's secrets. Also performs synchronous SSH inside the request.
   Fix: wrap in a DB transaction; move the SSH sync out of the critical section (or make its failure non-destructive, see FE-9).
+  Fixed (July 2026): the delete+recreate now runs inside `DB::transaction`. The synchronous SSH sync remains after the transaction (its failure is already reported non-destructively via `sync_result`); moving it fully out of the request is a separate improvement.
 
 - [ ] **ENV-3 (Low): Inconsistent key validation between endpoints.**
   Single-var endpoints require `^[A-Z][A-Z0-9_]*$` (`EnvironmentVariableController.php:24`) while `updateEnvFile:136-137` accepts `_FOO`/lowercase (uppercased), creating keys the item-level API can't recreate.
@@ -275,9 +278,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: per-provider webhook parsers (GitHub HMAC verification, Bitbucket), dispatch on the app's provider type; fix the README.
   Fixed (July 2026): `App\Services\Webhooks\WebhookHandlerFactory` resolves a per-provider handler (GitLab token, GitHub HMAC, Bitbucket URL token/signature); the controller dispatches on the app's provider. GitLabService was replaced by `GitLabWebhookHandler`. README webhook routes/instructions corrected (single `/api/webhook/{app-id}` endpoint).
 
-- [ ] **API-4 (High): Duplicate app names silently share a deploy path.**
+- [x] **API-4 (High): Duplicate app names silently share a deploy path.**
   No unique constraint on `applications.name` or `deploy_path` (migration `2024_01_01_000004`), no duplicate check in `ApplicationController::store:30-56`; `deploy_path` auto-generates from the slugged name, so "My App" and "my-app" collide. Deployments overwrite each other and `DELETE /applications/{id}?delete_files=1` rm-rf's the surviving app's files. The deploy-path allowlist also accepts `/home/` exactly (`ApplicationController.php:166-189`), so `deploy_path=/home/` plus delete wipes all home directories.
   Fix: unique constraint on (server_id, deploy_path), duplicate check with clear error, minimum path depth validation.
+  Fixed (July 2026): deploy paths are validated (absolute, ≥3 levels deep, no `..`), collision-checked per server in store/update, and backed by a unique index on (server_id, deploy_path). `deleteServerFiles` uses the same safety check plus `escapeshellarg`, so bare prefixes like `/home/` can no longer be wiped.
 
 - [ ] **API-5 (Medium): SSE streams busy-poll the DB and pin PHP-FPM workers; Redis pipeline half-built.**
   `DeploymentStreamController.php:77-127` and `DatabaseInstallationStreamController.php:74-117` poll `find()` every 500ms up to 5 minutes per open stream. A few tabs exhaust the FPM pool and the whole panel hangs. Meanwhile `Deployment::publishLogChunk()` publishes to Redis channels nothing subscribes to.
@@ -292,9 +296,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Partially mitigated (July 2026): the webhook path now truncates `commit_message` to 255 chars before insert, so pushes no longer 500. Widening the column to TEXT is still worthwhile.
   Fix: truncate before insert (or make the column TEXT).
 
-- [ ] **API-8 (Medium): App `domain` update is a no-op once a Domain row exists.**
+- [x] **API-8 (Medium): App `domain` update is a no-op once a Domain row exists.**
   `ApplicationController.php:120-132` writes the legacy `applications.domain` column, but `NginxService` resolves from the `domains` table first; the Domain row created in `store:59-64` is never updated. `PUT /applications/{id}` with a new domain returns 200 and changes nothing.
   Fix: finish the migration to the `domains` table (update the Domain row, stop dual-writing, eventually drop the column).
+  Fixed (July 2026): the update now updates (or creates) the primary Domain row and removes the old nginx config by its previous domain name before redeploying. Full removal of the legacy `applications.domain` column is left for a dedicated cleanup.
 
 - [ ] **API-9 (Medium): Deployment responses ship full logs (LONGTEXT), multi-MB payloads.**
   `DeploymentController.php:12-19` paginates 20 with full `log`; `ApplicationController::show:85-87` embeds 10 latest with logs. `Deployment` has no `$hidden`.
