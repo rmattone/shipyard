@@ -120,9 +120,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 4. Nginx and SSL
 
-- [ ] **NGINX-1 (Critical): A failed `nginx -t` leaves the broken config enabled, poisoning the whole server.**
+- [x] **NGINX-1 (Critical): A failed `nginx -t` leaves the broken config enabled, poisoning the whole server.**
   `NginxService::deploy()` (`backend/app/Services/NginxService.php:35-44`) uploads and symlinks into `sites-enabled` before testing, and has no rollback on failure (unlike `updateConfigContent()` at 113-119). One bad config makes every later `nginx -t` fail (all apps, cert issuance) and an nginx restart takes every site down.
   Fix: test the candidate config before enabling (write to a temp path, `nginx -t` with it staged, or snapshot and restore on failure like `updateConfigContent` does).
+  Fixed (July 2026): both `deploy()` and `updateConfigContent()` snapshot the existing config and restore it on a failed `nginx -t` (or remove the file when there was no predecessor). `updateConfigContent` previously "restored" a freshly generated config, which is not guaranteed valid either.
 
 - [ ] **NGINX-2 (High): Legacy SSL path generates invalid config (`server_name ;`, no 443 block).**
   `NginxService.php:253-271` (also 413-430, 547-564): an app with `ssl_enabled = true` but zero Domain rows produces an empty `$sslDomainNames` in the redirect block and no 443 server block. Reachable via deprecated `CertbotService::obtainCertificate()` (`CertbotService.php:204`). Combined with NGINX-1, this leaves a broken config enabled.
@@ -140,9 +141,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   `NginxService.php:242,302,342` pin php8.3 while the installer (`DatabaseInstallationService.php:238-245`) installs whatever the `php` metapackage resolves to (ondrej PPA resolves newer). Mismatch means every Laravel request 502s.
   Fix: detect the installed FPM version per server (or add per-app php_version) and template the socket path.
 
-- [ ] **SSL-1 (Critical): Certificate renewal is never wired up; nginx never reloads renewed certs.**
+- [x] **SSL-1 (Critical): Certificate renewal is never wired up; nginx never reloads renewed certs.**
   `CertbotService::renewCertificates()` (`CertbotService.php:222-235`) has zero callers. `routes/console.php` schedules only `queue:prune-failed`. Issuance (`CertbotService.php:34-39`) uses `certonly --webroot` with no `--deploy-hook`, so even certbot's own systemd timer renewing files never reloads nginx. Sites serve expired certs ~90 days after issuance. README claims auto-renewal.
   Fix: schedule `renewCertificates()` (with `--deploy-hook 'systemctl reload nginx'`), update `ssl_expires_at` after renewal, and correct the README until done.
+  Fixed (July 2026): issuance and renewal register a nginx reload deploy hook; daily `certificates:renew` command (03:30) runs one `certbot renew` per server and refreshes stored expiry via `checkDomainStatus`. Runs on the scheduler service added in DEPLOY-7. The README auto-renewal claim is now true.
 
 - [ ] **SSL-2 (High): Cert issuance for Node.js apps always fails (ACME webroot mismatch).**
   `CertbotService.php:33-39` uses `$app->getDocumentRoot()` as webroot, but the non-SSL Node template proxies everything (including `/.well-known/acme-challenge/`) to the Node process (`NginxService.php:462-480`), and SSL variants serve challenges from `/var/www/html` (a third location). Let's Encrypt gets a 404 every time.
@@ -256,13 +258,15 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 8. API, auth, webhooks
 
-- [ ] **API-1 (Critical): No rate limiting anywhere, including `/auth/login`.**
+- [x] **API-1 (Critical): No rate limiting anywhere, including `/auth/login`.**
   Laravel 11 only applies `throttle:api` when a limiter is configured; no `RateLimiter::for()` exists in `app/` or `bootstrap/` (`bootstrap/app.php:14-21`). The panel stores SSH private keys, git tokens, and DB admin passwords; the login endpoint can be brute-forced at line speed.
   Fix: configure the `api` limiter plus a strict per-IP limiter on login (and consider lockout).
+  Fixed (July 2026): `api` limiter at 120/min per user or IP applied via `throttleApi()`, login capped at 5/min per IP.
 
-- [ ] **API-2 (Critical): Seeder falls back to a known default admin password.**
+- [x] **API-2 (Critical): Seeder falls back to a known default admin password.**
   `DatabaseSeeder.php:14-16`: `env('ADMIN_PASSWORD', 'password')` creates `admin@example.com` / `password` on any setup that seeds without the env vars (install.sh prompts correctly, manual setups don't). Also `env()` in a seeder returns null under `config:cache`, silently forcing the defaults.
   Fix: refuse to seed without explicit credentials (throw), read via `config()`.
+  Fixed (July 2026): seeder throws with instructions when `ADMIN_PASSWORD` is unset (install.sh already prompts and writes it, so the normal flow is unaffected).
 
 - [ ] **API-3 (High): Webhooks only work for GitLab; GitHub/Bitbucket always rejected.**
   `WebhookController.php:22` delegates only to `GitLabService` (`GitLabService.php:11-24`): validates the `X-Gitlab-Token` header and requires `object_kind === 'push'`. GitHub (`X-Hub-Signature-256` HMAC) and Bitbucket pushes get 401/422 even though both providers are fully supported for repo browsing and cloning. README documents `/api/webhook/github/...` routes that do not exist.
