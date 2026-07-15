@@ -19,7 +19,7 @@ class WebhookController extends Controller
     public function handle(Request $request, Application $application): JsonResponse
     {
         // Validate webhook token
-        if (!$this->gitLabService->validateWebhook($request, $application)) {
+        if (! $this->gitLabService->validateWebhook($request, $application)) {
             return response()->json(['message' => 'Invalid webhook token'], 401);
         }
 
@@ -27,11 +27,19 @@ class WebhookController extends Controller
             $webhookData = $this->gitLabService->parseWebhookPayload($request);
 
             // Check if we should deploy for this branch
-            if (!$this->gitLabService->shouldTriggerDeploy($application, $webhookData)) {
+            if (! $this->gitLabService->shouldTriggerDeploy($application, $webhookData)) {
                 return response()->json([
                     'message' => 'Branch does not match, skipping deployment',
                     'branch' => $webhookData['branch'],
                     'expected' => $application->branch,
+                ]);
+            }
+
+            // Skip (with 200, so the git provider does not retry) when a
+            // deployment is already in flight for this application
+            if ($application->hasDeploymentInProgress()) {
+                return response()->json([
+                    'message' => 'A deployment is already pending or running, skipping this push.',
                 ]);
             }
 

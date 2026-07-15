@@ -340,6 +340,17 @@ SCRIPT;
         return $this->hasMany(Deployment::class)->orderByDesc('created_at');
     }
 
+    /**
+     * Whether a deployment or rollback is already queued or running for this
+     * application. Used to reject concurrent pipeline runs.
+     */
+    public function hasDeploymentInProgress(): bool
+    {
+        return $this->deployments()
+            ->whereIn('status', ['pending', 'running'])
+            ->exists();
+    }
+
     public function domains(): HasMany
     {
         return $this->hasMany(Domain::class);
