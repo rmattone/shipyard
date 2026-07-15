@@ -1,17 +1,28 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
-import { applicationsApi, Application, Deployment } from '../../services/api'
+import { applicationsApi, Application, Deployment, Release } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
 import { StatusBadge, LoadingSpinner } from '@/components/custom'
-import { RocketLaunchIcon, EllipsisHorizontalIcon, CheckCircleIcon, XCircleIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
+import { RocketLaunchIcon, EllipsisHorizontalIcon, CheckCircleIcon, XCircleIcon, ArrowPathIcon, ArrowUturnLeftIcon } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
 
 const statusColors: Record<string, { bg: string; text: string }> = {
@@ -35,21 +46,41 @@ function getStatusIcon(status: string) {
   }
 }
 
+function apiError(error: unknown, fallback: string): string {
+  const err = error as { response?: { data?: { message?: string } } }
+  return err.response?.data?.message || fallback
+}
+
 export default function AppDeployments() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const [app, setApp] = useState<Application | null>(null)
   const [deployments, setDeployments] = useState<Deployment[]>([])
+  const [releases, setReleases] = useState<Release[]>([])
   const [loading, setLoading] = useState(true)
   const [deploying, setDeploying] = useState(false)
+  const [rollingBack, setRollingBack] = useState(false)
+  const [rollbackTarget, setRollbackTarget] = useState<Release | 'previous' | null>(null)
 
   const appId = parseInt(id || '0')
+  const isAtomic = app?.deployment_strategy === 'atomic'
 
   const fetchDeployments = useCallback(() => {
     if (appId) {
-      applicationsApi.getDeployments(appId).then((res) => {
-        setDeployments(res.data.data)
-      })
+      applicationsApi.getDeployments(appId)
+        .then((res) => setDeployments(res.data.data))
+        .catch((error) => toast.error(apiError(error, 'Failed to refresh deployments')))
+    }
+  }, [appId])
+
+  const fetchReleases = useCallback(() => {
+    if (appId) {
+      applicationsApi.getReleases(appId)
+        .then((res) => setReleases(res.data.releases))
+        .catch(() => {
+          // Releases require a reachable server; a failure here should not
+          // clutter the page with an error toast on every refresh.
+        })
     }
   }, [appId])
 
@@ -62,10 +93,14 @@ export default function AppDeployments() {
         .then(([appRes, deploymentsRes]) => {
           setApp(appRes.data)
           setDeployments(deploymentsRes.data.data)
+          if (appRes.data.deployment_strategy === 'atomic') {
+            fetchReleases()
+          }
         })
+        .catch((error) => toast.error(apiError(error, 'Failed to load deployments')))
         .finally(() => setLoading(false))
     }
-  }, [appId])
+  }, [appId, fetchReleases])
 
   useEffect(() => {
     const hasRunning = deployments.some((d) => d.status === 'running' || d.status === 'pending')
@@ -83,10 +118,29 @@ export default function AppDeployments() {
       toast.success('Deployment started')
       fetchDeployments()
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Failed to start deployment')
+      toast.error(apiError(error, 'Failed to start deployment'))
     } finally {
       setDeploying(false)
+    }
+  }
+
+  const confirmRollback = async () => {
+    if (!app || rollbackTarget === null) return
+    setRollingBack(true)
+    try {
+      if (rollbackTarget === 'previous') {
+        await applicationsApi.rollbackToPrevious(app.id)
+      } else {
+        await applicationsApi.rollback(app.id, rollbackTarget.deployment_id as number)
+      }
+      toast.success('Rollback started')
+      fetchDeployments()
+      fetchReleases()
+    } catch (error: unknown) {
+      toast.error(apiError(error, 'Failed to start rollback'))
+    } finally {
+      setRollingBack(false)
+      setRollbackTarget(null)
     }
   }
 
@@ -109,15 +163,66 @@ export default function AppDeployments() {
             {deployments.length} deployment{deployments.length !== 1 ? 's' : ''} for {app.name}
           </p>
         </div>
-        <Button onClick={handleDeploy} disabled={deploying}>
-          {deploying ? (
-            <LoadingSpinner size="sm" className="mr-2" />
-          ) : (
-            <RocketLaunchIcon className="h-4 w-4 mr-2" />
+        <div className="flex items-center gap-2">
+          {isAtomic && (
+            <Button
+              variant="outline"
+              onClick={() => setRollbackTarget('previous')}
+              disabled={releases.filter((r) => r.deployment_id).length < 2}
+            >
+              <ArrowUturnLeftIcon className="h-4 w-4 mr-2" />
+              Rollback
+            </Button>
           )}
-          Deploy
-        </Button>
+          <Button onClick={handleDeploy} disabled={deploying}>
+            {deploying ? (
+              <LoadingSpinner size="sm" className="mr-2" />
+            ) : (
+              <RocketLaunchIcon className="h-4 w-4 mr-2" />
+            )}
+            Deploy
+          </Button>
+        </div>
       </div>
+
+      {isAtomic && releases.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Releases on server</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y">
+              {releases.map((release) => (
+                <div key={release.release_id} className="flex items-center gap-4 p-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-mono text-sm truncate">
+                      {release.release_id}
+                      {release.is_active && (
+                        <Badge variant="secondary" className="ml-2">Active</Badge>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground truncate">
+                      {release.commit_message || (release.deployment_id ? 'Manual deployment' : 'No deployment record')}
+                      {release.commit_hash && (
+                        <> · <span className="font-mono">{release.commit_hash.substring(0, 7)}</span></>
+                      )}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={release.is_active || !release.deployment_id}
+                    onClick={() => setRollbackTarget(release)}
+                  >
+                    <ArrowUturnLeftIcon className="h-4 w-4 mr-2" />
+                    Roll back
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardContent className="p-0">
@@ -185,6 +290,28 @@ export default function AppDeployments() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={rollbackTarget !== null} onOpenChange={(open) => !open && setRollbackTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Roll back this application?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {rollbackTarget === 'previous'
+                ? 'This activates the release immediately before the one currently live. The switch is instant and can be rolled back again.'
+                : rollbackTarget
+                  ? `This activates release ${rollbackTarget.release_id}. The switch is instant and can be rolled back again.`
+                  : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={rollingBack}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmRollback() }} disabled={rollingBack}>
+              {rollingBack ? <LoadingSpinner size="sm" className="mr-2" /> : null}
+              Roll back
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

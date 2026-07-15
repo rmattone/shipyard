@@ -64,6 +64,7 @@ export interface Application {
   branch: string
   deploy_path: string
   deploy_script?: string
+  deployment_strategy?: 'in_place' | 'atomic'
   build_command: string | null
   post_deploy_commands: string[] | null
   ssl_enabled: boolean
@@ -490,6 +491,28 @@ export const applicationsApi = {
     api.post<{ deploy_path: string }>('/applications/generate-path', { name }),
   syncTags: (id: number, tagIds: number[]) =>
     api.put<Tag[]>('/applications/' + id + '/tags', { tag_ids: tagIds }),
+  getReleases: (id: number) =>
+    api.get<{ releases: Release[]; current_deployment_id: number | null }>(
+      '/applications/' + id + '/releases'
+    ),
+  rollback: (id: number, deploymentId: number) =>
+    api.post<{ message: string; deployment_id: number; target_release_id: string }>(
+      '/applications/' + id + '/rollback',
+      { deployment_id: deploymentId }
+    ),
+  rollbackToPrevious: (id: number) =>
+    api.post<{ message: string; deployment_id: number; target_release_id: string }>(
+      '/applications/' + id + '/rollback/previous'
+    ),
+}
+
+export interface Release {
+  release_id: string
+  deployment_id: number | null
+  is_active: boolean
+  commit_hash: string | null
+  commit_message: string | null
+  created_at: string | null
 }
 
 // Environment Variables
