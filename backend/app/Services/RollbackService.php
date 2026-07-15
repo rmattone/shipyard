@@ -201,7 +201,7 @@ class RollbackService
         $this->sshService->connect($app->server);
 
         $releasesPath = $app->getReleasesPath();
-        $result = $this->sshService->execute("ls -1 {$releasesPath} 2>/dev/null | sort -r");
+        $result = $this->sshService->execute("ls -1 {$releasesPath} 2>/dev/null | LC_ALL=C sort -r");
 
         $this->sshService->disconnect();
 

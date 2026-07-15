@@ -261,7 +261,7 @@ class AtomicDeploymentService
         $deployment->appendLog("Cleaning up old releases (keeping last {$keepReleases})...");
 
         // List all releases sorted by name (timestamp format ensures correct order)
-        $result = $this->sshService->execute("ls -1d {$releasesPath}/*/ 2>/dev/null | sort -r");
+        $result = $this->sshService->execute("ls -1d {$releasesPath}/*/ 2>/dev/null | LC_ALL=C sort -r");
 
         if (! $result['success'] || empty(trim($result['output']))) {
             $deployment->appendLog('No releases to clean up.');
