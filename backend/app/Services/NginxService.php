@@ -66,9 +66,12 @@ class NginxService
         return $result['success'];
     }
 
-    public function remove(Application $app): bool
+    public function remove(Application $app, ?string $domainOverride = null): bool
     {
-        $primaryDomain = $app->primaryDomain()?->domain ?? $app->domain;
+        // Config files are named after the primary domain. When the primary
+        // domain changes, pass the old domain so the stale file is removed
+        // instead of being orphaned and left serving.
+        $primaryDomain = $domainOverride ?? $app->primaryDomain()?->domain ?? $app->domain;
         $configPath = "/etc/nginx/sites-available/{$primaryDomain}";
         $enabledPath = "/etc/nginx/sites-enabled/{$primaryDomain}";
 
