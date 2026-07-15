@@ -161,15 +161,7 @@ class AtomicDeploymentService
         $this->ensureConnected($app);
         $deployment->appendLog('Uploading .env file...');
 
-        $envContent = '';
-        foreach ($envVariables as $var) {
-            $value = $var->value;
-            // Escape special characters in the value
-            if (preg_match('/[\s#]/', $value)) {
-                $value = '"'.addslashes($value).'"';
-            }
-            $envContent .= "{$var->key}={$value}\n";
-        }
+        $envContent = \App\Support\EnvFile::serialize($envVariables);
 
         // For atomic deployments with Laravel, upload to shared directory
         if ($app->usesAtomicDeployments() && $app->isLaravel()) {
