@@ -78,6 +78,23 @@ services:
       - mysql
       - redis
 
+  scheduler:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: server-mgmt-scheduler
+    restart: unless-stopped
+    working_dir: /var/www/html
+    command: php artisan schedule:work
+    volumes:
+      - ./backend:/var/www/html
+    networks:
+      - server-mgmt
+    depends_on:
+      - app
+      - mysql
+      - redis
+
 networks:
   server-mgmt:
     driver: bridge
