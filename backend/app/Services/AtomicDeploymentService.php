@@ -22,7 +22,7 @@ class AtomicDeploymentService
         $this->ensureConnected($app);
         $releasesPath = $app->getReleasesPath();
 
-        $deployment->appendLog("Initializing atomic deployment structure...");
+        $deployment->appendLog('Initializing atomic deployment structure...');
 
         // Create base and releases directories
         $this->sshService->execute("mkdir -p {$releasesPath}");
@@ -45,10 +45,10 @@ class AtomicDeploymentService
                 $this->sshService->execute("mkdir -p {$sharedPath}/{$dir}");
             }
 
-            $deployment->appendLog("Created shared storage structure for Laravel app.");
+            $deployment->appendLog('Created shared storage structure for Laravel app.');
         }
 
-        $deployment->appendLog("Atomic deployment structure initialized.");
+        $deployment->appendLog('Atomic deployment structure initialized.');
     }
 
     /**
@@ -76,7 +76,7 @@ class AtomicDeploymentService
         $branch = $app->branch;
         $repo = $app->repository_url;
 
-        $deployment->appendLog("Cloning repository into release directory...");
+        $deployment->appendLog('Cloning repository into release directory...');
 
         if ($app->gitProvider) {
             $cloneScript = $this->gitProviderService->generateCloneCommand(
@@ -87,7 +87,7 @@ class AtomicDeploymentService
             );
 
             // Upload and execute the clone script
-            $scriptPath = "/tmp/git-clone-{$app->id}-" . time() . ".sh";
+            $scriptPath = "/tmp/git-clone-{$app->id}-".time().'.sh';
             $this->sshService->connectSftp($app->server);
             $this->sshService->uploadContent($cloneScript, $scriptPath);
             $this->sshService->connect($app->server);
@@ -101,11 +101,11 @@ class AtomicDeploymentService
 
         $deployment->appendLog($result['output']);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException("Git clone failed: {$result['output']}");
         }
 
-        $deployment->appendLog("Repository cloned successfully.");
+        $deployment->appendLog('Repository cloned successfully.');
     }
 
     /**
@@ -114,7 +114,7 @@ class AtomicDeploymentService
      */
     public function linkSharedPaths(Application $app, Deployment $deployment, string $releasePath): void
     {
-        if (!$app->isLaravel()) {
+        if (! $app->isLaravel()) {
             return;
         }
 
@@ -122,7 +122,7 @@ class AtomicDeploymentService
         $sharedPath = $app->getSharedPath();
         $sharedPaths = $app->getEffectiveSharedPaths();
 
-        $deployment->appendLog("Linking shared paths...");
+        $deployment->appendLog('Linking shared paths...');
 
         foreach ($sharedPaths as $path) {
             $releaseTarget = "{$releasePath}/{$path}";
@@ -141,7 +141,7 @@ class AtomicDeploymentService
             $deployment->appendLog("  Linked: {$path}");
         }
 
-        $deployment->appendLog("Shared paths linked successfully.");
+        $deployment->appendLog('Shared paths linked successfully.');
     }
 
     /**
@@ -153,19 +153,20 @@ class AtomicDeploymentService
         $envVariables = $app->environmentVariables;
 
         if ($envVariables->isEmpty()) {
-            $deployment->appendLog("No environment variables to upload.");
+            $deployment->appendLog('No environment variables to upload.');
+
             return;
         }
 
         $this->ensureConnected($app);
-        $deployment->appendLog("Uploading .env file...");
+        $deployment->appendLog('Uploading .env file...');
 
         $envContent = '';
         foreach ($envVariables as $var) {
             $value = $var->value;
             // Escape special characters in the value
             if (preg_match('/[\s#]/', $value)) {
-                $value = '"' . addslashes($value) . '"';
+                $value = '"'.addslashes($value).'"';
             }
             $envContent .= "{$var->key}={$value}\n";
         }
@@ -180,7 +181,7 @@ class AtomicDeploymentService
         $this->sshService->connectSftp($app->server);
         $this->sshService->uploadContent($envContent, $envPath);
 
-        $deployment->appendLog(".env file uploaded successfully.");
+        $deployment->appendLog('.env file uploaded successfully.');
     }
 
     /**
@@ -189,12 +190,12 @@ class AtomicDeploymentService
      */
     public function setPermissions(Application $app, Deployment $deployment, string $releasePath): void
     {
-        if (!$app->isLaravel()) {
+        if (! $app->isLaravel()) {
             return;
         }
 
         $this->ensureConnected($app);
-        $deployment->appendLog("Setting permissions on writable paths...");
+        $deployment->appendLog('Setting permissions on writable paths...');
 
         $writablePaths = $app->getEffectiveWritablePaths();
 
@@ -221,7 +222,7 @@ class AtomicDeploymentService
             "sudo chmod -R 775 {$sharedPath} 2>/dev/null || chmod -R 775 {$sharedPath} 2>/dev/null || true"
         );
 
-        $deployment->appendLog("Permissions set successfully.");
+        $deployment->appendLog('Permissions set successfully.');
     }
 
     /**
@@ -232,7 +233,7 @@ class AtomicDeploymentService
         $this->ensureConnected($app);
         $currentPath = $app->getCurrentPath();
 
-        $deployment->appendLog("Activating release...");
+        $deployment->appendLog('Activating release...');
 
         // Atomic symlink swap using ln -nfs
         // -n: treat LINK_NAME as a normal file if it is a symbolic link to a directory
@@ -240,12 +241,12 @@ class AtomicDeploymentService
         // -s: make symbolic links instead of hard links
         $result = $this->sshService->execute("ln -nfs {$releasePath} {$currentPath}");
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException("Failed to activate release: {$result['output']}");
         }
 
         $deployment->appendLog("Release activated: {$releasePath}");
-        $deployment->appendLog("Current symlink now points to the new release.");
+        $deployment->appendLog('Current symlink now points to the new release.');
     }
 
     /**
@@ -255,33 +256,48 @@ class AtomicDeploymentService
     {
         $this->ensureConnected($app);
         $releasesPath = $app->getReleasesPath();
-        $keepReleases = $app->releases_to_keep ?? 5;
+        $keepReleases = max(1, $app->releases_to_keep ?? 5);
 
         $deployment->appendLog("Cleaning up old releases (keeping last {$keepReleases})...");
 
         // List all releases sorted by name (timestamp format ensures correct order)
         $result = $this->sshService->execute("ls -1d {$releasesPath}/*/ 2>/dev/null | sort -r");
 
-        if (!$result['success'] || empty(trim($result['output']))) {
-            $deployment->appendLog("No releases to clean up.");
+        if (! $result['success'] || empty(trim($result['output']))) {
+            $deployment->appendLog('No releases to clean up.');
+
             return;
         }
+
+        $currentReleasePath = $this->getCurrentReleasePath($app);
 
         $releases = array_filter(explode("\n", trim($result['output'])));
         $releasesToDelete = array_slice($releases, $keepReleases);
 
         if (empty($releasesToDelete)) {
-            $deployment->appendLog("All releases within limit. No cleanup needed.");
+            $deployment->appendLog('All releases within limit. No cleanup needed.');
+
             return;
         }
 
+        $removed = 0;
+
         foreach ($releasesToDelete as $releaseDir) {
-            $releaseDir = trim($releaseDir, '/');
+            $releaseDir = rtrim($releaseDir, '/');
+
+            // Never delete the release the current symlink points to
+            if ($currentReleasePath !== null && $releaseDir === rtrim($currentReleasePath, '/')) {
+                $deployment->appendLog('  Skipped active release: '.basename($releaseDir));
+
+                continue;
+            }
+
             $this->sshService->execute("rm -rf {$releaseDir}");
-            $deployment->appendLog("  Removed: " . basename($releaseDir));
+            $deployment->appendLog('  Removed: '.basename($releaseDir));
+            $removed++;
         }
 
-        $deployment->appendLog("Cleanup completed. Removed " . count($releasesToDelete) . " old release(s).");
+        $deployment->appendLog("Cleanup completed. Removed {$removed} old release(s).");
     }
 
     /**
@@ -292,6 +308,7 @@ class AtomicDeploymentService
         $releasesPath = $app->getReleasesPath();
         $this->ensureConnected($app);
         $result = $this->sshService->execute("test -d {$releasesPath} && echo 'exists'");
+
         return str_contains($result['output'], 'exists');
     }
 
@@ -315,7 +332,7 @@ class AtomicDeploymentService
         $currentPath = $app->getCurrentPath();
         $result = $this->sshService->execute("readlink -f {$currentPath} 2>/dev/null");
 
-        if ($result['success'] && !empty(trim($result['output']))) {
+        if ($result['success'] && ! empty(trim($result['output']))) {
             return trim($result['output']);
         }
 
@@ -329,6 +346,7 @@ class AtomicDeploymentService
     {
         $releasePath = "{$app->getReleasesPath()}/{$releaseId}";
         $result = $this->sshService->execute("test -d {$releasePath} && echo 'exists'");
+
         return str_contains($result['output'], 'exists');
     }
 }
