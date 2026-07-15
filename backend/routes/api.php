@@ -3,9 +3,9 @@
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DatabaseController;
+use App\Http\Controllers\Api\DatabaseInstallationStreamController;
 use App\Http\Controllers\Api\DatabaseUserController;
 use App\Http\Controllers\Api\DeploymentController;
-use App\Http\Controllers\Api\DatabaseInstallationStreamController;
 use App\Http\Controllers\Api\DeploymentStreamController;
 use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\EnvironmentVariableController;
@@ -20,8 +20,8 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
 
-// Public routes
-Route::post('/auth/login', [AuthController::class, 'login']);
+// Public routes (login is strictly throttled per IP on top of the api limiter)
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
 // Webhook route (validated by secret)
 Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
