@@ -25,14 +25,17 @@ class CertbotService
 
         // Check if certbot is installed
         $result = $this->sshService->execute('which certbot');
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException('Certbot is not installed on the server');
         }
 
-        // Obtain certificate using webroot method
+        // Obtain certificate using webroot method. The deploy hook is stored
+        // in the certificate's renewal config, so every future renewal (from
+        // the scheduler or certbot's own timer) reloads nginx to pick up the
+        // new certificate.
         $webroot = $app->getDocumentRoot();
         $command = sprintf(
-            'certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive',
+            "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
             $domain->domain,
             $email
@@ -40,7 +43,7 @@ class CertbotService
 
         $result = $this->sshService->execute($command, 120);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             $this->sshService->disconnect();
             throw new RuntimeException("Failed to obtain SSL certificate: {$result['output']}");
         }
@@ -81,8 +84,9 @@ class CertbotService
 
         // Check if certificate file exists
         $existsResult = $this->sshService->execute("test -f {$certPath} && echo 'exists'");
-        if (!$existsResult['success'] || trim($existsResult['output']) !== 'exists') {
+        if (! $existsResult['success'] || trim($existsResult['output']) !== 'exists') {
             $this->sshService->disconnect();
+
             return [
                 'exists' => false,
                 'valid' => false,
@@ -178,14 +182,15 @@ class CertbotService
 
         // Check if certbot is installed
         $result = $this->sshService->execute('which certbot');
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException('Certbot is not installed on the server');
         }
 
-        // Obtain certificate using webroot method
+        // Obtain certificate using webroot method (see obtainCertificateForDomain
+        // for why the deploy hook matters)
         $webroot = $app->getDocumentRoot();
         $command = sprintf(
-            'certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive',
+            "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
             $app->domain,
             $email
@@ -193,7 +198,7 @@ class CertbotService
 
         $result = $this->sshService->execute($command, 120);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             $this->sshService->disconnect();
             throw new RuntimeException("Failed to obtain SSL certificate: {$result['output']}");
         }
@@ -219,11 +224,19 @@ class CertbotService
         ];
     }
 
+    /**
+     * Renew all due certificates on the application's server. The deploy hook
+     * covers certificates issued before hooks were stored in their renewal
+     * config; certbot only runs it for certificates actually renewed.
+     */
     public function renewCertificates(Application $app): array
     {
         $this->sshService->connect($app->server);
 
-        $result = $this->sshService->execute('certbot renew --non-interactive', 300);
+        $result = $this->sshService->execute(
+            "certbot renew --non-interactive --deploy-hook 'systemctl reload nginx'",
+            300
+        );
 
         $this->sshService->disconnect();
 
@@ -247,7 +260,7 @@ class CertbotService
 
         $this->sshService->disconnect();
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             return [
                 'exists' => false,
                 'valid' => false,
