@@ -42,7 +42,7 @@ class DeploymentService
             $this->sshService->connect($app->server);
 
             // Initialize atomic structure if needed
-            if (!$this->atomicDeploymentService->isInitialized($app)) {
+            if (! $this->atomicDeploymentService->isInitialized($app)) {
                 $this->atomicDeploymentService->initializeStructure($app, $deployment);
             }
 
@@ -63,6 +63,9 @@ class DeploymentService
 
             // Atomic symlink swap
             $this->atomicDeploymentService->activateRelease($app, $deployment, $releasePath);
+
+            // Restart the PM2 process so Node.js apps serve the new release
+            $this->restartNodeProcess($app, $deployment);
 
             // Cleanup old releases
             $this->atomicDeploymentService->cleanupOldReleases($app, $deployment);
@@ -85,6 +88,32 @@ class DeploymentService
 
             throw $e;
         }
+    }
+
+    /**
+     * Restart the PM2 process after an atomic release activation.
+     * Without this, PM2 keeps serving code from the previous release directory
+     * (or nothing at all on a first deploy).
+     */
+    private function restartNodeProcess(Application $app, Deployment $deployment): void
+    {
+        if (! $app->isNodejs()) {
+            return;
+        }
+
+        $deployment->appendLog('Restarting PM2 process...');
+
+        $result = $this->sshService->execute($app->buildPm2RestartCommand().' 2>&1', 120);
+
+        if (! empty($result['output'])) {
+            $deployment->appendLog($result['output']);
+        }
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to restart PM2 process after release activation.');
+        }
+
+        $deployment->appendLog('PM2 process restarted.');
     }
 
     /**
@@ -156,8 +185,8 @@ class DeploymentService
         $result = $this->sshService->execute("test -d {$path}/.git && echo 'exists'");
         $exists = str_contains($result['output'], 'exists');
 
-        if (!$exists) {
-            $deployment->appendLog("Cloning repository...");
+        if (! $exists) {
+            $deployment->appendLog('Cloning repository...');
 
             // Use git provider credentials if available
             if ($app->gitProvider) {
@@ -169,7 +198,7 @@ class DeploymentService
                 );
 
                 // Upload and execute the clone script
-                $scriptPath = "/tmp/git-clone-{$app->id}-" . time() . ".sh";
+                $scriptPath = "/tmp/git-clone-{$app->id}-".time().'.sh';
                 $this->sshService->connectSftp($app->server);
                 $this->sshService->uploadContent($cloneScript, $scriptPath);
                 $this->sshService->connect($app->server);
@@ -183,7 +212,7 @@ class DeploymentService
 
             $deployment->appendLog($result['output']);
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 throw new RuntimeException("Git clone failed: {$result['output']}");
             }
         } else {
@@ -201,8 +230,8 @@ class DeploymentService
     {
         $script = $app->getDeployScriptWithVariables($releasePath);
 
-        $deployment->appendLog("Running deployment script...");
-        $deployment->appendLog("---");
+        $deployment->appendLog('Running deployment script...');
+        $deployment->appendLog('---');
 
         // Execute each line of the script
         $lines = explode("\n", $script);
@@ -211,10 +240,10 @@ class DeploymentService
         foreach ($lines as $line) {
             $trimmed = trim($line);
             // Skip empty lines and comments for logging
-            if (!empty($trimmed) && !str_starts_with($trimmed, '#')) {
+            if (! empty($trimmed) && ! str_starts_with($trimmed, '#')) {
                 $deployment->appendLog("> {$trimmed}");
             }
-            $scriptContent .= $line . "\n";
+            $scriptContent .= $line."\n";
         }
 
         // If git provider is configured, wrap script with GIT_ASKPASS setup
@@ -223,7 +252,7 @@ class DeploymentService
         }
 
         // Create a temporary script file and execute it
-        $scriptPath = "/tmp/deploy-{$app->id}-" . time() . ".sh";
+        $scriptPath = "/tmp/deploy-{$app->id}-".time().'.sh';
 
         // Upload script
         $this->sshService->connectSftp($app->server);
@@ -235,18 +264,18 @@ class DeploymentService
 
         $result = $this->sshService->execute("bash {$scriptPath} 2>&1", 600);
 
-        $deployment->appendLog("---");
+        $deployment->appendLog('---');
         $deployment->appendLog($result['output']);
 
         // Cleanup
         $this->sshService->execute("rm -f {$scriptPath}");
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException("Deployment script failed with exit code: {$result['exit_code']}");
         }
 
-        $deployment->appendLog("---");
-        $deployment->appendLog("Deployment completed successfully!");
+        $deployment->appendLog('---');
+        $deployment->appendLog('Deployment completed successfully!');
     }
 
     /**
@@ -335,7 +364,7 @@ BASH;
     {
         $path = $app->deploy_path;
 
-        $deployment->appendLog("Fixing Laravel storage permissions...");
+        $deployment->appendLog('Fixing Laravel storage permissions...');
 
         // Set ownership to www-data (web server user)
         $this->sshService->execute("sudo chown -R www-data:www-data {$path}/storage {$path}/bootstrap/cache 2>/dev/null || true");
@@ -343,7 +372,7 @@ BASH;
         // Set directory permissions
         $this->sshService->execute("sudo chmod -R 775 {$path}/storage {$path}/bootstrap/cache 2>/dev/null || chmod -R 775 {$path}/storage {$path}/bootstrap/cache 2>/dev/null || true");
 
-        $deployment->appendLog("Permissions fixed.");
+        $deployment->appendLog('Permissions fixed.');
     }
 
     private function uploadEnvFile(Application $app, Deployment $deployment): void
@@ -351,18 +380,19 @@ BASH;
         $envVariables = $app->environmentVariables;
 
         if ($envVariables->isEmpty()) {
-            $deployment->appendLog("No environment variables to upload.");
+            $deployment->appendLog('No environment variables to upload.');
+
             return;
         }
 
-        $deployment->appendLog("Uploading .env file...");
+        $deployment->appendLog('Uploading .env file...');
 
         $envContent = '';
         foreach ($envVariables as $var) {
             $value = $var->value;
             // Escape special characters in the value
             if (preg_match('/[\s#]/', $value)) {
-                $value = '"' . addslashes($value) . '"';
+                $value = '"'.addslashes($value).'"';
             }
             $envContent .= "{$var->key}={$value}\n";
         }
@@ -372,6 +402,6 @@ BASH;
         $this->sshService->connectSftp($app->server);
         $this->sshService->uploadContent($envContent, $envPath);
 
-        $deployment->appendLog(".env file uploaded successfully.");
+        $deployment->appendLog('.env file uploaded successfully.');
     }
 }
