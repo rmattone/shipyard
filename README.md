@@ -348,13 +348,21 @@ docker compose logs -f queue
 
 ### Running Tests
 
+Backend tests run against a dedicated MySQL database (`server_management_testing`) on the Docker MySQL service, so the stack must be up. The test database is created automatically on fresh installs. If your MySQL volume predates this feature, create it once with:
+
 ```bash
-# Backend tests
+docker compose exec mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS server_management_testing; GRANT ALL PRIVILEGES ON server_management_testing.* TO \"$MYSQL_USER\"@\"%\"; FLUSH PRIVILEGES;"'
+```
+
+```bash
+# Backend tests (require docker compose up -d)
 docker compose exec app php artisan test
 
 # Frontend tests (inside Docker)
 docker compose exec app bash -c "cd /var/www/frontend && npm test"
 ```
+
+Note: running `php artisan test` outside Docker will not work by default because MySQL is not exposed on the host. The test suite never touches the `server_management` development database.
 
 ### Useful Commands
 
