@@ -72,6 +72,7 @@ class Application extends Model
         $safeName = strtolower(preg_replace('/[^a-zA-Z0-9\-]/', '-', $name));
         $safeName = preg_replace('/-+/', '-', $safeName); // collapse multiple dashes
         $safeName = trim($safeName, '-');
+
         return "/var/www/shipyard/{$safeName}";
     }
 
@@ -384,6 +385,33 @@ SCRIPT;
     public function isStatic(): bool
     {
         return $this->type === 'static';
+    }
+
+    /**
+     * Build the command that restarts (or starts) the PM2 process for this app.
+     * Sources nvm first: pm2 is typically installed via nvm and is not on the
+     * PATH of a non-interactive SSH session. Used after atomic release
+     * activation and after rollbacks.
+     */
+    public function buildPm2RestartCommand(): string
+    {
+        $appName = Str::slug($this->name);
+        $workingDir = $this->usesAtomicDeployments() ? $this->getCurrentPath() : $this->deploy_path;
+
+        $parts = [
+            'export NVM_DIR="$HOME/.nvm"',
+            '[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"',
+            '[ -s "/usr/local/nvm/nvm.sh" ] && \\. "/usr/local/nvm/nvm.sh"',
+        ];
+
+        if (! empty($this->node_version)) {
+            $parts[] = "nvm use {$this->node_version} || nvm install {$this->node_version}";
+        }
+
+        $parts[] = "cd {$workingDir}";
+        $parts[] = "pm2 restart {$appName} || pm2 start npm --name \"{$appName}\" -- start";
+
+        return implode('; ', $parts);
     }
 
     public function getWebhookUrl(): string

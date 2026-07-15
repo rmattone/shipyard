@@ -18,11 +18,11 @@ class RollbackService
      */
     public function rollback(Application $app, Deployment $targetDeployment, Deployment $rollbackDeployment): Deployment
     {
-        if (!$app->usesAtomicDeployments()) {
+        if (! $app->usesAtomicDeployments()) {
             throw new RuntimeException('Rollback is only supported for atomic deployments.');
         }
 
-        if (!$targetDeployment->release_path) {
+        if (! $targetDeployment->release_path) {
             throw new RuntimeException('Target deployment does not have a release path.');
         }
 
@@ -72,7 +72,7 @@ class RollbackService
     {
         $currentDeployment = $app->activeDeployment();
 
-        if (!$currentDeployment) {
+        if (! $currentDeployment) {
             throw new RuntimeException('No active deployment found.');
         }
 
@@ -84,7 +84,7 @@ class RollbackService
             ->orderByDesc('created_at')
             ->first();
 
-        if (!$targetDeployment) {
+        if (! $targetDeployment) {
             throw new RuntimeException('No previous deployment available for rollback.');
         }
 
@@ -102,11 +102,11 @@ class RollbackService
 
         $result = $this->sshService->execute("test -d {$releasePath} && echo 'exists'");
 
-        if (!str_contains($result['output'], 'exists')) {
+        if (! str_contains($result['output'], 'exists')) {
             throw new RuntimeException("Release directory not found: {$releasePath}");
         }
 
-        $rollbackDeployment->appendLog("Release directory verified.");
+        $rollbackDeployment->appendLog('Release directory verified.');
     }
 
     /**
@@ -122,11 +122,11 @@ class RollbackService
         // Atomic symlink swap
         $result = $this->sshService->execute("ln -nfs {$releasePath} {$currentPath}");
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException("Failed to swap symlink: {$result['output']}");
         }
 
-        $rollbackDeployment->appendLog("Symlink swapped successfully.");
+        $rollbackDeployment->appendLog('Symlink swapped successfully.');
     }
 
     /**
@@ -134,7 +134,7 @@ class RollbackService
      */
     private function runPostRollbackTasks(Application $app, Deployment $targetDeployment, Deployment $rollbackDeployment): void
     {
-        $rollbackDeployment->appendLog("Running post-rollback tasks...");
+        $rollbackDeployment->appendLog('Running post-rollback tasks...');
 
         $currentPath = $app->getCurrentPath();
 
@@ -144,7 +144,7 @@ class RollbackService
             $this->runNodejsPostRollbackTasks($app, $rollbackDeployment);
         }
 
-        $rollbackDeployment->appendLog("Post-rollback tasks completed.");
+        $rollbackDeployment->appendLog('Post-rollback tasks completed.');
     }
 
     /**
@@ -152,7 +152,7 @@ class RollbackService
      */
     private function runLaravelPostRollbackTasks(string $currentPath, Deployment $rollbackDeployment): void
     {
-        $rollbackDeployment->appendLog("Clearing Laravel caches...");
+        $rollbackDeployment->appendLog('Clearing Laravel caches...');
 
         // Clear and rebuild caches
         $commands = [
@@ -162,8 +162,8 @@ class RollbackService
         ];
 
         foreach ($commands as $command) {
-            $result = $this->sshService->execute($command . " 2>&1", 60);
-            if (!empty($result['output'])) {
+            $result = $this->sshService->execute($command.' 2>&1', 60);
+            if (! empty($result['output'])) {
                 $rollbackDeployment->appendLog($result['output']);
             }
         }
@@ -178,10 +178,14 @@ class RollbackService
 
         $rollbackDeployment->appendLog("Restarting PM2 process: {$appName}");
 
-        $result = $this->sshService->execute("pm2 restart {$appName} 2>&1", 60);
+        $result = $this->sshService->execute($app->buildPm2RestartCommand().' 2>&1', 120);
 
-        if (!empty($result['output'])) {
+        if (! empty($result['output'])) {
             $rollbackDeployment->appendLog($result['output']);
+        }
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to restart PM2 process after rollback.');
         }
     }
 
@@ -190,7 +194,7 @@ class RollbackService
      */
     public function getAvailableReleases(Application $app): array
     {
-        if (!$app->usesAtomicDeployments()) {
+        if (! $app->usesAtomicDeployments()) {
             return [];
         }
 
@@ -201,7 +205,7 @@ class RollbackService
 
         $this->sshService->disconnect();
 
-        if (!$result['success'] || empty(trim($result['output']))) {
+        if (! $result['success'] || empty(trim($result['output']))) {
             return [];
         }
 
