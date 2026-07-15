@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Str;
 
@@ -167,13 +168,15 @@ class Deployment extends Model
      */
     public function markAsActive(): void
     {
-        // Deactivate all other deployments for this application
-        static::where('application_id', $this->application_id)
-            ->where('id', '!=', $this->id)
-            ->update(['is_active' => false]);
+        DB::transaction(function () {
+            // Deactivate all other deployments for this application
+            static::where('application_id', $this->application_id)
+                ->where('id', '!=', $this->id)
+                ->update(['is_active' => false]);
 
-        // Activate this deployment
-        $this->update(['is_active' => true]);
+            // Activate this deployment
+            $this->update(['is_active' => true]);
+        });
     }
 
     /**

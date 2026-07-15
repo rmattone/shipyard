@@ -44,6 +44,10 @@ class AtomicDeploymentTest extends TestCase
 
                 foreach ($this->fakeResults as $prefix => $result) {
                     if (str_starts_with($command, $prefix)) {
+                        if ($result instanceof \Exception) {
+                            throw $result;
+                        }
+
                         return $result;
                     }
                 }
@@ -128,7 +132,7 @@ class AtomicDeploymentTest extends TestCase
         $releasesPath = $app->getReleasesPath();
 
         // 7 releases, newest first (mirrors `ls -1d ... | sort -r` output with trailing slashes)
-        $ids = ['20260715070000', '20260715060000', '20260715050000', '20260715040000', '20260715030000', '20260715020000', '20260715010000'];
+        $ids = ['20260715070000-aaa111', '20260715060000-bbb222', '20260715050000-ccc333', '20260715040000-ddd444', '20260715030000-eee555', '20260715020000-fff666', '20260715010000-ggg777'];
         $listing = implode("\n", array_map(fn ($id) => "{$releasesPath}/{$id}/", $ids))."\n";
 
         $this->fakeResults['ls -1d'] = ['output' => $listing, 'exit_code' => 0, 'success' => true];
@@ -139,8 +143,8 @@ class AtomicDeploymentTest extends TestCase
         $removals = array_values(array_filter($this->executedCommands, fn ($c) => str_starts_with($c, 'rm -rf')));
 
         $this->assertSame([
-            "rm -rf {$releasesPath}/20260715020000",
-            "rm -rf {$releasesPath}/20260715010000",
+            "rm -rf {$releasesPath}/20260715020000-fff666",
+            "rm -rf {$releasesPath}/20260715010000-ggg777",
         ], $removals, 'Cleanup must delete exactly the two oldest releases, by absolute path.');
     }
 
@@ -152,22 +156,96 @@ class AtomicDeploymentTest extends TestCase
         $deployment = $this->makeDeployment($app);
         $releasesPath = $app->getReleasesPath();
 
-        $ids = ['20260715070000', '20260715060000', '20260715050000', '20260715040000', '20260715030000', '20260715020000', '20260715010000'];
+        $ids = ['20260715070000-aaa111', '20260715060000-bbb222', '20260715050000-ccc333', '20260715040000-ddd444', '20260715030000-eee555', '20260715020000-fff666', '20260715010000-ggg777'];
         $listing = implode("\n", array_map(fn ($id) => "{$releasesPath}/{$id}/", $ids))."\n";
 
         $this->fakeResults['ls -1d'] = ['output' => $listing, 'exit_code' => 0, 'success' => true];
         // The current symlink points at a release that is beyond the retention window
-        $this->fakeResults['readlink'] = ['output' => "{$releasesPath}/20260715010000\n", 'exit_code' => 0, 'success' => true];
+        $this->fakeResults['readlink'] = ['output' => "{$releasesPath}/20260715010000-ggg777\n", 'exit_code' => 0, 'success' => true];
 
         app(AtomicDeploymentService::class)->cleanupOldReleases($app, $deployment);
 
         $removals = array_values(array_filter($this->executedCommands, fn ($c) => str_starts_with($c, 'rm -rf')));
 
         $this->assertSame(
-            ["rm -rf {$releasesPath}/20260715020000"],
+            ["rm -rf {$releasesPath}/20260715020000-fff666"],
             $removals,
             'Cleanup must skip the release the current symlink points to.'
         );
+    }
+
+    public function test_failed_deploy_removes_partial_release_directory(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeAtomicApp('nodejs');
+        $deployment = $this->makeDeployment($app);
+
+        // Deploy script fails after the clone succeeded
+        $this->fakeResults['bash /tmp/deploy-'] = ['output' => 'build exploded', 'exit_code' => 1, 'success' => false];
+
+        try {
+            app(DeploymentService::class)->runDeployment($deployment);
+            $this->fail('Expected the deployment to throw.');
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        $this->assertNotNull(
+            $this->indexOfCommandContaining("rm -rf {$deployment->release_path}"),
+            'A deployment that failed before activation must remove its partial release directory.'
+        );
+
+        $deployment->refresh();
+        $this->assertSame('failed', $deployment->status);
+        $this->assertFalse((bool) $deployment->is_active);
+        $this->assertSame('failed', $app->fresh()->status);
+    }
+
+    public function test_failure_after_activation_keeps_release_and_marks_it_active(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeAtomicApp('nodejs');
+        $deployment = $this->makeDeployment($app);
+
+        // PM2 restart fails after the symlink swap; the command starts with the nvm export
+        $this->fakeResults['export NVM_DIR'] = ['output' => 'pm2 not found', 'exit_code' => 1, 'success' => false];
+
+        try {
+            app(DeploymentService::class)->runDeployment($deployment);
+            $this->fail('Expected the deployment to throw.');
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        $this->assertNull(
+            $this->indexOfCommandContaining("rm -rf {$deployment->release_path}"),
+            'A release that was activated must never be deleted by failure cleanup.'
+        );
+
+        $deployment->refresh();
+        $this->assertSame('failed', $deployment->status);
+        $this->assertTrue((bool) $deployment->is_active, 'The activated release must be tracked as active even though the deployment failed.');
+        $this->assertSame('failed', $app->fresh()->status);
+    }
+
+    public function test_cleanup_failure_does_not_fail_the_deployment(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeAtomicApp('nodejs');
+        $deployment = $this->makeDeployment($app);
+
+        $this->fakeResults['ls -1d'] = new \RuntimeException('SSH connection lost during cleanup');
+
+        app(DeploymentService::class)->runDeployment($deployment);
+
+        $deployment->refresh();
+        $this->assertSame('success', $deployment->status, 'Best-effort cleanup must not fail a live deployment.');
+        $this->assertTrue((bool) $deployment->is_active);
+        $this->assertSame('active', $app->fresh()->status);
+        $this->assertStringContainsString('WARNING: release cleanup failed', $deployment->log);
     }
 
     private function indexOfCommandContaining(string $needle): ?int
