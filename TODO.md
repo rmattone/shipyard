@@ -35,25 +35,30 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: add a PM2 reload/start step after `activateRelease` for Node.js apps, using the `current` symlink as cwd.
   Fixed (July 2026): new `Application::buildPm2RestartCommand()` (sources nvm, honors `node_version`, runs `pm2 restart || pm2 start` in the current path) called from `DeploymentService::restartNodeProcess()` after activation, throwing on failure. `RollbackService::runNodejsPostRollbackTasks()` reuses it and now also fails loudly (it previously ran bare `pm2 restart` without nvm and ignored errors). Regression tests in `AtomicDeploymentTest`.
 
-- [ ] **DEPLOY-3 (High): No concurrency control on deployments.**
+- [x] **DEPLOY-3 (High): No concurrency control on deployments.**
   No lock, no `ShouldBeUnique`, no in-flight check in `ApplicationController::deploy` (`backend/app/Http/Controllers/Api/ApplicationController.php:191-222`), `WebhookController`, or `ProcessDeployment`. It only works because docker-compose runs exactly one queue worker. Two workers (or the frontend double-fire bug FE-2) mean interleaved git operations and symlink swaps on the same app. Note `DatabaseController::install:47-56` already has a duplicate-run guard to copy.
   Fix: per-application lock (cache lock or `WithoutOverlapping` middleware) plus a "deployment already running" 409 in the controller.
+  Fixed (July 2026): shared `WithoutOverlapping` lock on both jobs, 409 guards on deploy/rollback endpoints, 200-skip on the webhook. Also fixed `phpunit.xml` to set `CACHE_STORE` (Laravel 11 ignores `CACHE_DRIVER`).
 
-- [ ] **DEPLOY-4 (High): Release ID collisions at 1-second resolution.**
+- [x] **DEPLOY-4 (High): Release ID collisions at 1-second resolution.**
   `Deployment::generateReleaseId()` (`backend/app/Models/Deployment.php`, timestamp format) gives two deployments created in the same second the identical `release_id` and `release_path`. The second clone fails with "destination path already exists" (or clobbers, combined with DEPLOY-3).
   Fix: append a uniq suffix (deployment id or random) to the release id.
+  Fixed (July 2026): random 6-char suffix, `LC_ALL=C` on release sorts, and a migration widening `deployments.release_id` (it was sized exactly to the old format).
 
-- [ ] **DEPLOY-5 (High): Failed releases are never cleaned up and poison the retention window.**
+- [x] **DEPLOY-5 (High): Failed releases are never cleaned up and poison the retention window.**
   On failure, the partially built release directory is left on disk (no removal in the catch path of `DeploymentService.php:79-87`). Cleanup (`AtomicDeploymentService.php:263-284`) keeps the N newest directories regardless of success. Five failed deploys in a row can push every good release (including the active one's rollback target) out of the window once DEPLOY-1 is fixed.
   Fix: delete the release dir in the failure path, and make cleanup skip the release the `current` symlink points to.
+  Fixed (July 2026): failure path removes the partial release (guarded to paths under the releases dir, only when activation was not reached); the skip-current guard shipped with DEPLOY-1.
 
-- [ ] **DEPLOY-6 (Medium): Failure after symlink swap leaves DB state contradicting server state.**
+- [x] **DEPLOY-6 (Medium): Failure after symlink swap leaves DB state contradicting server state.**
   In `DeploymentService.php:65-75`, if the SSH connection drops between `activateRelease` and `markAsSuccess`, the new release is live but the deployment is marked failed and the previous record keeps `is_active = true`. Later rollbacks then operate on wrong assumptions.
   Fix: mark the deployment record active/successful immediately after the symlink swap succeeds, before cleanup runs.
+  Fixed (July 2026): active flag recorded right after activation (even on later failure), cleanup demoted to best-effort, `markAsActive` wrapped in a transaction.
 
-- [ ] **DEPLOY-7 (Medium): Deployments stuck in `running` forever if the worker dies.**
+- [x] **DEPLOY-7 (Medium): Deployments stuck in `running` forever if the worker dies.**
   `failed()` handlers cover exceptions and timeouts, but an OOM-killed or restarted queue container (`docker compose down` mid-deploy) leaves the deployment `running` and the app `deploying` with no recovery.
   Fix: scheduled reaper that fails deployments older than the job timeout, or use job middleware with heartbeat.
+  Fixed (July 2026): `deployments:reap-stale` command scheduled every ten minutes, plus a new `scheduler` docker-compose service running `schedule:work` (nothing executed the scheduler before, which also unblocks SSL-1).
 
 - [ ] **DEPLOY-8 (Medium): Git credentials written to predictable world-readable files in /tmp on the target.**
   `GitProviderService.php:159-186` and `DeploymentService.php:226-236` embed raw private keys or passwords in scripts uploaded to `/tmp/git-clone-{appId}-{time}.sh` (default 0644, predictable name). Any local user on the target can read credentials during the deploy window or pre-create the path.
