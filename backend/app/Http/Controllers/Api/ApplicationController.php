@@ -56,7 +56,7 @@ class ApplicationController extends Controller
         $application = Application::create($validated);
 
         // Create primary domain for the application (if domain provided)
-        if (!empty($validated['domain'])) {
+        if (! empty($validated['domain'])) {
             $application->domains()->create([
                 'domain' => $validated['domain'],
                 'is_primary' => true,
@@ -132,6 +132,7 @@ class ApplicationController extends Controller
         }
 
         $application->load('gitProvider');
+
         return response()->json($application);
     }
 
@@ -174,11 +175,11 @@ class ApplicationController extends Controller
         if ($application->type === 'nodejs') {
             $appName = $application->name;
             $sshService->execute("pm2 delete {$appName} 2>/dev/null || true");
-            $sshService->execute("pm2 save 2>/dev/null || true");
+            $sshService->execute('pm2 save 2>/dev/null || true');
         }
 
         // Remove the deployment directory
-        if (!empty($deployPath) && $deployPath !== '/' && $deployPath !== '/var/www') {
+        if (! empty($deployPath) && $deployPath !== '/' && $deployPath !== '/var/www') {
             // Safety check: ensure it's under a reasonable path
             if (str_starts_with($deployPath, '/var/www/') || str_starts_with($deployPath, '/home/')) {
                 $sshService->execute("rm -rf {$deployPath}");
@@ -193,6 +194,12 @@ class ApplicationController extends Controller
         $request->validate([
             'commit_hash' => 'nullable|string|max:40',
         ]);
+
+        if ($application->hasDeploymentInProgress()) {
+            return response()->json([
+                'message' => 'A deployment is already pending or running for this application.',
+            ], 409);
+        }
 
         // For atomic deployments, generate release_id and release_path
         $releaseId = null;
@@ -298,7 +305,7 @@ class ApplicationController extends Controller
 
         // Verify all tags belong to the same server as the application
         $tagIds = $validated['tag_ids'];
-        if (!empty($tagIds)) {
+        if (! empty($tagIds)) {
             $validTagCount = $application->server->tags()
                 ->whereIn('id', $tagIds)
                 ->count();
