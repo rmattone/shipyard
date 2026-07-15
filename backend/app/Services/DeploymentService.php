@@ -34,6 +34,7 @@ class DeploymentService
     private function runAtomicDeployment(Deployment $deployment): Deployment
     {
         $app = $deployment->application;
+        $activated = false;
 
         try {
             $app->update(['status' => 'deploying']);
@@ -63,30 +64,67 @@ class DeploymentService
 
             // Atomic symlink swap
             $this->atomicDeploymentService->activateRelease($app, $deployment, $releasePath);
+            $activated = true;
 
             // Restart the PM2 process so Node.js apps serve the new release
             $this->restartNodeProcess($app, $deployment);
 
-            // Cleanup old releases
-            $this->atomicDeploymentService->cleanupOldReleases($app, $deployment);
+            // The release is live: record that before best-effort housekeeping,
+            // so a late failure cannot leave the DB contradicting the server.
+            $deployment->markAsActive();
+            $app->update(['status' => 'active']);
+
+            // Cleanup old releases (best-effort; must not fail a live deployment)
+            try {
+                $this->atomicDeploymentService->cleanupOldReleases($app, $deployment);
+            } catch (\Exception $cleanupError) {
+                $deployment->appendLog("WARNING: release cleanup failed: {$cleanupError->getMessage()}");
+            }
+
+            $deployment->markAsSuccess();
 
             $this->sshService->disconnect();
-
-            // Mark deployment as active and successful
-            $deployment->markAsActive();
-            $deployment->markAsSuccess();
-            $app->update(['status' => 'active']);
 
             return $deployment;
 
         } catch (\Exception $e) {
             $deployment->appendLog("ERROR: {$e->getMessage()}");
+
+            if ($activated) {
+                // The symlink swapped before the failure, so this release is
+                // what the server is serving; is_active must reflect that.
+                $deployment->markAsActive();
+            } else {
+                $this->cleanupFailedRelease($app, $deployment);
+            }
+
             $deployment->markAsFailed();
             $app->update(['status' => 'failed']);
 
             $this->sshService->disconnect();
 
             throw $e;
+        }
+    }
+
+    /**
+     * Remove the partially built release directory of a deployment that
+     * failed before activation, so failed deploys do not accumulate on disk
+     * or occupy the release retention window.
+     */
+    private function cleanupFailedRelease(Application $app, Deployment $deployment): void
+    {
+        $releasePath = $deployment->release_path;
+
+        if (! $releasePath || ! str_starts_with($releasePath, $app->getReleasesPath().'/')) {
+            return;
+        }
+
+        try {
+            $this->sshService->execute("rm -rf {$releasePath}");
+            $deployment->appendLog("Cleaned up failed release: {$deployment->release_id}");
+        } catch (\Exception $cleanupError) {
+            $deployment->appendLog("WARNING: could not clean up failed release: {$cleanupError->getMessage()}");
         }
     }
 
