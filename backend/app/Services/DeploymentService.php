@@ -425,15 +425,7 @@ BASH;
 
         $deployment->appendLog('Uploading .env file...');
 
-        $envContent = '';
-        foreach ($envVariables as $var) {
-            $value = $var->value;
-            // Escape special characters in the value
-            if (preg_match('/[\s#]/', $value)) {
-                $value = '"'.addslashes($value).'"';
-            }
-            $envContent .= "{$var->key}={$value}\n";
-        }
+        $envContent = \App\Support\EnvFile::serialize($envVariables);
 
         $envPath = "{$app->deploy_path}/.env";
 

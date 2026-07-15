@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Support\EnvFile;
 use Exception;
 
 class EnvSyncService
@@ -59,7 +60,7 @@ class EnvSyncService
 
         $result = $this->sshService->uploadContent($envContent, $envPath);
 
-        if (!$result) {
+        if (! $result) {
             throw new Exception('Failed to upload .env file');
         }
     }
@@ -69,16 +70,7 @@ class EnvSyncService
      */
     private function buildEnvContent(Application $application): string
     {
-        $variables = $application->environmentVariables()->get();
-
-        return $variables->map(function ($var) {
-            $value = $var->value;
-            // Quote values that contain spaces, special characters, or are empty
-            if (preg_match('/[\s#"\'\\\\]/', $value) || $value === '') {
-                $value = '"' . addslashes($value) . '"';
-            }
-            return $var->key . '=' . $value;
-        })->implode("\n");
+        return EnvFile::serialize($application->environmentVariables()->get());
     }
 
     /**
@@ -91,6 +83,7 @@ class EnvSyncService
             if ($application->isLaravel()) {
                 return "{$application->getSharedPath()}/.env";
             }
+
             return "{$application->getCurrentPath()}/.env";
         }
 
@@ -108,9 +101,9 @@ class EnvSyncService
         $command = "cd {$workingDir} && php artisan config:clear && php artisan config:cache";
         $result = $this->sshService->execute($command);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             // Log the failure but don't throw - env was already synced
-            \Log::warning("Laravel config cache failed for app {$application->id}: " . $result['output']);
+            \Log::warning("Laravel config cache failed for app {$application->id}: ".$result['output']);
         }
 
         return $result['output'];
