@@ -38,7 +38,7 @@ class ApplicationController extends Controller
             'domain' => 'nullable|string|max:255',
             'repository_url' => 'required|string|max:255',
             'branch' => 'nullable|string|max:255',
-            'deploy_path' => 'nullable|string|max:255',
+            'deploy_path' => ['nullable', 'string', 'max:255', $this->deployPathRule()],
             'deploy_script' => 'nullable|string',
             'ssl_enabled' => 'nullable|boolean',
             'deployment_strategy' => 'nullable|in:in_place,atomic',
@@ -51,7 +51,16 @@ class ApplicationController extends Controller
 
         $validated['branch'] = $validated['branch'] ?? 'main';
 
-        // deploy_path and deploy_script will be auto-generated if not provided (in model)
+        // Resolve the effective deploy path (the model would otherwise
+        // auto-generate it) so we can reject collisions before creating.
+        $validated['deploy_path'] = $validated['deploy_path']
+            ?? Application::generateDeployPath($validated['name']);
+
+        if ($this->deployPathTaken($validated['server_id'], $validated['deploy_path'])) {
+            return response()->json([
+                'message' => 'Another application on this server already uses this deploy path. Choose a different name or deploy path.',
+            ], 422);
+        }
 
         $application = Application::create($validated);
 
@@ -106,7 +115,7 @@ class ApplicationController extends Controller
             'domain' => 'sometimes|required|string|max:255',
             'repository_url' => 'sometimes|required|string|max:255',
             'branch' => 'nullable|string|max:255',
-            'deploy_path' => 'sometimes|required|string|max:255',
+            'deploy_path' => ['sometimes', 'required', 'string', 'max:255', $this->deployPathRule()],
             'deploy_script' => 'nullable|string',
             'ssl_enabled' => 'nullable|boolean',
             'deployment_strategy' => 'nullable|in:in_place,atomic',
@@ -117,21 +126,43 @@ class ApplicationController extends Controller
             'writable_paths.*' => 'string',
         ]);
 
-        $oldDomain = $application->domain;
+        $serverId = $validated['server_id'] ?? $application->server_id;
+        if (isset($validated['deploy_path'])
+            && $this->deployPathTaken($serverId, $validated['deploy_path'], $application->id)) {
+            return response()->json([
+                'message' => 'Another application on this server already uses this deploy path.',
+            ], 422);
+        }
+
+        $oldDomain = $application->primaryDomain()?->domain ?? $application->domain;
         $application->update($validated);
 
-        // Update nginx config if domain changed
+        // Update the primary domain and nginx config when the domain changes.
+        // NginxService reads from the domains table, so updating only the
+        // legacy `domain` column would be a no-op on the served config.
         if (isset($validated['domain']) && $oldDomain !== $validated['domain']) {
+            $primary = $application->primaryDomain();
+            if ($primary) {
+                $primary->update(['domain' => $validated['domain']]);
+            } else {
+                $application->domains()->create([
+                    'domain' => $validated['domain'],
+                    'is_primary' => true,
+                    'ssl_enabled' => $application->ssl_enabled,
+                ]);
+            }
+
             try {
-                $this->nginxService->remove($application);
-                $application->domain = $validated['domain'];
-                $this->nginxService->deploy($application);
+                // Remove the config named after the old domain, then deploy
+                // under the new one (config files are named per primary domain).
+                $this->nginxService->remove($application, $oldDomain);
+                $this->nginxService->deploy($application->fresh(['domains']));
             } catch (\Exception $e) {
-                // Log error
+                report($e);
             }
         }
 
-        $application->load('gitProvider');
+        $application->load(['gitProvider', 'domains']);
 
         return response()->json($application);
     }
@@ -178,15 +209,45 @@ class ApplicationController extends Controller
             $sshService->execute('pm2 save 2>/dev/null || true');
         }
 
-        // Remove the deployment directory
-        if (! empty($deployPath) && $deployPath !== '/' && $deployPath !== '/var/www') {
-            // Safety check: ensure it's under a reasonable path
-            if (str_starts_with($deployPath, '/var/www/') || str_starts_with($deployPath, '/home/')) {
-                $sshService->execute("rm -rf {$deployPath}");
-            }
+        // Remove the deployment directory, but only if it is a safe,
+        // sufficiently deep path (never bare prefixes like /home/ or /var/www).
+        if ($this->isSafeDeployPath($deployPath)) {
+            $sshService->execute('rm -rf '.escapeshellarg($deployPath));
         }
 
         $sshService->disconnect();
+    }
+
+    /**
+     * A deploy path validation rule: absolute, at least three levels deep,
+     * no traversal. Prevents both collisions and dangerous deletions such as
+     * rm -rf /home/.
+     */
+    private function deployPathRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) {
+            if (! is_string($value) || ! $this->isSafeDeployPath($value)) {
+                $fail('The deploy path must be an absolute path at least three levels deep (for example /var/www/shipyard/app) and must not contain "..".');
+            }
+        };
+    }
+
+    private function isSafeDeployPath(?string $path): bool
+    {
+        if (empty($path) || str_contains($path, '..')) {
+            return false;
+        }
+
+        // At least three path segments, e.g. /var/www/app or /home/user/app
+        return (bool) preg_match('#^(/[A-Za-z0-9._-]+){3,}$#', $path);
+    }
+
+    private function deployPathTaken(int $serverId, string $deployPath, ?int $exceptId = null): bool
+    {
+        return Application::where('server_id', $serverId)
+            ->where('deploy_path', $deployPath)
+            ->when($exceptId, fn ($q) => $q->where('id', '!=', $exceptId))
+            ->exists();
     }
 
     public function deploy(Request $request, Application $application): JsonResponse
