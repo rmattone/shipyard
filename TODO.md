@@ -96,13 +96,15 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 3. Rollback
 
-- [ ] **RB-1 (High): "Rollback to previous" can activate the wrong release.**
+- [x] **RB-1 (High): "Rollback to previous" can activate the wrong release.**
   `RollbackController.php:116-121` and `RollbackService.php:80-85` pick "most recent successful deployment that is not the current record" without comparing against what the `current` symlink points to. Scenario A: after rolling back R5 to R4, pressing rollback-to-previous again re-activates broken R5 (you can never go back more than one hop). Scenario B: deploy D6 fails before activation (D5 still live); rollback-to-previous picks D4, one release too far.
   Fix: resolve the live release via the symlink (`getCurrentReleasePath`, currently dead code) and pick the newest successful release older than it.
+  Fixed (July 2026): `rollbackToPrevious` resolves the current release via `getCurrentReleasePath` and selects the newest successful release with a lower id than the release's original deploy, so repeated rollbacks walk backwards instead of ping-ponging.
 
-- [ ] **RB-2 (Medium): Rollback to failed deployments is allowed.**
+- [x] **RB-2 (Medium): Rollback to failed deployments is allowed.**
   `RollbackController.php:54-75` checks ownership, `release_path`, and `is_active` but never `status === 'success'` (unlike `Application::rollbackableDeployments()`). A deployment that cloned but failed its build passes the directory existence check and its broken release goes live.
   Fix: require success status in the controller validation.
+  Fixed (July 2026): `RollbackController::rollback` returns 422 when the target's status is not `success`.
 
 - [ ] **RB-3 (Medium): In-place apps have no rollback story at all.**
   `RollbackService.php:21-23` throws for non-atomic apps. No fallback (e.g. `git reset --hard <previous commit>`).
@@ -268,9 +270,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: refuse to seed without explicit credentials (throw), read via `config()`.
   Fixed (July 2026): seeder throws with instructions when `ADMIN_PASSWORD` is unset (install.sh already prompts and writes it, so the normal flow is unaffected).
 
-- [ ] **API-3 (High): Webhooks only work for GitLab; GitHub/Bitbucket always rejected.**
+- [x] **API-3 (High): Webhooks only work for GitLab; GitHub/Bitbucket always rejected.**
   `WebhookController.php:22` delegates only to `GitLabService` (`GitLabService.php:11-24`): validates the `X-Gitlab-Token` header and requires `object_kind === 'push'`. GitHub (`X-Hub-Signature-256` HMAC) and Bitbucket pushes get 401/422 even though both providers are fully supported for repo browsing and cloning. README documents `/api/webhook/github/...` routes that do not exist.
   Fix: per-provider webhook parsers (GitHub HMAC verification, Bitbucket), dispatch on the app's provider type; fix the README.
+  Fixed (July 2026): `App\Services\Webhooks\WebhookHandlerFactory` resolves a per-provider handler (GitLab token, GitHub HMAC, Bitbucket URL token/signature); the controller dispatches on the app's provider. GitLabService was replaced by `GitLabWebhookHandler`. README webhook routes/instructions corrected (single `/api/webhook/{app-id}` endpoint).
 
 - [ ] **API-4 (High): Duplicate app names silently share a deploy path.**
   No unique constraint on `applications.name` or `deploy_path` (migration `2024_01_01_000004`), no duplicate check in `ApplicationController::store:30-56`; `deploy_path` auto-generates from the slugged name, so "My App" and "my-app" collide. Deployments overwrite each other and `DELETE /applications/{id}?delete_files=1` rm-rf's the surviving app's files. The deploy-path allowlist also accepts `/home/` exactly (`ApplicationController.php:166-189`), so `deploy_path=/home/` plus delete wipes all home directories.
@@ -286,6 +289,7 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 - [ ] **API-7 (Medium): Commit message column overflows break webhook deploys.**
   `deployments.commit_message` is VARCHAR(255) (`2024_01_01_000006_create_deployments_table.php:16`); a push whose head commit message exceeds 255 chars throws a QueryException in `WebhookController.php:47-55` and the deploy never runs. Also unvalidated in `ApplicationController::deploy:209`.
+  Partially mitigated (July 2026): the webhook path now truncates `commit_message` to 255 chars before insert, so pushes no longer 500. Widening the column to TEXT is still worthwhile.
   Fix: truncate before insert (or make the column TEXT).
 
 - [ ] **API-8 (Medium): App `domain` update is a no-op once a Domain row exists.**
@@ -390,7 +394,8 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 10. Built in the backend, missing in the UI
 
-- [ ] **GAP-UI-1 (High): No rollback UI at all.** `GET /applications/{id}/releases`, `POST .../rollback`, `POST .../rollback/previous` exist in the backend but are not even present in `api.ts`. Atomic deployments advertise instant rollback with no way to trigger it.
+- [x] **GAP-UI-1 (High): No rollback UI at all.** `GET /applications/{id}/releases`, `POST .../rollback`, `POST .../rollback/previous` exist in the backend but are not even present in `api.ts`. Atomic deployments advertise instant rollback with no way to trigger it.
+  Fixed (July 2026): added the three API client methods and a Releases section on the deployments page (atomic apps) with per-release roll-back actions and a rollback-to-previous button, each behind a confirm dialog.
 - [ ] **GAP-UI-2 (Medium): No revoke-privileges UI.** Client exists (`api.ts:417`) but `DatabaseDetail.tsx` only grants; a granted privilege can never be removed short of deleting the user.
 - [ ] **GAP-UI-3 (Medium): No SSH key rotation for servers.** `PUT /servers/{id}` accepts `private_key` (`ServerController.php:70-76`) but ServerSettings has no field, so rotating a key requires recreating the server (compounds FE-1).
 - [ ] **GAP-UI-4 (Low): Unused endpoints/client code.** App-level SSL (`setupSsl`), live SSL status (`getSslStatus`), default Node version, deploy-path generation (`AppNew` reimplements slugging client-side, divergence risk), installation history/status endpoints, per-variable env CRUD (`envApi.*` dead).
@@ -426,6 +431,7 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 ## 12. Documentation debt
 
 - [ ] **DOC-1: README overclaims.** Documents GitHub webhook routes that don't exist (API-3), claims SSL auto-renewal (SSL-1), and implies queue worker management via "queue restart" (FEAT-1). Reconcile in whichever direction each item is resolved.
+  Partially done (July 2026): webhook routes/instructions corrected (API-3) and SSL auto-renewal is now real (SSL-1). Remaining: the "queue restart" wording still implies worker management that does not exist (FEAT-1).
 - [ ] **DOC-2: CLAUDE.md inaccuracies.** Claims `SSHService` handles connection pooling (it doesn't, DEPLOY-12) and documents `npm run lint` (broken, TEST-2).
 
 ---

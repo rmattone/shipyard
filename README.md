@@ -194,12 +194,12 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 ### Setting Up Automatic Deployments
 
 1. Go to your application's **Settings**
-2. Copy the **Webhook URL**
-3. Add it to your Git provider:
-   - **GitHub**: Settings → Webhooks → Add webhook
-   - **GitLab**: Settings → Webhooks → Add webhook
-   - **Bitbucket**: Settings → Webhooks → Add webhook
-4. Push to your repository - ShipYard will deploy automatically
+2. Copy the **Webhook URL** and the **Webhook Secret**
+3. Add it to your Git provider (all use the same URL, `/api/webhook/{app-id}`):
+   - **GitHub**: Settings → Webhooks → Add webhook. Set the secret to the webhook secret. Content type `application/json`.
+   - **GitLab**: Settings → Webhooks → Add webhook. Put the webhook secret in the **Secret token** field.
+   - **Bitbucket**: Settings → Webhooks → Add webhook. Append the secret as a query string: `/api/webhook/{app-id}?token=YOUR_SECRET`.
+4. Push to your repository. ShipYard deploys automatically when the pushed branch matches the application's branch.
 
 ### Managing Environment Variables
 
@@ -429,9 +429,7 @@ docker compose exec app php artisan queue:restart
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/webhook/github/{app-id}` | POST | GitHub webhook |
-| `/api/webhook/gitlab/{app-id}` | POST | GitLab webhook |
-| `/api/webhook/bitbucket/{app-id}` | POST | Bitbucket webhook |
+| `/api/webhook/{app-id}` | POST | Push webhook (GitHub, GitLab, or Bitbucket; the provider is inferred from the application) |
 
 ---
 
