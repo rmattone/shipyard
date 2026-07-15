@@ -31,6 +31,12 @@ class NginxService
 
         $this->sshService->connect($app->server);
 
+        // Snapshot the currently deployed config so a failed test can roll
+        // back. Leaving a broken config enabled would make every later
+        // nginx -t on this server fail and break nginx restarts for all sites.
+        $existing = $this->sshService->execute("cat {$configPath} 2>/dev/null");
+        $previousConfig = ($existing['success'] && ! empty($existing['output'])) ? $existing['output'] : null;
+
         // Upload config
         $this->sshService->uploadContent($config, $configPath);
 
@@ -39,7 +45,16 @@ class NginxService
 
         // Test nginx config
         $result = $this->sshService->execute('nginx -t 2>&1');
-        if (!$result['success']) {
+        if (! $result['success']) {
+            if ($previousConfig !== null) {
+                // Restore the previous (working) config
+                $this->sshService->uploadContent($previousConfig, $configPath);
+            } else {
+                // No previous config: remove the broken one entirely
+                $this->sshService->execute("rm -f {$enabledPath} {$configPath}");
+            }
+
+            $this->sshService->disconnect();
             throw new RuntimeException("Nginx config test failed: {$result['output']}");
         }
 
@@ -83,7 +98,7 @@ class NginxService
 
         $this->sshService->disconnect();
 
-        if (!$result['success'] || empty($result['output'])) {
+        if (! $result['success'] || empty($result['output'])) {
             // Return a generated config if no config file exists
             return $this->generateConfig($app);
         }
@@ -102,6 +117,12 @@ class NginxService
 
         $this->sshService->connect($app->server);
 
+        // Snapshot the currently deployed config so a failed test restores a
+        // known-working state (a freshly generated config is not guaranteed
+        // to be valid either)
+        $existing = $this->sshService->execute("cat {$configPath} 2>/dev/null");
+        $previousConfig = ($existing['success'] && ! empty($existing['output'])) ? $existing['output'] : null;
+
         // Upload the new config
         $this->sshService->uploadContent($content, $configPath);
 
@@ -110,10 +131,13 @@ class NginxService
 
         // Test nginx config
         $result = $this->sshService->execute('nginx -t 2>&1');
-        if (!$result['success']) {
-            // Restore the generated config if test fails
-            $generatedConfig = $this->generateConfig($app);
-            $this->sshService->uploadContent($generatedConfig, $configPath);
+        if (! $result['success']) {
+            if ($previousConfig !== null) {
+                $this->sshService->uploadContent($previousConfig, $configPath);
+            } else {
+                $this->sshService->execute("rm -f {$enabledPath} {$configPath}");
+            }
+
             $this->sshService->disconnect();
             throw new RuntimeException("Nginx config test failed: {$result['output']}");
         }
@@ -135,6 +159,7 @@ class NginxService
         if (empty($domains)) {
             return $app->domain;
         }
+
         return implode(' ', $domains);
     }
 
@@ -208,7 +233,7 @@ server {
 NGINX;
 
             // If there are non-SSL domains, add a separate port 80 block that serves them
-            if (!empty($nonSslDomains)) {
+            if (! empty($nonSslDomains)) {
                 $nonSslServerName = implode(' ', $nonSslDomains);
                 $blocks[0] = <<<NGINX
 server {
@@ -251,7 +276,7 @@ server {
 NGINX;
 
                 // Redirect block for SSL domains only
-                $sslDomainNames = implode(' ', array_map(fn($d) => $d->domain, $sslDomains));
+                $sslDomainNames = implode(' ', array_map(fn ($d) => $d->domain, $sslDomains));
                 $blocks[] = <<<NGINX
 server {
     listen 80;
@@ -382,7 +407,7 @@ server {
 NGINX;
 
             // If there are non-SSL domains, serve them on port 80 instead of redirecting
-            if (!empty($nonSslDomains)) {
+            if (! empty($nonSslDomains)) {
                 $nonSslServerName = implode(' ', $nonSslDomains);
                 $blocks[0] = <<<NGINX
 server {
@@ -410,7 +435,7 @@ server {
 }
 NGINX;
 
-                $sslDomainNames = implode(' ', array_map(fn($d) => $d->domain, $sslDomains));
+                $sslDomainNames = implode(' ', array_map(fn ($d) => $d->domain, $sslDomains));
                 $blocks[] = <<<NGINX
 server {
     listen 80;
@@ -512,7 +537,7 @@ server {
 NGINX;
 
             // If there are non-SSL domains, serve them on port 80 instead of redirecting
-            if (!empty($nonSslDomains)) {
+            if (! empty($nonSslDomains)) {
                 $nonSslServerName = implode(' ', $nonSslDomains);
                 $blocks[0] = <<<NGINX
 server {
@@ -544,7 +569,7 @@ server {
 }
 NGINX;
 
-                $sslDomainNames = implode(' ', array_map(fn($d) => $d->domain, $sslDomains));
+                $sslDomainNames = implode(' ', array_map(fn ($d) => $d->domain, $sslDomains));
                 $blocks[] = <<<NGINX
 server {
     listen 80;
@@ -637,5 +662,4 @@ ssl_certificate /etc/letsencrypt/live/{$domain->domain}/fullchain.pem;
     ssl_prefer_server_ciphers off;
 SSL;
     }
-
 }
