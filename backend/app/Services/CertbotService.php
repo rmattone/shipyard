@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Domain;
+use App\Models\Server;
+use App\Support\RemoteSudo;
 use Carbon\Carbon;
 use RuntimeException;
 
@@ -36,7 +38,7 @@ class CertbotService
         // webroot by every nginx template; the app's document root cannot be
         // used because Node.js apps proxy it entirely to the app process.
         $webroot = NginxService::ACME_WEBROOT;
-        $this->sshService->execute("mkdir -p {$webroot}");
+        $this->sshService->execute(RemoteSudo::wrap($app->server, "mkdir -p {$webroot}"));
         $command = sprintf(
             "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
@@ -44,7 +46,7 @@ class CertbotService
             $email
         );
 
-        $result = $this->sshService->execute($command, 120);
+        $result = $this->sshService->execute(RemoteSudo::wrap($app->server, $command), 120);
 
         if (! $result['success']) {
             $this->sshService->disconnect();
@@ -52,19 +54,27 @@ class CertbotService
         }
 
         // Get certificate info to update the domain
-        $certInfo = $this->getCertificateInfo($domain->domain);
+        $certInfo = $this->getCertificateInfo($domain->domain, $app->server);
 
         $this->sshService->disconnect();
 
-        // Update domain record
+        // Update domain record. This must happen before the nginx deploy:
+        // templates only emit the 443 block for SSL-enabled Domain rows.
         $domain->update([
             'ssl_enabled' => true,
             'ssl_expires_at' => $certInfo['expiry_date'],
             'ssl_issuer' => $certInfo['issuer'],
         ]);
 
-        // Redeploy nginx config with SSL
-        $this->nginxService->deploy($app);
+        // Redeploy nginx config with SSL. If that fails, revert the flag:
+        // the certificate exists on disk but is not being served, and the
+        // panel must not show SSL as active while HTTPS is dead.
+        try {
+            $this->nginxService->deploy($app);
+        } catch (\Throwable $e) {
+            $domain->update(['ssl_enabled' => false]);
+            throw new RuntimeException("Certificate obtained, but activating it in nginx failed: {$e->getMessage()}", 0, $e);
+        }
 
         return [
             'success' => true,
@@ -85,8 +95,9 @@ class CertbotService
 
         $certPath = "/etc/letsencrypt/live/{$domain->domain}/fullchain.pem";
 
-        // Check if certificate file exists
-        $existsResult = $this->sshService->execute("test -f {$certPath} && echo 'exists'");
+        // Check if certificate file exists (/etc/letsencrypt/live is
+        // root-only readable, hence sudo for non-root users)
+        $existsResult = $this->sshService->execute(RemoteSudo::wrap($app->server, "test -f {$certPath} && echo 'exists'"));
         if (! $existsResult['success'] || trim($existsResult['output']) !== 'exists') {
             $this->sshService->disconnect();
 
@@ -100,10 +111,10 @@ class CertbotService
         }
 
         // Get certificate dates
-        $datesResult = $this->sshService->execute("openssl x509 -in {$certPath} -noout -dates 2>/dev/null");
+        $datesResult = $this->sshService->execute(RemoteSudo::wrap($app->server, "openssl x509 -in {$certPath} -noout -dates 2>/dev/null"));
 
         // Get certificate issuer
-        $issuerResult = $this->sshService->execute("openssl x509 -in {$certPath} -noout -issuer 2>/dev/null");
+        $issuerResult = $this->sshService->execute(RemoteSudo::wrap($app->server, "openssl x509 -in {$certPath} -noout -issuer 2>/dev/null"));
 
         $this->sshService->disconnect();
 
@@ -144,15 +155,15 @@ class CertbotService
     /**
      * Get certificate information without full status check.
      */
-    private function getCertificateInfo(string $domainName): array
+    private function getCertificateInfo(string $domainName, Server $server): array
     {
         $certPath = "/etc/letsencrypt/live/{$domainName}/fullchain.pem";
 
         // Get certificate dates
-        $datesResult = $this->sshService->execute("openssl x509 -in {$certPath} -noout -dates 2>/dev/null");
+        $datesResult = $this->sshService->execute(RemoteSudo::wrap($server, "openssl x509 -in {$certPath} -noout -dates 2>/dev/null"));
 
         // Get certificate issuer
-        $issuerResult = $this->sshService->execute("openssl x509 -in {$certPath} -noout -issuer 2>/dev/null");
+        $issuerResult = $this->sshService->execute(RemoteSudo::wrap($server, "openssl x509 -in {$certPath} -noout -issuer 2>/dev/null"));
 
         $expiryDate = null;
         if ($datesResult['success']) {
@@ -192,7 +203,7 @@ class CertbotService
         // Obtain certificate using webroot method (see obtainCertificateForDomain
         // for why the deploy hook and the canonical webroot matter)
         $webroot = NginxService::ACME_WEBROOT;
-        $this->sshService->execute("mkdir -p {$webroot}");
+        $this->sshService->execute(RemoteSudo::wrap($app->server, "mkdir -p {$webroot}"));
         $command = sprintf(
             "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
@@ -200,7 +211,7 @@ class CertbotService
             $email
         );
 
-        $result = $this->sshService->execute($command, 120);
+        $result = $this->sshService->execute(RemoteSudo::wrap($app->server, $command), 120);
 
         if (! $result['success']) {
             $this->sshService->disconnect();
@@ -226,8 +237,15 @@ class CertbotService
             ]);
         }
 
-        // Redeploy nginx config with SSL
-        $this->nginxService->deploy($app);
+        // Redeploy nginx config with SSL; revert the flags if that fails so
+        // the panel does not show SSL active while HTTPS is dead (SSL-3)
+        try {
+            $this->nginxService->deploy($app);
+        } catch (\Throwable $e) {
+            $app->update(['ssl_enabled' => false]);
+            $app->primaryDomain()?->update(['ssl_enabled' => false]);
+            throw new RuntimeException("Certificate obtained, but activating it in nginx failed: {$e->getMessage()}", 0, $e);
+        }
 
         return [
             'success' => true,
@@ -248,10 +266,10 @@ class CertbotService
         $this->sshService->connect($app->server);
 
         $webroot = NginxService::ACME_WEBROOT;
-        $this->sshService->execute("mkdir -p {$webroot}");
+        $this->sshService->execute(RemoteSudo::wrap($app->server, "mkdir -p {$webroot}"));
 
         $result = $this->sshService->execute(
-            "certbot renew --non-interactive --webroot -w {$webroot} --deploy-hook 'systemctl reload nginx'",
+            RemoteSudo::wrap($app->server, "certbot renew --non-interactive --webroot -w {$webroot} --deploy-hook 'systemctl reload nginx'"),
             300
         );
 
@@ -273,7 +291,7 @@ class CertbotService
 
         $certPath = "/etc/letsencrypt/live/{$app->domain}/fullchain.pem";
 
-        $result = $this->sshService->execute("openssl x509 -in {$certPath} -noout -dates 2>/dev/null");
+        $result = $this->sshService->execute(RemoteSudo::wrap($app->server, "openssl x509 -in {$certPath} -noout -dates 2>/dev/null"));
 
         $this->sshService->disconnect();
 

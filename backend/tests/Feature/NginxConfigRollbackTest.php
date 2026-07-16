@@ -83,8 +83,13 @@ class NginxConfigRollbackTest extends TestCase
         }
 
         $lastUpload = end($this->uploads);
-        $this->assertSame($configPath, $lastUpload['path']);
         $this->assertSame($previousConfig, $lastUpload['content'], 'The previous working config must be restored after a failed test.');
+
+        $moves = array_filter(
+            $this->executedCommands,
+            fn ($c) => str_contains($c, "mv -f {$lastUpload['path']} {$configPath}")
+        );
+        $this->assertNotEmpty($moves, 'The restored config must be moved back into place.');
     }
 
     public function test_failed_config_test_removes_a_config_that_had_no_predecessor(): void

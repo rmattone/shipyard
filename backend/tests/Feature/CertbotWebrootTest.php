@@ -16,6 +16,9 @@ class CertbotWebrootTest extends TestCase
     /** @var array<int, string> */
     private array $executedCommands = [];
 
+    /** @var array<string, array> keyed by substring of the command */
+    private array $fakeResults = [];
+
     private function mockSsh(): void
     {
         $this->executedCommands = [];
@@ -27,6 +30,12 @@ class CertbotWebrootTest extends TestCase
             $mock->shouldReceive('uploadContent')->andReturn(true);
             $mock->shouldReceive('execute')->andReturnUsing(function (string $command) {
                 $this->executedCommands[] = $command;
+
+                foreach ($this->fakeResults as $needle => $result) {
+                    if (str_contains($command, $needle)) {
+                        return $result;
+                    }
+                }
 
                 return ['output' => '', 'exit_code' => 0, 'success' => true];
             });
@@ -95,5 +104,34 @@ class CertbotWebrootTest extends TestCase
             'is_primary' => true,
             'ssl_enabled' => true,
         ]);
+    }
+
+    /**
+     * SSL-3: if the nginx deploy after issuance fails, the domain must not
+     * be shown as SSL-active while HTTPS is dead.
+     */
+    public function test_failed_nginx_deploy_does_not_leave_the_domain_marked_ssl_active(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['nginx -t'] = ['output' => 'nginx: test failed', 'exit_code' => 1, 'success' => false];
+
+        $app = Application::factory()->create(['type' => 'laravel']);
+        $domain = Domain::factory()->primary()->create([
+            'application_id' => $app->id,
+            'domain' => 'ssl3.example.test',
+            'ssl_enabled' => false,
+        ]);
+
+        try {
+            app(CertbotService::class)->obtainCertificateForDomain($domain, 'admin@example.test');
+            $this->fail('Expected issuance to throw when the nginx deploy fails.');
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        $this->assertFalse(
+            $domain->fresh()->ssl_enabled,
+            'The domain must not report SSL active while nginx is not serving the certificate.'
+        );
     }
 }

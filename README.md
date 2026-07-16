@@ -179,6 +179,8 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 3. Click **Test Connection** to verify
 4. Save the server
 
+> **Note on non-root users:** software installation, nginx configuration, and SSL certificate management need root privileges. When the SSH user is not `root`, ShipYard runs those commands with `sudo -n`, so the user must have passwordless sudo. On the target server, run `visudo` and add a line like `deploy ALL=(ALL) NOPASSWD:ALL` (replace `deploy` with your SSH user).
+
 ### Deploying an Application
 
 1. Go to **Applications** → **New Application**
