@@ -29,12 +29,57 @@ class NginxService
         };
     }
 
-    public function deploy(Application $app): bool
+    /**
+     * Immutable config file name for an application. Never derived from the
+     * domain: domains are mutable, and a renamed primary domain used to leave
+     * the old file enabled (serving stale config) forever.
+     */
+    public function configName(Application $app): string
+    {
+        return "shipyard-app-{$app->id}";
+    }
+
+    /**
+     * Config file names this app may have been deployed under before the
+     * app-id naming convention (its domain names), plus any extra names the
+     * caller knows about (e.g. a just-renamed domain).
+     *
+     * @param  array<int, string>  $extraNames
+     * @return array<int, string>
+     */
+    private function legacyConfigNames(Application $app, array $extraNames = []): array
+    {
+        $names = array_merge($app->allDomainNames(), [$app->domain], $extraNames);
+        $names = array_unique(array_filter($names));
+
+        return array_values(array_diff($names, [$this->configName($app)]));
+    }
+
+    /**
+     * Remove config files deployed under the given legacy (domain-based)
+     * names. Assumes an open SSH connection; does not reload nginx.
+     *
+     * @param  array<int, string>  $names
+     */
+    private function removeLegacyConfigs(array $names): void
+    {
+        foreach ($names as $name) {
+            $enabled = escapeshellarg("/etc/nginx/sites-enabled/{$name}");
+            $available = escapeshellarg("/etc/nginx/sites-available/{$name}");
+            $this->sshService->execute("rm -f {$enabled} {$available}");
+        }
+    }
+
+    /**
+     * @param  array<int, string>  $extraLegacyNames  domain-based config names
+     *                                                to clean up besides the app's current domains
+     */
+    public function deploy(Application $app, array $extraLegacyNames = []): bool
     {
         $config = $this->generateConfig($app);
-        $primaryDomain = $app->primaryDomain()?->domain ?? $app->domain;
-        $configPath = "/etc/nginx/sites-available/{$primaryDomain}";
-        $enabledPath = "/etc/nginx/sites-enabled/{$primaryDomain}";
+        $configName = $this->configName($app);
+        $configPath = "/etc/nginx/sites-available/{$configName}";
+        $enabledPath = "/etc/nginx/sites-enabled/{$configName}";
 
         $this->sshService->connect($app->server);
 
@@ -65,6 +110,13 @@ class NginxService
             throw new RuntimeException("Nginx config test failed: {$result['output']}");
         }
 
+        // The config test passed: clean up files deployed under the old
+        // domain-based naming so they stop serving (stale server_name,
+        // stale cert paths). Done before the reload so one reload covers
+        // both changes, and only after a successful test so a failed deploy
+        // leaves the previously serving files untouched.
+        $this->removeLegacyConfigs($this->legacyConfigNames($app, $extraLegacyNames));
+
         // Reload nginx
         $result = $this->sshService->execute('systemctl reload nginx');
 
@@ -73,19 +125,20 @@ class NginxService
         return $result['success'];
     }
 
-    public function remove(Application $app, ?string $domainOverride = null): bool
+    public function remove(Application $app): bool
     {
-        // Config files are named after the primary domain. When the primary
-        // domain changes, pass the old domain so the stale file is removed
-        // instead of being orphaned and left serving.
-        $primaryDomain = $domainOverride ?? $app->primaryDomain()?->domain ?? $app->domain;
-        $configPath = "/etc/nginx/sites-available/{$primaryDomain}";
-        $enabledPath = "/etc/nginx/sites-enabled/{$primaryDomain}";
+        $configName = $this->configName($app);
+        $configPath = "/etc/nginx/sites-available/{$configName}";
+        $enabledPath = "/etc/nginx/sites-enabled/{$configName}";
 
         $this->sshService->connect($app->server);
 
         $this->sshService->execute("rm -f {$enabledPath}");
         $this->sshService->execute("rm -f {$configPath}");
+
+        // Also remove files deployed under the old domain-based naming so a
+        // deleted app cannot keep serving through an orphaned config.
+        $this->removeLegacyConfigs($this->legacyConfigNames($app));
 
         $result = $this->sshService->execute('systemctl reload nginx');
 
@@ -99,8 +152,7 @@ class NginxService
      */
     public function getConfigContent(Application $app): string
     {
-        $primaryDomain = $app->primaryDomain()?->domain ?? $app->domain;
-        $configPath = "/etc/nginx/sites-available/{$primaryDomain}";
+        $configPath = "/etc/nginx/sites-available/{$this->configName($app)}";
 
         $this->sshService->connect($app->server);
 
@@ -121,9 +173,9 @@ class NginxService
      */
     public function updateConfigContent(Application $app, string $content): bool
     {
-        $primaryDomain = $app->primaryDomain()?->domain ?? $app->domain;
-        $configPath = "/etc/nginx/sites-available/{$primaryDomain}";
-        $enabledPath = "/etc/nginx/sites-enabled/{$primaryDomain}";
+        $configName = $this->configName($app);
+        $configPath = "/etc/nginx/sites-available/{$configName}";
+        $enabledPath = "/etc/nginx/sites-enabled/{$configName}";
 
         $this->sshService->connect($app->server);
 
@@ -185,15 +237,6 @@ class NginxService
     }
 
     /**
-     * Check if any domain has SSL enabled.
-     */
-    private function hasAnySslEnabled(Application $app): bool
-    {
-        return $app->domains()->where('ssl_enabled', true)->exists()
-            || $app->ssl_enabled;
-    }
-
-    /**
      * Get domain names that do NOT have SSL enabled.
      */
     private function getNonSslDomainNames(Application $app): array
@@ -215,12 +258,15 @@ class NginxService
     {
         $serverName = $this->getServerNames($app);
         $root = $app->getDocumentRoot();
-        $hasSsl = $this->hasAnySslEnabled($app);
         $phpSocket = "unix:/var/run/php/php{$app->getPhpVersion()}-fpm.sock";
         $acme = $this->acmeLocationBlock();
 
-        if ($hasSsl) {
-            $sslDomains = $this->getSslDomains($app);
+        // SSL blocks are emitted per SSL-enabled Domain row only. The legacy
+        // app-level ssl_enabled flag without such a row used to produce an
+        // invalid config (empty server_name, no 443 block).
+        $sslDomains = $this->getSslDomains($app);
+
+        if (! empty($sslDomains)) {
             $nonSslDomains = $this->getNonSslDomainNames($app);
 
             $blocks = [];
@@ -388,12 +434,13 @@ NGINX;
     private function nodejsTemplate(Application $app): string
     {
         $serverName = $this->getServerNames($app);
-        $hasSsl = $this->hasAnySslEnabled($app);
         $port = $app->getPort();
         $acme = $this->acmeLocationBlock();
 
-        if ($hasSsl) {
-            $sslDomains = $this->getSslDomains($app);
+        // See laravelTemplate: SSL blocks only for SSL-enabled Domain rows.
+        $sslDomains = $this->getSslDomains($app);
+
+        if (! empty($sslDomains)) {
             $nonSslDomains = $this->getNonSslDomainNames($app);
 
             $blocks = [];
@@ -514,11 +561,12 @@ NGINX;
     {
         $serverName = $this->getServerNames($app);
         $root = $app->getDocumentRoot();
-        $hasSsl = $this->hasAnySslEnabled($app);
         $acme = $this->acmeLocationBlock();
 
-        if ($hasSsl) {
-            $sslDomains = $this->getSslDomains($app);
+        // See laravelTemplate: SSL blocks only for SSL-enabled Domain rows.
+        $sslDomains = $this->getSslDomains($app);
+
+        if (! empty($sslDomains)) {
             $nonSslDomains = $this->getNonSslDomainNames($app);
 
             $blocks = [];

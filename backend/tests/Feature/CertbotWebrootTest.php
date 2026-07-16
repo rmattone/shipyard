@@ -71,4 +71,29 @@ class CertbotWebrootTest extends TestCase
         );
         $this->assertNotEmpty($mkdir, 'The canonical ACME webroot must be created before running certbot.');
     }
+
+    /**
+     * NGINX-2: the legacy app-level issuance path must synthesize a primary
+     * Domain row; templates only emit SSL blocks for SSL-enabled Domain rows,
+     * so without one the certificate would never be served.
+     */
+    public function test_legacy_app_level_issuance_creates_the_missing_primary_domain_row(): void
+    {
+        $this->mockSsh();
+
+        $app = Application::factory()->create([
+            'type' => 'laravel',
+            'domain' => 'legacy.test',
+            'ssl_enabled' => false,
+        ]);
+
+        app(CertbotService::class)->obtainCertificate($app, 'admin@example.test');
+
+        $this->assertDatabaseHas('domains', [
+            'application_id' => $app->id,
+            'domain' => 'legacy.test',
+            'is_primary' => true,
+            'ssl_enabled' => true,
+        ]);
+    }
 }
