@@ -204,6 +204,59 @@ class DatabaseDriverSafetyTest extends TestCase
             ->assertStatus(201);
     }
 
+    // DB-6: the installer used to embed shell-escaped passwords inside a
+    // SQL string inside a double-quoted shell string (three layers); piping
+    // base64-encoded SQL keeps the layers separate.
+
+    private function installFakes(): void
+    {
+        $this->fakeResults['os-release'] = ['output' => 'ID=ubuntu', 'exit_code' => 0, 'success' => true];
+        $this->fakeResults['is-active'] = ['output' => 'active', 'exit_code' => 0, 'success' => true];
+        $this->fakeResults['--version'] = ['output' => 'version 8', 'exit_code' => 0, 'success' => true];
+    }
+
+    private function decodedInstallerSql(): string
+    {
+        $alter = null;
+        foreach ($this->executedCommands as $command) {
+            if (str_contains($command, 'base64 -d')) {
+                $alter = $command;
+                break;
+            }
+        }
+        $this->assertNotNull($alter, 'The installer must pipe base64-encoded SQL instead of nesting quoting layers.');
+        $this->assertMatchesRegularExpression("#echo '[A-Za-z0-9+/=]+' \| base64 -d \| sudo#", $alter);
+
+        preg_match("#echo '([A-Za-z0-9+/=]+)'#", $alter, $matches);
+
+        return base64_decode($matches[1]);
+    }
+
+    public function test_mysql_installer_pipes_password_sql_as_base64(): void
+    {
+        $this->mockSsh();
+        $this->installFakes();
+        $installation = \App\Models\DatabaseInstallation::factory()->create(['engine' => 'mysql']);
+
+        app(\App\Services\DatabaseInstallationService::class)->install($installation);
+
+        $sql = $this->decodedInstallerSql();
+        $this->assertStringContainsString("ALTER USER 'root'@'localhost'", $sql);
+        $this->assertStringContainsString('FLUSH PRIVILEGES', $sql);
+    }
+
+    public function test_postgres_installer_pipes_password_sql_as_base64(): void
+    {
+        $this->mockSsh();
+        $this->installFakes();
+        $installation = \App\Models\DatabaseInstallation::factory()->create(['engine' => 'postgresql']);
+
+        app(\App\Services\DatabaseInstallationService::class)->install($installation);
+
+        $sql = $this->decodedInstallerSql();
+        $this->assertStringContainsString('ALTER USER postgres WITH PASSWORD', $sql);
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();
