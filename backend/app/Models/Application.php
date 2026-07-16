@@ -19,6 +19,8 @@ class Application extends Model
         'name',
         'type',
         'node_version',
+        'port',
+        'php_version',
         'domain',
         'repository_url',
         'branch',
@@ -47,6 +49,7 @@ class Application extends Model
             'shared_paths' => 'array',
             'writable_paths' => 'array',
             'releases_to_keep' => 'integer',
+            'port' => 'integer',
         ];
     }
 
@@ -399,6 +402,24 @@ SCRIPT;
     }
 
     /**
+     * TCP port the app process listens on (Node.js). Nginx proxies to this
+     * port and PM2 starts the process with it in the environment.
+     */
+    public function getPort(): int
+    {
+        return $this->port ?? 3000;
+    }
+
+    /**
+     * PHP-FPM version for the nginx fastcgi socket. Per-app value first,
+     * then the version detected on the server, then 8.3.
+     */
+    public function getPhpVersion(): string
+    {
+        return $this->php_version ?? $this->server?->php_version ?? '8.3';
+    }
+
+    /**
      * Build the command that restarts (or starts) the PM2 process for this app.
      * Sources nvm first: pm2 is typically installed via nvm and is not on the
      * PATH of a non-interactive SSH session. Used after atomic release
@@ -420,7 +441,10 @@ SCRIPT;
         }
 
         $parts[] = "cd {$workingDir}";
-        $parts[] = "pm2 restart {$appName} || pm2 start npm --name \"{$appName}\" -- start";
+        // Nginx proxies to getPort(), so the process must bind the same port.
+        // --update-env makes an already-running process pick up a changed PORT.
+        $parts[] = 'export PORT='.$this->getPort();
+        $parts[] = "pm2 restart {$appName} --update-env || pm2 start npm --name \"{$appName}\" -- start";
 
         return implode('; ', $parts);
     }

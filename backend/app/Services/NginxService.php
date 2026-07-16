@@ -8,6 +8,13 @@ use RuntimeException;
 
 class NginxService
 {
+    /**
+     * Canonical webroot every template serves ACME challenges from and
+     * certbot writes them to. A fixed path works for all app types; document
+     * roots do not (Node.js proxies everything to the app process).
+     */
+    public const ACME_WEBROOT = '/var/www/letsencrypt';
+
     public function __construct(
         private SSHService $sshService
     ) {}
@@ -209,6 +216,8 @@ class NginxService
         $serverName = $this->getServerNames($app);
         $root = $app->getDocumentRoot();
         $hasSsl = $this->hasAnySslEnabled($app);
+        $phpSocket = "unix:/var/run/php/php{$app->getPhpVersion()}-fpm.sock";
+        $acme = $this->acmeLocationBlock();
 
         if ($hasSsl) {
             $sslDomains = $this->getSslDomains($app);
@@ -225,9 +234,7 @@ server {
     root {$root};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        allow all;
-    }
+    {$acme}
 
     location / {
         return 301 https://\$host\$request_uri;
@@ -246,9 +253,7 @@ server {
     root {$root};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        allow all;
-    }
+    {$acme}
 
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
@@ -267,7 +272,7 @@ server {
     error_page 404 /index.php;
 
     location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_pass {$phpSocket};
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
     }
@@ -288,9 +293,7 @@ server {
     root {$root};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        allow all;
-    }
+    {$acme}
 
     location / {
         return 301 https://\$host\$request_uri;
@@ -328,7 +331,7 @@ server {
     error_page 404 /index.php;
 
     location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_pass {$phpSocket};
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
     }
@@ -350,6 +353,9 @@ server {
     server_name {$serverName};
     root {$root};
 
+    # Allow Let's Encrypt ACME challenge
+    {$acme}
+
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
 
@@ -367,7 +373,7 @@ server {
     error_page 404 /index.php;
 
     location ~ \.php$ {
-        fastcgi_pass unix:/var/run/php/php8.3-fpm.sock;
+        fastcgi_pass {$phpSocket};
         fastcgi_param SCRIPT_FILENAME \$realpath_root\$fastcgi_script_name;
         include fastcgi_params;
     }
@@ -383,6 +389,8 @@ NGINX;
     {
         $serverName = $this->getServerNames($app);
         $hasSsl = $this->hasAnySslEnabled($app);
+        $port = $app->getPort();
+        $acme = $this->acmeLocationBlock();
 
         if ($hasSsl) {
             $sslDomains = $this->getSslDomains($app);
@@ -398,10 +406,7 @@ server {
     server_name {$serverName};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        root /var/www/html;
-        allow all;
-    }
+    {$acme}
 
     location / {
         return 301 https://\$host\$request_uri;
@@ -419,13 +424,10 @@ server {
     server_name {$nonSslServerName};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        root /var/www/html;
-        allow all;
-    }
+    {$acme}
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:{$port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -446,10 +448,7 @@ server {
     server_name {$sslDomainNames};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        root /var/www/html;
-        allow all;
-    }
+    {$acme}
 
     location / {
         return 301 https://\$host\$request_uri;
@@ -470,7 +469,7 @@ server {
     {$ssl}
 
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:{$port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -493,8 +492,11 @@ server {
     listen [::]:80;
     server_name {$serverName};
 
+    # Allow Let's Encrypt ACME challenge
+    {$acme}
+
     location / {
-        proxy_pass http://localhost:3000;
+        proxy_pass http://localhost:{$port};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
@@ -513,6 +515,7 @@ NGINX;
         $serverName = $this->getServerNames($app);
         $root = $app->getDocumentRoot();
         $hasSsl = $this->hasAnySslEnabled($app);
+        $acme = $this->acmeLocationBlock();
 
         if ($hasSsl) {
             $sslDomains = $this->getSslDomains($app);
@@ -529,9 +532,7 @@ server {
     root {$root};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        allow all;
-    }
+    {$acme}
 
     location / {
         return 301 https://\$host\$request_uri;
@@ -550,9 +551,7 @@ server {
     root {$root};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        allow all;
-    }
+    {$acme}
 
     index index.html;
 
@@ -581,9 +580,7 @@ server {
     root {$root};
 
     # Allow Let's Encrypt ACME challenge
-    location /.well-known/acme-challenge/ {
-        allow all;
-    }
+    {$acme}
 
     location / {
         return 301 https://\$host\$request_uri;
@@ -633,6 +630,9 @@ server {
     server_name {$serverName};
     root {$root};
 
+    # Allow Let's Encrypt ACME challenge
+    {$acme}
+
     index index.html;
 
     location / {
@@ -650,6 +650,19 @@ server {
     }
 }
 NGINX;
+    }
+
+    /**
+     * Location block serving ACME challenges from the canonical webroot.
+     * `^~` keeps regex locations (like the dotfile deny rules) from
+     * shadowing the challenge path. Rendered inside a server block, hence
+     * the hardcoded indentation of the continuation lines.
+     */
+    private function acmeLocationBlock(): string
+    {
+        $webroot = self::ACME_WEBROOT;
+
+        return "location ^~ /.well-known/acme-challenge/ {\n        root {$webroot};\n        allow all;\n    }";
     }
 
     private function sslBlockForDomain(Domain $domain): string

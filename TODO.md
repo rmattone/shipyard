@@ -132,26 +132,29 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   `NginxService.php:253-271` (also 413-430, 547-564): an app with `ssl_enabled = true` but zero Domain rows produces an empty `$sslDomainNames` in the redirect block and no 443 server block. Reachable via deprecated `CertbotService::obtainCertificate()` (`CertbotService.php:204`). Combined with NGINX-1, this leaves a broken config enabled.
   Fix: remove the legacy app-level SSL path or make it synthesize a Domain row; guard template generation against the empty-domain case.
 
-- [ ] **NGINX-3 (High): Node.js apps hardcoded to `proxy_pass http://localhost:3000`.**
+- [x] **NGINX-3 (High): Node.js apps hardcoded to `proxy_pass http://localhost:3000`.**
   `NginxService.php:400,445,469`. `Application` has no port field. Two Node apps on one server both route to whatever holds port 3000.
   Fix: add a `port` column to applications, template it into the proxy blocks and into the PM2 start command.
+  Fixed (July 2026): nullable `applications.port` (default 3000 via `Application::getPort()`), templated into all Node.js proxy blocks; `buildPm2RestartCommand()` exports `PORT` and restarts with `--update-env`. API accepts `port` on create/update. UI field not wired yet (see GAP-UI-4 territory). Regression tests in `NginxTemplateTest`/`DeployScriptTest`.
 
 - [ ] **NGINX-4 (High): Config file named after the mutable primary domain, never cleaned up on change.**
   `NginxService.php:29-30,56-58` names the file `sites-enabled/{primaryDomain}`; `DomainService::setPrimary()` (`DomainService.php:87-103`) never redeploys or removes the old file. Changing the primary domain leaves the old config enabled (duplicate/conflicting server blocks, stale cert paths), and `remove()` only deletes the file matching the current name, so deleted apps can keep serving.
   Fix: name configs after an immutable key (app id or slug), and add cleanup on primary-domain change and app deletion.
 
-- [ ] **NGINX-5 (High): PHP-FPM socket hardcoded to `php8.3-fpm.sock`.**
+- [x] **NGINX-5 (High): PHP-FPM socket hardcoded to `php8.3-fpm.sock`.**
   `NginxService.php:242,302,342` pin php8.3 while the installer (`DatabaseInstallationService.php:238-245`) installs whatever the `php` metapackage resolves to (ondrej PPA resolves newer). Mismatch means every Laravel request 502s.
   Fix: detect the installed FPM version per server (or add per-app php_version) and template the socket path.
+  Fixed (July 2026): socket templated from `Application::getPhpVersion()` (per-app `php_version`, falling back to `servers.php_version`, then 8.3). The server version is recorded by the PHP installer and by `checkSoftware`. Per-site version *switching* (multiple FPM pools) remains FEAT-5. Regression tests in `NginxTemplateTest`.
 
 - [x] **SSL-1 (Critical): Certificate renewal is never wired up; nginx never reloads renewed certs.**
   `CertbotService::renewCertificates()` (`CertbotService.php:222-235`) has zero callers. `routes/console.php` schedules only `queue:prune-failed`. Issuance (`CertbotService.php:34-39`) uses `certonly --webroot` with no `--deploy-hook`, so even certbot's own systemd timer renewing files never reloads nginx. Sites serve expired certs ~90 days after issuance. README claims auto-renewal.
   Fix: schedule `renewCertificates()` (with `--deploy-hook 'systemctl reload nginx'`), update `ssl_expires_at` after renewal, and correct the README until done.
   Fixed (July 2026): issuance and renewal register a nginx reload deploy hook; daily `certificates:renew` command (03:30) runs one `certbot renew` per server and refreshes stored expiry via `checkDomainStatus`. Runs on the scheduler service added in DEPLOY-7. The README auto-renewal claim is now true.
 
-- [ ] **SSL-2 (High): Cert issuance for Node.js apps always fails (ACME webroot mismatch).**
+- [x] **SSL-2 (High): Cert issuance for Node.js apps always fails (ACME webroot mismatch).**
   `CertbotService.php:33-39` uses `$app->getDocumentRoot()` as webroot, but the non-SSL Node template proxies everything (including `/.well-known/acme-challenge/`) to the Node process (`NginxService.php:462-480`), and SSL variants serve challenges from `/var/www/html` (a third location). Let's Encrypt gets a 404 every time.
   Fix: add a `location /.well-known/acme-challenge/` block to all templates pointing at one canonical webroot, and use that same path in the certbot command.
+  Fixed (July 2026): every template (all types, SSL and non-SSL) serves `location ^~ /.well-known/acme-challenge/` from `NginxService::ACME_WEBROOT` (`/var/www/letsencrypt`); issuance mkdirs and uses the same path, and `certbot renew` passes `--webroot -w` so certificates issued under the old per-app webroots keep renewing. Regression tests in `NginxTemplateTest`/`CertbotWebrootTest`.
 
 - [ ] **SSL-3 (Medium): DB updated before nginx redeploy on cert issuance.**
   `CertbotService.php:49-61` persists `ssl_enabled`/`ssl_expires_at`, then calls `nginxService->deploy()`; if that throws (NGINX-1) the domain shows SSL active in the UI while HTTPS is dead.
