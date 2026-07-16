@@ -162,6 +162,48 @@ class DatabaseDriverSafetyTest extends TestCase
         );
     }
 
+    // DB-5: privilege names, charset, and collation are interpolated into
+    // SQL and must be validated against known-good patterns.
+
+    public function test_api_rejects_unknown_privilege_names(): void
+    {
+        $this->mockSsh();
+        $user = \App\Models\User::factory()->create();
+        $database = Database::factory()->create();
+        $dbUser = \App\Models\DatabaseUser::factory()->create(['database_id' => $database->id]);
+
+        $url = "/api/servers/{$database->server_id}/databases/{$database->id}/users/{$dbUser->id}/grant";
+
+        $this->actingAs($user)
+            ->postJson($url, ['database' => 'appdb', 'privileges' => ['DROP TABLE users; --']])
+            ->assertStatus(422);
+
+        $this->actingAs($user)
+            ->postJson($url, ['database' => 'appdb', 'privileges' => ['select', 'INSERT']])
+            ->assertOk();
+    }
+
+    public function test_api_rejects_malformed_charset_and_collation(): void
+    {
+        $this->mockSsh();
+        $user = \App\Models\User::factory()->create();
+        $database = Database::factory()->create();
+
+        $url = "/api/servers/{$database->server_id}/databases/{$database->id}/remote-databases";
+
+        $this->actingAs($user)
+            ->postJson($url, ['name' => 'newdb', 'charset' => 'utf8mb4; DROP DATABASE x'])
+            ->assertStatus(422);
+
+        $this->actingAs($user)
+            ->postJson($url, ['name' => 'newdb', 'collation' => "utf8mb4_unicode_ci' --"])
+            ->assertStatus(422);
+
+        $this->actingAs($user)
+            ->postJson($url, ['name' => 'newdb', 'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci'])
+            ->assertStatus(201);
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();

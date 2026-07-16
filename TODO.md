@@ -206,9 +206,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: apply, verify, then persist what actually succeeded (or re-read effective grants after failure).
   Fixed (July 2026): on a grant/revoke failure the controller re-reads effective privileges from the server (`getUserPrivileges`) and persists them (best-effort), so the stored record reflects reality after a partial application. Regression test in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-5 (Medium): Privilege names, charset, and collation interpolated raw into SQL.**
+- [x] **DB-5 (Medium): Privilege names, charset, and collation interpolated raw into SQL.**
   `MySQLService.php:280-287,150-158,44-49`, `PostgreSQLService.php:163-187`; validated only as `'privileges.*' => 'string'` (`DatabaseUserController.php:174`). Arbitrary SQL as the admin user (hardening per threat model), and plain breakage on typos.
   Fix: validate against an allowlist of known privilege names / charsets.
+  Fixed (July 2026): privileges validated against an allowlist of known MySQL/PostgreSQL privilege keywords (case-insensitive), charset/collation against `[A-Za-z0-9_.-]+` in all three DatabaseController validation sites. Regression tests in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-6 (Low): Installer password escaping is wrong-layer (latent).**
   `DatabaseInstallationService.php:92-95,125-126`: shell single-quote escaping embedded inside a double-quoted shell string within SQL single quotes. Only safe because `Str::random(32)` is alphanumeric; any change to password generation silently breaks or injects.
