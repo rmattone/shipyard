@@ -62,6 +62,39 @@ class DatabaseDriverSafetyTest extends TestCase
         );
     }
 
+    // DB-2: the MySQL driver discarded all stderr, so every failure surfaced
+    // as "Failed to ...: " with an empty reason.
+
+    public function test_mysql_commands_capture_error_output(): void
+    {
+        $this->mockSsh();
+        $database = Database::factory()->create();
+
+        app(DatabaseService::class)->testConnection($database);
+
+        $command = end($this->executedCommands);
+        $this->assertStringNotContainsString('2>/dev/null', $command, 'Discarding stderr hides every MySQL error reason.');
+        $this->assertStringContainsString('2>&1', $command);
+    }
+
+    public function test_mysql_failures_surface_the_error_reason(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['CREATE DATABASE'] = [
+            'output' => "ERROR 1044 (42000): Access denied for user 'root'@'%'",
+            'exit_code' => 1,
+            'success' => false,
+        ];
+        $database = Database::factory()->create();
+
+        try {
+            app(DatabaseService::class)->createDatabase($database, 'newdb');
+            $this->fail('Expected the create to fail.');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('ERROR 1044', $e->getMessage());
+        }
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();
