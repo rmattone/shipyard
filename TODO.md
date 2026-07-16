@@ -381,9 +381,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   `GitProviderNew.tsx:144-162` creates, tests, then deletes in finally; a failed delete leaves an orphan "Test Connection" provider in the list.
   Fix: backend test endpoint that doesn't persist (or test-before-create server-side).
 
-- [ ] **FE-10 (Medium): Dev proxy misses `/sanctum/csrf-cookie`.**
+- [x] **FE-10 (Medium): Dev proxy misses `/sanctum/csrf-cookie`.**
   `frontend/vite.config.ts:17-24` proxies only `/api`; `getCsrfCookie()` (`api.ts:29`) 404s under `npm run dev`, so login always throws in dev.
   Fix: proxy `/sanctum` too.
+  Fixed (July 2026): `/sanctum` proxied alongside `/api`, both honoring a `BACKEND_URL` env override (edit made directly in the working tree, shipped with the FE-1..4 commit).
 
 - [ ] **FE-11 (Medium): Enter key on wizard step 1 submits the whole app-creation form.**
   `AppNew.tsx:249`: one `<form>` wraps all steps; the required `repository_url` input isn't mounted on step 1 so constraint validation can't block, and a 422 fires out of context.
