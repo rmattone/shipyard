@@ -211,9 +211,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: validate against an allowlist of known privilege names / charsets.
   Fixed (July 2026): privileges validated against an allowlist of known MySQL/PostgreSQL privilege keywords (case-insensitive), charset/collation against `[A-Za-z0-9_.-]+` in all three DatabaseController validation sites. Regression tests in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-6 (Low): Installer password escaping is wrong-layer (latent).**
+- [x] **DB-6 (Low): Installer password escaping is wrong-layer (latent).**
   `DatabaseInstallationService.php:92-95,125-126`: shell single-quote escaping embedded inside a double-quoted shell string within SQL single quotes. Only safe because `Str::random(32)` is alphanumeric; any change to password generation silently breaks or injects.
   Fix: base64-pipe the SQL or use here-docs to keep layers separate.
+  Fixed (July 2026): both installers pipe base64-encoded SQL into the client, with the password SQL-string-escaped only. Regression tests in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-7 (Low): `mysql_native_password` fails on MySQL 8.4+.**
   `DatabaseInstallationService.php:95`. Plugin deprecated/removed in newer MySQL; breaks once Ubuntu ships 8.4.

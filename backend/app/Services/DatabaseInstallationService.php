@@ -89,10 +89,17 @@ class DatabaseInstallationService
         $this->runCommand($installation, 'sudo systemctl enable mysql && sudo systemctl start mysql', 60);
 
         $installation->appendLog('Configuring MySQL root user authentication...');
-        $escapedPassword = str_replace("'", "'\\''", $password);
         // MySQL 8.0 on Ubuntu/Debian: use debian-sys-maint credentials to connect,
-        // which are auto-generated during installation and stored in /etc/mysql/debian.cnf
-        $alterCmd = "sudo mysql --defaults-file=/etc/mysql/debian.cnf --execute=\"ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{$escapedPassword}'; FLUSH PRIVILEGES;\"";
+        // which are auto-generated during installation and stored in /etc/mysql/debian.cnf.
+        // The SQL travels base64-encoded so the password only needs SQL-string
+        // escaping (the old shell-inside-SQL-inside-shell layering was only
+        // safe because the password happened to be alphanumeric).
+        $sqlPassword = str_replace(['\\', "'"], ['\\\\', "''"], $password);
+        $sql = "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{$sqlPassword}'; FLUSH PRIVILEGES;";
+        $alterCmd = sprintf(
+            'echo %s | base64 -d | sudo mysql --defaults-file=/etc/mysql/debian.cnf',
+            escapeshellarg(base64_encode($sql))
+        );
         $this->runCommand($installation, $alterCmd, 30);
 
         $installation->appendLog('Verifying MySQL service is active...');
@@ -122,8 +129,13 @@ class DatabaseInstallationService
         $this->runCommand($installation, 'sudo systemctl enable postgresql && sudo systemctl start postgresql', 60);
 
         $installation->appendLog('Setting postgres user password...');
-        $escapedPassword = str_replace("'", "'\\''", $password);
-        $alterCmd = "sudo -u postgres psql -c \"ALTER USER postgres WITH PASSWORD '{$escapedPassword}';\"";
+        // base64-piped SQL keeps quoting layers separate (see installMySQL)
+        $sqlPassword = str_replace("'", "''", $password);
+        $sql = "ALTER USER postgres WITH PASSWORD '{$sqlPassword}';";
+        $alterCmd = sprintf(
+            'echo %s | base64 -d | sudo -u postgres psql',
+            escapeshellarg(base64_encode($sql))
+        );
         $this->runCommand($installation, $alterCmd, 30);
 
         $installation->appendLog('Configuring pg_hba.conf for password authentication...');
