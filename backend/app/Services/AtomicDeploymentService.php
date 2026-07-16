@@ -4,10 +4,13 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Deployment;
+use App\Services\Concerns\RunsRemoteScripts;
 use RuntimeException;
 
 class AtomicDeploymentService
 {
+    use RunsRemoteScripts;
+
     public function __construct(
         private SSHService $sshService,
         private GitProviderService $gitProviderService
@@ -25,12 +28,12 @@ class AtomicDeploymentService
         $deployment->appendLog('Initializing atomic deployment structure...');
 
         // Create base and releases directories
-        $this->sshService->execute("mkdir -p {$releasesPath}");
+        $this->sshService->execute('mkdir -p '.escapeshellarg($releasesPath));
 
         // Create shared directory and full storage structure for Laravel apps
         if ($app->isLaravel()) {
             $sharedPath = $app->getSharedPath();
-            $this->sshService->execute("mkdir -p {$sharedPath}");
+            $this->sshService->execute('mkdir -p '.escapeshellarg($sharedPath));
 
             // Create full Laravel storage structure in shared directory
             $storageDirs = [
@@ -42,7 +45,7 @@ class AtomicDeploymentService
             ];
 
             foreach ($storageDirs as $dir) {
-                $this->sshService->execute("mkdir -p {$sharedPath}/{$dir}");
+                $this->sshService->execute('mkdir -p '.escapeshellarg("{$sharedPath}/{$dir}"));
             }
 
             $deployment->appendLog('Created shared storage structure for Laravel app.');
@@ -86,17 +89,15 @@ class AtomicDeploymentService
                 $releasePath
             );
 
-            // Upload and execute the clone script
-            $scriptPath = "/tmp/git-clone-{$app->id}-".time().'.sh';
-            $this->sshService->connectSftp($app->server);
-            $this->sshService->uploadContent($cloneScript, $scriptPath);
-            $this->sshService->connect($app->server);
-            $this->sshService->execute("chmod +x {$scriptPath}");
-            $result = $this->sshService->execute("bash {$scriptPath} 2>&1", 300);
-            $this->sshService->execute("rm -f {$scriptPath}");
+            // The script embeds credentials; runRemoteScript handles the
+            // owner-only permissions, random name, and guaranteed cleanup
+            $result = $this->runRemoteScript($app->server, $cloneScript, 300);
         } else {
             // Fallback to direct clone (assumes SSH keys are configured on server)
-            $result = $this->sshService->execute("git clone -b {$branch} {$repo} {$releasePath} 2>&1", 300);
+            $result = $this->sshService->execute(
+                sprintf('git clone -b %s %s %s 2>&1', escapeshellarg($branch), escapeshellarg($repo), escapeshellarg($releasePath)),
+                300
+            );
         }
 
         $deployment->appendLog($result['output']);
@@ -125,18 +126,22 @@ class AtomicDeploymentService
         $deployment->appendLog('Linking shared paths...');
 
         foreach ($sharedPaths as $path) {
+            // An empty, absolute, or traversal entry would make the rm -rf
+            // below hit the release or releases directory itself
+            $this->assertSafeRelativePath($path, 'shared');
+
             $releaseTarget = "{$releasePath}/{$path}";
             $sharedSource = "{$sharedPath}/{$path}";
 
             // Remove existing directory/file in release if it exists
-            $this->sshService->execute("rm -rf {$releaseTarget}");
+            $this->sshService->execute('rm -rf '.escapeshellarg($releaseTarget));
 
             // Create parent directory in release if needed
             $parentDir = dirname($releaseTarget);
-            $this->sshService->execute("mkdir -p {$parentDir}");
+            $this->sshService->execute('mkdir -p '.escapeshellarg($parentDir));
 
             // Create symlink from release to shared
-            $this->sshService->execute("ln -nfs {$sharedSource} {$releaseTarget}");
+            $this->sshService->execute('ln -nfs '.escapeshellarg($sharedSource).' '.escapeshellarg($releaseTarget));
 
             $deployment->appendLog("  Linked: {$path}");
         }
@@ -192,7 +197,9 @@ class AtomicDeploymentService
         $writablePaths = $app->getEffectiveWritablePaths();
 
         foreach ($writablePaths as $path) {
-            $fullPath = "{$releasePath}/{$path}";
+            $this->assertSafeRelativePath($path, 'writable');
+
+            $fullPath = escapeshellarg("{$releasePath}/{$path}");
 
             // Set ownership to www-data (web server user)
             $this->sshService->execute(
@@ -206,7 +213,7 @@ class AtomicDeploymentService
         }
 
         // Also set permissions on shared storage directory
-        $sharedPath = $app->getSharedPath();
+        $sharedPath = escapeshellarg($app->getSharedPath());
         $this->sshService->execute(
             "sudo chown -R www-data:www-data {$sharedPath} 2>/dev/null || chown -R www-data:www-data {$sharedPath} 2>/dev/null || true"
         );
@@ -231,7 +238,7 @@ class AtomicDeploymentService
         // -n: treat LINK_NAME as a normal file if it is a symbolic link to a directory
         // -f: remove existing destination files
         // -s: make symbolic links instead of hard links
-        $result = $this->sshService->execute("ln -nfs {$releasePath} {$currentPath}");
+        $result = $this->sshService->execute('ln -nfs '.escapeshellarg($releasePath).' '.escapeshellarg($currentPath));
 
         if (! $result['success']) {
             throw new RuntimeException("Failed to activate release: {$result['output']}");
@@ -253,7 +260,7 @@ class AtomicDeploymentService
         $deployment->appendLog("Cleaning up old releases (keeping last {$keepReleases})...");
 
         // List all releases sorted by name (timestamp format ensures correct order)
-        $result = $this->sshService->execute("ls -1d {$releasesPath}/*/ 2>/dev/null | LC_ALL=C sort -r");
+        $result = $this->sshService->execute('ls -1d '.escapeshellarg($releasesPath).'/*/ 2>/dev/null | LC_ALL=C sort -r');
 
         if (! $result['success'] || empty(trim($result['output']))) {
             $deployment->appendLog('No releases to clean up.');
@@ -284,7 +291,7 @@ class AtomicDeploymentService
                 continue;
             }
 
-            $this->sshService->execute("rm -rf {$releaseDir}");
+            $this->sshService->execute('rm -rf '.escapeshellarg($releaseDir));
             $deployment->appendLog('  Removed: '.basename($releaseDir));
             $removed++;
         }
@@ -299,9 +306,24 @@ class AtomicDeploymentService
     {
         $releasesPath = $app->getReleasesPath();
         $this->ensureConnected($app);
-        $result = $this->sshService->execute("test -d {$releasesPath} && echo 'exists'");
+        $result = $this->sshService->execute('test -d '.escapeshellarg($releasesPath)." && echo 'exists'");
 
         return str_contains($result['output'], 'exists');
+    }
+
+    /**
+     * Reject shared/writable path entries that would escape the release
+     * directory (empty, absolute, or containing '..'). Such an entry would
+     * turn the rm -rf in linkSharedPaths into a delete of the release or
+     * releases directory itself.
+     */
+    private function assertSafeRelativePath(string $path, string $kind): void
+    {
+        if ($path === '' || str_starts_with($path, '/') || str_contains($path, '..')) {
+            throw new RuntimeException(
+                "Unsafe {$kind} path '{$path}': must be a relative path without '..'."
+            );
+        }
     }
 
     /**
@@ -322,7 +344,7 @@ class AtomicDeploymentService
     public function getCurrentReleasePath(Application $app): ?string
     {
         $currentPath = $app->getCurrentPath();
-        $result = $this->sshService->execute("readlink -f {$currentPath} 2>/dev/null");
+        $result = $this->sshService->execute('readlink -f '.escapeshellarg($currentPath).' 2>/dev/null');
 
         if ($result['success'] && ! empty(trim($result['output']))) {
             return trim($result['output']);
@@ -337,7 +359,7 @@ class AtomicDeploymentService
     public function releaseExists(Application $app, string $releaseId): bool
     {
         $releasePath = "{$app->getReleasesPath()}/{$releaseId}";
-        $result = $this->sshService->execute("test -d {$releasePath} && echo 'exists'");
+        $result = $this->sshService->execute('test -d '.escapeshellarg($releasePath)." && echo 'exists'");
 
         return str_contains($result['output'], 'exists');
     }

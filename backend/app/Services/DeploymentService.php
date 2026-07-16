@@ -4,10 +4,13 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Deployment;
+use App\Services\Concerns\RunsRemoteScripts;
 use RuntimeException;
 
 class DeploymentService
 {
+    use RunsRemoteScripts;
+
     public function __construct(
         private SSHService $sshService,
         private GitProviderService $gitProviderService,
@@ -121,7 +124,7 @@ class DeploymentService
         }
 
         try {
-            $this->sshService->execute("rm -rf {$releasePath}");
+            $this->sshService->execute('rm -rf '.escapeshellarg($releasePath));
             $deployment->appendLog("Cleaned up failed release: {$deployment->release_id}");
         } catch (\Exception $cleanupError) {
             $deployment->appendLog("WARNING: could not clean up failed release: {$cleanupError->getMessage()}");
@@ -210,7 +213,7 @@ class DeploymentService
         $deployment->appendLog("Ensuring deploy directory exists: {$path}");
 
         // Create parent directory if needed
-        $this->sshService->execute("mkdir -p {$parentDir}");
+        $this->sshService->execute('mkdir -p '.escapeshellarg($parentDir));
     }
 
     private function ensureRepositoryCloned(Application $app, Deployment $deployment): void
@@ -220,7 +223,7 @@ class DeploymentService
         $repo = $app->repository_url;
 
         // Check if directory exists and has git
-        $result = $this->sshService->execute("test -d {$path}/.git && echo 'exists'");
+        $result = $this->sshService->execute('test -d '.escapeshellarg("{$path}/.git")." && echo 'exists'");
         $exists = str_contains($result['output'], 'exists');
 
         if (! $exists) {
@@ -235,17 +238,15 @@ class DeploymentService
                     $path
                 );
 
-                // Upload and execute the clone script
-                $scriptPath = "/tmp/git-clone-{$app->id}-".time().'.sh';
-                $this->sshService->connectSftp($app->server);
-                $this->sshService->uploadContent($cloneScript, $scriptPath);
-                $this->sshService->connect($app->server);
-                $this->sshService->execute("chmod +x {$scriptPath}");
-                $result = $this->sshService->execute("bash {$scriptPath} 2>&1", 300);
-                $this->sshService->execute("rm -f {$scriptPath}");
+                // The script embeds credentials; runRemoteScript handles the
+                // owner-only permissions, random name, and guaranteed cleanup
+                $result = $this->runRemoteScript($app->server, $cloneScript, 300);
             } else {
                 // Fallback to direct clone (assumes SSH keys are configured on server)
-                $result = $this->sshService->execute("git clone -b {$branch} {$repo} {$path} 2>&1", 300);
+                $result = $this->sshService->execute(
+                    sprintf('git clone -b %s %s %s 2>&1', escapeshellarg($branch), escapeshellarg($repo), escapeshellarg($path)),
+                    300
+                );
             }
 
             $deployment->appendLog($result['output']);
@@ -259,7 +260,7 @@ class DeploymentService
                 $remoteUrl = $app->gitProvider->usesSSHKey()
                     ? $app->gitProvider->getSSHUrl($repo)
                     : $app->gitProvider->getCleanHttpsUrl($repo);
-                $this->sshService->execute("cd {$path} && git remote set-url origin {$remoteUrl}");
+                $this->sshService->execute('cd '.escapeshellarg($path).' && git remote set-url origin '.escapeshellarg($remoteUrl));
             }
         }
     }
@@ -289,24 +290,12 @@ class DeploymentService
             $scriptContent = $this->wrapScriptWithGitCredentials($app, $scriptContent);
         }
 
-        // Create a temporary script file and execute it
-        $scriptPath = "/tmp/deploy-{$app->id}-".time().'.sh';
-
-        // Upload script
-        $this->sshService->connectSftp($app->server);
-        $this->sshService->uploadContent($scriptContent, $scriptPath);
-
-        // Make executable and run
-        $this->sshService->connect($app->server);
-        $this->sshService->execute("chmod +x {$scriptPath}");
-
-        $result = $this->sshService->execute("bash {$scriptPath} 2>&1", 600);
+        // The wrapped script can embed credentials; runRemoteScript handles
+        // the owner-only permissions, random name, and guaranteed cleanup
+        $result = $this->runRemoteScript($app->server, $scriptContent, 600);
 
         $deployment->appendLog('---');
         $deployment->appendLog($result['output']);
-
-        // Cleanup
-        $this->sshService->execute("rm -f {$scriptPath}");
 
         if (! $result['success']) {
             throw new RuntimeException("Deployment script failed with exit code: {$result['exit_code']}");
@@ -404,11 +393,14 @@ BASH;
 
         $deployment->appendLog('Fixing Laravel storage permissions...');
 
+        $storage = escapeshellarg("{$path}/storage");
+        $cache = escapeshellarg("{$path}/bootstrap/cache");
+
         // Set ownership to www-data (web server user)
-        $this->sshService->execute("sudo chown -R www-data:www-data {$path}/storage {$path}/bootstrap/cache 2>/dev/null || true");
+        $this->sshService->execute("sudo chown -R www-data:www-data {$storage} {$cache} 2>/dev/null || true");
 
         // Set directory permissions
-        $this->sshService->execute("sudo chmod -R 775 {$path}/storage {$path}/bootstrap/cache 2>/dev/null || chmod -R 775 {$path}/storage {$path}/bootstrap/cache 2>/dev/null || true");
+        $this->sshService->execute("sudo chmod -R 775 {$storage} {$cache} 2>/dev/null || chmod -R 775 {$storage} {$cache} 2>/dev/null || true");
 
         $deployment->appendLog('Permissions fixed.');
     }

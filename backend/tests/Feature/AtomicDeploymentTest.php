@@ -143,8 +143,8 @@ class AtomicDeploymentTest extends TestCase
         $removals = array_values(array_filter($this->executedCommands, fn ($c) => str_starts_with($c, 'rm -rf')));
 
         $this->assertSame([
-            "rm -rf {$releasesPath}/20260715020000-fff666",
-            "rm -rf {$releasesPath}/20260715010000-ggg777",
+            "rm -rf '{$releasesPath}/20260715020000-fff666'",
+            "rm -rf '{$releasesPath}/20260715010000-ggg777'",
         ], $removals, 'Cleanup must delete exactly the two oldest releases, by absolute path.');
     }
 
@@ -168,7 +168,7 @@ class AtomicDeploymentTest extends TestCase
         $removals = array_values(array_filter($this->executedCommands, fn ($c) => str_starts_with($c, 'rm -rf')));
 
         $this->assertSame(
-            ["rm -rf {$releasesPath}/20260715020000-fff666"],
+            ["rm -rf '{$releasesPath}/20260715020000-fff666'"],
             $removals,
             'Cleanup must skip the release the current symlink points to.'
         );
@@ -181,8 +181,10 @@ class AtomicDeploymentTest extends TestCase
         $app = $this->makeAtomicApp('nodejs');
         $deployment = $this->makeDeployment($app);
 
-        // Deploy script fails after the clone succeeded
-        $this->fakeResults['bash /tmp/deploy-'] = ['output' => 'build exploded', 'exit_code' => 1, 'success' => false];
+        // Deploy script fails after the clone succeeded (scripts run from a
+        // random /tmp/shipyard-script-* path; this app has no git provider,
+        // so the only bash invocation is the deploy script)
+        $this->fakeResults["bash '/tmp/shipyard-script-"] = ['output' => 'build exploded', 'exit_code' => 1, 'success' => false];
 
         try {
             app(DeploymentService::class)->runDeployment($deployment);
@@ -192,7 +194,7 @@ class AtomicDeploymentTest extends TestCase
         }
 
         $this->assertNotNull(
-            $this->indexOfCommandContaining("rm -rf {$deployment->release_path}"),
+            $this->indexOfCommandContaining("rm -rf '{$deployment->release_path}'"),
             'A deployment that failed before activation must remove its partial release directory.'
         );
 
@@ -220,7 +222,7 @@ class AtomicDeploymentTest extends TestCase
         }
 
         $this->assertNull(
-            $this->indexOfCommandContaining("rm -rf {$deployment->release_path}"),
+            $this->indexOfCommandContaining("rm -rf '{$deployment->release_path}'"),
             'A release that was activated must never be deleted by failure cleanup.'
         );
 

@@ -34,7 +34,7 @@ class ApplicationController extends Controller
             'git_provider_id' => 'nullable|exists:git_providers,id',
             'name' => 'required|string|max:255',
             'type' => 'required|in:laravel,nodejs,static',
-            'node_version' => 'nullable|string|max:50',
+            'node_version' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9._-]+$/'],
             'port' => 'nullable|integer|min:1|max:65535',
             'php_version' => ['nullable', 'string', 'regex:/^\d+\.\d+$/'],
             'domain' => 'nullable|string|max:255',
@@ -46,9 +46,9 @@ class ApplicationController extends Controller
             'deployment_strategy' => 'nullable|in:in_place,atomic',
             'releases_to_keep' => 'nullable|integer|min:1|max:50',
             'shared_paths' => 'nullable|array',
-            'shared_paths.*' => 'string',
+            'shared_paths.*' => ['filled', 'string', $this->relativePathRule()],
             'writable_paths' => 'nullable|array',
-            'writable_paths.*' => 'string',
+            'writable_paths.*' => ['filled', 'string', $this->relativePathRule()],
         ]);
 
         $validated['branch'] = $validated['branch'] ?? 'main';
@@ -113,7 +113,7 @@ class ApplicationController extends Controller
             'git_provider_id' => 'nullable|exists:git_providers,id',
             'name' => 'sometimes|required|string|max:255',
             'type' => 'sometimes|required|in:laravel,nodejs,static',
-            'node_version' => 'nullable|string|max:50',
+            'node_version' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9._-]+$/'],
             'port' => 'nullable|integer|min:1|max:65535',
             'php_version' => ['nullable', 'string', 'regex:/^\d+\.\d+$/'],
             'domain' => 'sometimes|required|string|max:255',
@@ -125,9 +125,9 @@ class ApplicationController extends Controller
             'deployment_strategy' => 'nullable|in:in_place,atomic',
             'releases_to_keep' => 'nullable|integer|min:1|max:50',
             'shared_paths' => 'nullable|array',
-            'shared_paths.*' => 'string',
+            'shared_paths.*' => ['filled', 'string', $this->relativePathRule()],
             'writable_paths' => 'nullable|array',
-            'writable_paths.*' => 'string',
+            'writable_paths.*' => ['filled', 'string', $this->relativePathRule()],
         ]);
 
         $serverId = $validated['server_id'] ?? $application->server_id;
@@ -232,6 +232,20 @@ class ApplicationController extends Controller
         return function (string $attribute, mixed $value, \Closure $fail) {
             if (! is_string($value) || ! $this->isSafeDeployPath($value)) {
                 $fail('The deploy path must be an absolute path at least three levels deep (for example /var/www/shipyard/app) and must not contain "..".');
+            }
+        };
+    }
+
+    /**
+     * shared_paths/writable_paths entries are joined onto the release path
+     * and fed to rm -rf/chmod during deploys, so they must stay relative and
+     * traversal-free (see AtomicDeploymentService::assertSafeRelativePath).
+     */
+    private function relativePathRule(): \Closure
+    {
+        return function (string $attribute, mixed $value, \Closure $fail) {
+            if (! is_string($value) || ! preg_match('#^(?!/)(?!.*\.\.)[\w./-]+$#', $value)) {
+                $fail('Each path must be relative (like "storage" or ".env") and must not contain "..".');
             }
         };
     }
