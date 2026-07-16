@@ -196,9 +196,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: capture stderr, redact the password before logging.
   Fixed (July 2026): stderr is captured (`2>&1`), possible since DB-1 moved the password to `MYSQL_PWD` (no more password warning noise); the password never appears in output. Regression tests in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-3 (Medium): PostgreSQL "ALL" grant omits sequences and default privileges.**
+- [x] **DB-3 (Medium): PostgreSQL "ALL" grant omits sequences and default privileges.**
   `PostgreSQLService.php:147-161` grants database, schema, and existing tables only. Laravel apps then fail with "permission denied for sequence xxx_id_seq" on first INSERT; tables created later are inaccessible.
   Fix: add `GRANT ... ON ALL SEQUENCES IN SCHEMA` and `ALTER DEFAULT PRIVILEGES`.
+  Fixed (July 2026): ALL grant/revoke now include `ON ALL SEQUENCES IN SCHEMA public` and `ALTER DEFAULT PRIVILEGES ... ON TABLES/SEQUENCES`. Regression tests in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-4 (Medium): Grant/revoke loops have no rollback; partial state diverges from the record.**
   `PostgreSQLService.php:190-199,246-253`: if command 2 of 3 fails, command 1 is applied but the exception aborts and `DatabaseUser.privileges` is not updated.

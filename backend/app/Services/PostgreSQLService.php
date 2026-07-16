@@ -159,6 +159,21 @@ class PostgreSQLService implements DatabaseDriverInterface
                 "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"%s\"",
                 $this->escapeName($username)
             );
+            // Laravel apps fail on their first INSERT without sequence
+            // privileges (permission denied for sequence xxx_id_seq)
+            $commands[] = sprintf(
+                "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"%s\"",
+                $this->escapeName($username)
+            );
+            // Tables/sequences created later (migrations) must be covered too
+            $commands[] = sprintf(
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO \"%s\"",
+                $this->escapeName($username)
+            );
+            $commands[] = sprintf(
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO \"%s\"",
+                $this->escapeName($username)
+            );
         } else {
             foreach ($privileges as $privilege) {
                 $privilege = strtoupper($privilege);
@@ -215,6 +230,18 @@ class PostgreSQLService implements DatabaseDriverInterface
             );
             $commands[] = sprintf(
                 "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM \"%s\"",
+                $this->escapeName($username)
+            );
+            $commands[] = sprintf(
+                "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM \"%s\"",
+                $this->escapeName($username)
+            );
+            $commands[] = sprintf(
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES FROM \"%s\"",
+                $this->escapeName($username)
+            );
+            $commands[] = sprintf(
+                "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON SEQUENCES FROM \"%s\"",
                 $this->escapeName($username)
             );
         } else {

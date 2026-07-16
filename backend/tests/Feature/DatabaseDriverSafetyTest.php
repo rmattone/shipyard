@@ -95,6 +95,35 @@ class DatabaseDriverSafetyTest extends TestCase
         }
     }
 
+    // DB-3: a PostgreSQL "ALL" grant without sequences fails Laravel apps on
+    // their first INSERT (permission denied for sequence xxx_id_seq), and
+    // without default privileges, tables created later are inaccessible.
+
+    public function test_postgres_all_grant_covers_sequences_and_future_objects(): void
+    {
+        $this->mockSsh();
+        $database = Database::factory()->postgresql()->create();
+
+        app(DatabaseService::class)->grantPrivileges($database, 'appuser', '*', 'appdb', ['ALL']);
+
+        $joined = implode("\n", $this->executedCommands);
+        $this->assertStringContainsString('ON ALL SEQUENCES IN SCHEMA public', $joined);
+        $this->assertStringContainsString('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES', $joined);
+        $this->assertStringContainsString('ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES', $joined);
+    }
+
+    public function test_postgres_all_revoke_covers_sequences_and_future_objects(): void
+    {
+        $this->mockSsh();
+        $database = Database::factory()->postgresql()->create();
+
+        app(DatabaseService::class)->revokePrivileges($database, 'appuser', '*', 'appdb', ['ALL']);
+
+        $joined = implode("\n", $this->executedCommands);
+        $this->assertStringContainsString('ON ALL SEQUENCES IN SCHEMA public', $joined);
+        $this->assertStringContainsString('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES', $joined);
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();
