@@ -198,8 +198,11 @@ class DatabaseUserController extends Controller
                 'user' => $user->fresh(),
             ]);
         } catch (RuntimeException $e) {
+            $this->resyncPrivilegesFromServer($database, $user);
+
             return response()->json([
                 'message' => $e->getMessage(),
+                'user' => $user->fresh(),
             ], 500);
         }
     }
@@ -248,9 +251,35 @@ class DatabaseUserController extends Controller
                 'user' => $user->fresh(),
             ]);
         } catch (RuntimeException $e) {
+            $this->resyncPrivilegesFromServer($database, $user);
+
             return response()->json([
                 'message' => $e->getMessage(),
+                'user' => $user->fresh(),
             ], 500);
+        }
+    }
+
+    /**
+     * A grant/revoke sequence can fail midway with earlier commands already
+     * applied on the server, so the stored record must be re-read from
+     * reality instead of being left stale (best-effort).
+     */
+    private function resyncPrivilegesFromServer(Database $database, DatabaseUser $user): void
+    {
+        try {
+            $effective = $this->databaseService->getUserPrivileges($database, $user->username, $user->host);
+
+            $privileges = [];
+            foreach ($effective as $entry) {
+                if (! empty($entry['database']) && ! empty($entry['privileges'])) {
+                    $privileges[$entry['database']] = array_values($entry['privileges']);
+                }
+            }
+
+            $user->update(['privileges' => $privileges ?: null]);
+        } catch (\Throwable) {
+            // If the re-read fails too, leave the stored record untouched.
         }
     }
 }

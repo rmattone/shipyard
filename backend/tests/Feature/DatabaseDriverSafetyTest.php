@@ -124,6 +124,44 @@ class DatabaseDriverSafetyTest extends TestCase
         $this->assertStringContainsString('ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES', $joined);
     }
 
+    // DB-4: when command 2 of 3 fails, command 1 was applied on the server;
+    // the stored privileges must be re-read from reality, not left stale.
+
+    public function test_partial_grant_failure_resyncs_stored_privileges_from_the_server(): void
+    {
+        $this->mockSsh();
+        // The schema-level grant (command 2 of the ALL sequence) fails
+        $this->fakeResults['GRANT ALL ON SCHEMA public'] = [
+            'output' => 'ERROR: permission denied for schema public', 'exit_code' => 1, 'success' => false,
+        ];
+        // The effective-privileges re-read reports what actually applies
+        $this->fakeResults['has_database_privilege'] = [
+            'output' => 'appdb|{CONNECT,CREATE}', 'exit_code' => 0, 'success' => true,
+        ];
+
+        $user = \App\Models\User::factory()->create();
+        $database = Database::factory()->postgresql()->create();
+        $dbUser = \App\Models\DatabaseUser::factory()->create([
+            'database_id' => $database->id,
+            'username' => 'appuser',
+            'privileges' => null,
+        ]);
+
+        $response = $this->actingAs($user)->postJson(
+            "/api/servers/{$database->server_id}/databases/{$database->id}/users/{$dbUser->id}/grant",
+            ['database' => 'appdb', 'privileges' => ['ALL']]
+        );
+
+        $response->assertStatus(500);
+
+        $dbUser->refresh();
+        $this->assertSame(
+            ['appdb' => ['CONNECT', 'CREATE']],
+            $dbUser->privileges,
+            'After a partial failure the stored privileges must reflect what the server actually reports.'
+        );
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();
