@@ -17,7 +17,11 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/api': {
-        target: 'http://localhost:80',
+        target: process.env.BACKEND_URL || 'http://localhost:80',
+        changeOrigin: true,
+      },
+      '/sanctum': {
+        target: process.env.BACKEND_URL || 'http://localhost:80',
         changeOrigin: true,
       },
     },

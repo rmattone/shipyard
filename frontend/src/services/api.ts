@@ -32,9 +32,19 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/app/login'
+      // A 401 from the login request itself means wrong credentials; a hard
+      // redirect here would reload the page and wipe the error message.
+      const requestUrl: string = error.config?.url ?? ''
+      const isLoginRequest = requestUrl.includes('/auth/login')
+      const isOnLoginPage = window.location.pathname.endsWith('/login')
+
+      if (!isLoginRequest) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+      }
+      if (!isLoginRequest && !isOnLoginPage) {
+        window.location.href = '/app/login'
+      }
     }
     return Promise.reject(error)
   }

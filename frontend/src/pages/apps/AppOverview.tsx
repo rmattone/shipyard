@@ -162,24 +162,36 @@ export default function AppOverview() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button onClick={handleDeploy} disabled={deploying}>
-                {deploying ? (
-                  <LoadingSpinner size="sm" className="mr-2" />
-                ) : (
-                  <RocketLaunchIcon className="h-4 w-4 mr-2" />
-                )}
-                Deploy
-                <ChevronDownIcon className="h-4 w-4 ml-2" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleDeploy} disabled={deploying}>
-                Deploy from {app.branch}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Split button: the primary action deploys, only the chevron opens
+              the menu. A single button doing both used to fire a deployment
+              AND open the menu, allowing a second concurrent deployment. */}
+          <div className="flex items-center">
+            <Button onClick={handleDeploy} disabled={deploying} className="rounded-r-none">
+              {deploying ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <RocketLaunchIcon className="h-4 w-4 mr-2" />
+              )}
+              Deploy
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={deploying}
+                  size="icon"
+                  className="rounded-l-none border-l border-primary-foreground/20"
+                  aria-label="Deploy options"
+                >
+                  <ChevronDownIcon className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleDeploy} disabled={deploying}>
+                  Deploy from {app.branch}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon">
