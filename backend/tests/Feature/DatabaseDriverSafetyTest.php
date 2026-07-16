@@ -245,6 +245,23 @@ class DatabaseDriverSafetyTest extends TestCase
         $this->assertStringContainsString('FLUSH PRIVILEGES', $sql);
     }
 
+    /**
+     * DB-7: mysql_native_password is deprecated in MySQL 8.0 and removed in
+     * 8.4+; the installer would break once Ubuntu ships a newer MySQL.
+     */
+    public function test_mysql_installer_uses_caching_sha2_password(): void
+    {
+        $this->mockSsh();
+        $this->installFakes();
+        $installation = \App\Models\DatabaseInstallation::factory()->create(['engine' => 'mysql']);
+
+        app(\App\Services\DatabaseInstallationService::class)->install($installation);
+
+        $sql = $this->decodedInstallerSql();
+        $this->assertStringContainsString('IDENTIFIED WITH caching_sha2_password', $sql);
+        $this->assertStringNotContainsString('mysql_native_password', $sql);
+    }
+
     public function test_postgres_installer_pipes_password_sql_as_base64(): void
     {
         $this->mockSsh();
