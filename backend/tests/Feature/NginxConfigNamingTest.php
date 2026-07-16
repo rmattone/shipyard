@@ -25,6 +25,9 @@ class NginxConfigNamingTest extends TestCase
     /** @var array<int, array{content: string, path: string}> */
     private array $uploads = [];
 
+    /** @var array<string, array> keyed by substring of the command */
+    private array $fakeResults = [];
+
     private function mockSsh(): void
     {
         $this->executedCommands = [];
@@ -41,6 +44,12 @@ class NginxConfigNamingTest extends TestCase
             });
             $mock->shouldReceive('execute')->andReturnUsing(function (string $command) {
                 $this->executedCommands[] = $command;
+
+                foreach ($this->fakeResults as $needle => $result) {
+                    if (str_contains($command, $needle)) {
+                        return $result;
+                    }
+                }
 
                 return ['output' => '', 'exit_code' => 0, 'success' => true];
             });
@@ -73,10 +82,12 @@ class NginxConfigNamingTest extends TestCase
 
         app(NginxService::class)->deploy($app);
 
-        $lastUpload = end($this->uploads);
-        $this->assertSame(
-            "/etc/nginx/sites-available/shipyard-app-{$app->id}",
-            $lastUpload['path'],
+        $moves = array_filter(
+            $this->commandsContaining("/etc/nginx/sites-available/shipyard-app-{$app->id}"),
+            fn ($c) => str_contains($c, 'mv -f')
+        );
+        $this->assertNotEmpty(
+            $moves,
             'Config files must be named after the immutable app id, not the mutable primary domain.'
         );
 
@@ -141,6 +152,27 @@ class NginxConfigNamingTest extends TestCase
         );
     }
 
+    /**
+     * NGINX-7: after removing an app's config, a failing nginx -t means some
+     * other config is broken; reloading anyway would take every site down.
+     */
+    public function test_remove_does_not_reload_nginx_when_the_config_test_fails(): void
+    {
+        $this->mockSsh();
+        $app = $this->makeApp();
+        $this->fakeResults['nginx -t'] = ['output' => 'nginx: test failed', 'exit_code' => 1, 'success' => false];
+
+        try {
+            app(NginxService::class)->remove($app);
+            $this->fail('Expected remove to throw when nginx -t fails.');
+        } catch (\RuntimeException) {
+            // expected
+        }
+
+        $reloads = $this->commandsContaining('systemctl reload nginx');
+        $this->assertSame([], $reloads, 'Reloading with a broken config would take every site on the server down.');
+    }
+
     public function test_set_primary_redeploys_the_nginx_config(): void
     {
         $this->mockSsh();
@@ -152,9 +184,12 @@ class NginxConfigNamingTest extends TestCase
 
         app(DomainService::class)->setPrimary($secondary);
 
-        $lastUpload = end($this->uploads);
-        $this->assertNotFalse($lastUpload, 'Changing the primary domain must redeploy the nginx config.');
-        $this->assertSame("/etc/nginx/sites-available/shipyard-app-{$app->id}", $lastUpload['path']);
+        $this->assertNotEmpty($this->uploads, 'Changing the primary domain must redeploy the nginx config.');
+        $moves = array_filter(
+            $this->commandsContaining("/etc/nginx/sites-available/shipyard-app-{$app->id}"),
+            fn ($c) => str_contains($c, 'mv -f')
+        );
+        $this->assertNotEmpty($moves, 'The redeployed config must land under the app-id name.');
         $this->assertContains('systemctl reload nginx', $this->executedCommands);
     }
 }

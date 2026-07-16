@@ -4,6 +4,9 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Domain;
+use App\Models\Server;
+use App\Support\RemoteSudo;
+use Illuminate\Support\Str;
 use RuntimeException;
 
 class NginxService
@@ -61,13 +64,27 @@ class NginxService
      *
      * @param  array<int, string>  $names
      */
-    private function removeLegacyConfigs(array $names): void
+    private function removeLegacyConfigs(Server $server, array $names): void
     {
         foreach ($names as $name) {
             $enabled = escapeshellarg("/etc/nginx/sites-enabled/{$name}");
             $available = escapeshellarg("/etc/nginx/sites-available/{$name}");
-            $this->sshService->execute("rm -f {$enabled} {$available}");
+            $this->sshService->execute(RemoteSudo::wrap($server, "rm -f {$enabled} {$available}"));
         }
+    }
+
+    /**
+     * Write a config file into /etc/nginx. SFTP writes run as the SSH user
+     * and cannot create files there for non-root users, so the content is
+     * staged in /tmp and moved into place as root. Assumes an open SSH
+     * connection.
+     */
+    private function uploadConfig(Server $server, string $content, string $destination): void
+    {
+        $temp = '/tmp/shipyard-nginx-'.Str::random(16);
+        $this->sshService->uploadContent($content, $temp);
+        $this->sshService->execute(RemoteSudo::wrap($server, "mv -f {$temp} {$destination}"));
+        $this->sshService->execute(RemoteSudo::wrap($server, "chmod 644 {$destination}"));
     }
 
     /**
@@ -77,11 +94,12 @@ class NginxService
     public function deploy(Application $app, array $extraLegacyNames = []): bool
     {
         $config = $this->generateConfig($app);
+        $server = $app->server;
         $configName = $this->configName($app);
         $configPath = "/etc/nginx/sites-available/{$configName}";
         $enabledPath = "/etc/nginx/sites-enabled/{$configName}";
 
-        $this->sshService->connect($app->server);
+        $this->sshService->connect($server);
 
         // Snapshot the currently deployed config so a failed test can roll
         // back. Leaving a broken config enabled would make every later
@@ -90,20 +108,20 @@ class NginxService
         $previousConfig = ($existing['success'] && ! empty($existing['output'])) ? $existing['output'] : null;
 
         // Upload config
-        $this->sshService->uploadContent($config, $configPath);
+        $this->uploadConfig($server, $config, $configPath);
 
         // Create symlink
-        $this->sshService->execute("ln -sf {$configPath} {$enabledPath}");
+        $this->sshService->execute(RemoteSudo::wrap($server, "ln -sf {$configPath} {$enabledPath}"));
 
         // Test nginx config
-        $result = $this->sshService->execute('nginx -t 2>&1');
+        $result = $this->sshService->execute(RemoteSudo::wrap($server, 'nginx -t 2>&1'));
         if (! $result['success']) {
             if ($previousConfig !== null) {
                 // Restore the previous (working) config
-                $this->sshService->uploadContent($previousConfig, $configPath);
+                $this->uploadConfig($server, $previousConfig, $configPath);
             } else {
                 // No previous config: remove the broken one entirely
-                $this->sshService->execute("rm -f {$enabledPath} {$configPath}");
+                $this->sshService->execute(RemoteSudo::wrap($server, "rm -f {$enabledPath} {$configPath}"));
             }
 
             $this->sshService->disconnect();
@@ -115,10 +133,10 @@ class NginxService
         // stale cert paths). Done before the reload so one reload covers
         // both changes, and only after a successful test so a failed deploy
         // leaves the previously serving files untouched.
-        $this->removeLegacyConfigs($this->legacyConfigNames($app, $extraLegacyNames));
+        $this->removeLegacyConfigs($server, $this->legacyConfigNames($app, $extraLegacyNames));
 
         // Reload nginx
-        $result = $this->sshService->execute('systemctl reload nginx');
+        $result = $this->sshService->execute(RemoteSudo::wrap($server, 'systemctl reload nginx'));
 
         $this->sshService->disconnect();
 
@@ -127,20 +145,30 @@ class NginxService
 
     public function remove(Application $app): bool
     {
+        $server = $app->server;
         $configName = $this->configName($app);
         $configPath = "/etc/nginx/sites-available/{$configName}";
         $enabledPath = "/etc/nginx/sites-enabled/{$configName}";
 
-        $this->sshService->connect($app->server);
+        $this->sshService->connect($server);
 
-        $this->sshService->execute("rm -f {$enabledPath}");
-        $this->sshService->execute("rm -f {$configPath}");
+        $this->sshService->execute(RemoteSudo::wrap($server, "rm -f {$enabledPath}"));
+        $this->sshService->execute(RemoteSudo::wrap($server, "rm -f {$configPath}"));
 
         // Also remove files deployed under the old domain-based naming so a
         // deleted app cannot keep serving through an orphaned config.
-        $this->removeLegacyConfigs($this->legacyConfigNames($app));
+        $this->removeLegacyConfigs($server, $this->legacyConfigNames($app));
 
-        $result = $this->sshService->execute('systemctl reload nginx');
+        // Removing this app's files cannot break the config, but another
+        // site's config may already be broken; reloading then would take
+        // every site down. Test first and surface the problem instead.
+        $test = $this->sshService->execute(RemoteSudo::wrap($server, 'nginx -t 2>&1'));
+        if (! $test['success']) {
+            $this->sshService->disconnect();
+            throw new RuntimeException("Nginx config test failed after removing the app config, reload skipped: {$test['output']}");
+        }
+
+        $result = $this->sshService->execute(RemoteSudo::wrap($server, 'systemctl reload nginx'));
 
         $this->sshService->disconnect();
 
@@ -173,11 +201,12 @@ class NginxService
      */
     public function updateConfigContent(Application $app, string $content): bool
     {
+        $server = $app->server;
         $configName = $this->configName($app);
         $configPath = "/etc/nginx/sites-available/{$configName}";
         $enabledPath = "/etc/nginx/sites-enabled/{$configName}";
 
-        $this->sshService->connect($app->server);
+        $this->sshService->connect($server);
 
         // Snapshot the currently deployed config so a failed test restores a
         // known-working state (a freshly generated config is not guaranteed
@@ -186,18 +215,18 @@ class NginxService
         $previousConfig = ($existing['success'] && ! empty($existing['output'])) ? $existing['output'] : null;
 
         // Upload the new config
-        $this->sshService->uploadContent($content, $configPath);
+        $this->uploadConfig($server, $content, $configPath);
 
         // Ensure symlink exists
-        $this->sshService->execute("ln -sf {$configPath} {$enabledPath}");
+        $this->sshService->execute(RemoteSudo::wrap($server, "ln -sf {$configPath} {$enabledPath}"));
 
         // Test nginx config
-        $result = $this->sshService->execute('nginx -t 2>&1');
+        $result = $this->sshService->execute(RemoteSudo::wrap($server, 'nginx -t 2>&1'));
         if (! $result['success']) {
             if ($previousConfig !== null) {
-                $this->sshService->uploadContent($previousConfig, $configPath);
+                $this->uploadConfig($server, $previousConfig, $configPath);
             } else {
-                $this->sshService->execute("rm -f {$enabledPath} {$configPath}");
+                $this->sshService->execute(RemoteSudo::wrap($server, "rm -f {$enabledPath} {$configPath}"));
             }
 
             $this->sshService->disconnect();
@@ -205,7 +234,7 @@ class NginxService
         }
 
         // Reload nginx
-        $result = $this->sshService->execute('systemctl reload nginx');
+        $result = $this->sshService->execute(RemoteSudo::wrap($server, 'systemctl reload nginx'));
 
         $this->sshService->disconnect();
 

@@ -158,17 +158,20 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: add a `location /.well-known/acme-challenge/` block to all templates pointing at one canonical webroot, and use that same path in the certbot command.
   Fixed (July 2026): every template (all types, SSL and non-SSL) serves `location ^~ /.well-known/acme-challenge/` from `NginxService::ACME_WEBROOT` (`/var/www/letsencrypt`); issuance mkdirs and uses the same path, and `certbot renew` passes `--webroot -w` so certificates issued under the old per-app webroots keep renewing. Regression tests in `NginxTemplateTest`/`CertbotWebrootTest`.
 
-- [ ] **SSL-3 (Medium): DB updated before nginx redeploy on cert issuance.**
+- [x] **SSL-3 (Medium): DB updated before nginx redeploy on cert issuance.**
   `CertbotService.php:49-61` persists `ssl_enabled`/`ssl_expires_at`, then calls `nginxService->deploy()`; if that throws (NGINX-1) the domain shows SSL active in the UI while HTTPS is dead.
   Fix: only persist after the nginx deploy succeeds, or mark a distinct "issued but not serving" state.
+  Fixed (July 2026): the flag must be set before the deploy (templates emit 443 blocks from SSL-enabled Domain rows), so instead both issuance paths revert `ssl_enabled` and rethrow when the deploy fails. The certificate stays on disk; re-running issuance after fixing nginx re-activates it. Regression test in `CertbotWebrootTest`.
 
-- [ ] **NGINX-6 (Medium): sudo usage inconsistent across services; only one server configuration can work.**
+- [x] **NGINX-6 (Medium): sudo usage inconsistent across services; only one server configuration can work.**
   `DatabaseInstallationService` prefixes everything with `sudo`; `NginxService` (writes `/etc/nginx`, `systemctl reload`) and `CertbotService` never do. Non-root SSH user: installs work, every nginx/cert operation fails. Root user: the sudo prefixes are pointless.
   Fix: pick one convention (probably `sudo -n` everywhere with a documented sudoers requirement) and apply it consistently.
+  Fixed (July 2026): new `App\Support\RemoteSudo::wrap()` prefixes privileged commands with `sudo -n` for non-root, non-local SSH users (root runs them bare, since minimal systems may lack sudo). Applied to all privileged `NginxService`/`CertbotService` commands; config writes are staged in /tmp and moved into place as root because SFTP cannot write /etc/nginx as a non-root user. Passwordless sudo requirement documented in the README. `DatabaseInstallationService` keeps its unconditional `sudo` (works for both cases); normalizing it onto `RemoteSudo` is cosmetic follow-up. Regression tests in `NginxPrivilegeTest`.
 
-- [ ] **NGINX-7 (Low): `remove()` reloads nginx without testing and callers ignore the result.**
+- [x] **NGINX-7 (Low): `remove()` reloads nginx without testing and callers ignore the result.**
   `NginxService.php:60-69`.
   Fix: `nginx -t` before reload; surface failures.
+  Fixed (July 2026): `remove()` runs `nginx -t` after deleting the config and throws instead of reloading when it fails (a reload with another site's broken config would take everything down). App deletion still proceeds when nginx cleanup throws (the catch in `ApplicationController::destroy` remains; logging it properly is API-11). Regression test in `NginxConfigNamingTest`.
 
 ---
 
