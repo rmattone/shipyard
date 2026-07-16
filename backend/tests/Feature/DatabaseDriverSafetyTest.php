@@ -297,6 +297,26 @@ class DatabaseDriverSafetyTest extends TestCase
         );
     }
 
+    // DB-9: the destructive drop endpoint accepted any string while the
+    // create endpoint enforced an identifier regex.
+
+    public function test_drop_database_validates_the_name_like_create_does(): void
+    {
+        $this->mockSsh();
+        $user = \App\Models\User::factory()->create();
+        $database = Database::factory()->create();
+
+        $url = "/api/servers/{$database->server_id}/databases/{$database->id}/remote-databases";
+
+        $this->actingAs($user)
+            ->deleteJson($url, ['name' => 'x`; DROP DATABASE mysql; --'])
+            ->assertStatus(422);
+
+        $this->actingAs($user)
+            ->deleteJson($url, ['name' => 'legit_db'])
+            ->assertOk();
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();

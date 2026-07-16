@@ -280,8 +280,10 @@ class DatabaseController extends Controller
             return response()->json(['message' => 'Not found'], 404);
         }
 
+        // Same identifier rule as createRemoteDatabase; the destructive
+        // endpoint must not be the unvalidated one
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|regex:/^[a-zA-Z_][a-zA-Z0-9_]*$/',
         ]);
 
         try {
