@@ -65,9 +65,10 @@ class NginxConfigRollbackTest extends TestCase
     {
         $this->mockSsh();
         $app = $this->makeApp();
+        $configPath = "/etc/nginx/sites-available/shipyard-app-{$app->id}";
 
         $previousConfig = 'server { listen 80; server_name example.test; } # previous working config';
-        $this->fakeResults['cat /etc/nginx/sites-available/example.test'] = [
+        $this->fakeResults["cat {$configPath}"] = [
             'output' => $previousConfig, 'exit_code' => 0, 'success' => true,
         ];
         $this->fakeResults['nginx -t'] = [
@@ -82,7 +83,7 @@ class NginxConfigRollbackTest extends TestCase
         }
 
         $lastUpload = end($this->uploads);
-        $this->assertSame('/etc/nginx/sites-available/example.test', $lastUpload['path']);
+        $this->assertSame($configPath, $lastUpload['path']);
         $this->assertSame($previousConfig, $lastUpload['content'], 'The previous working config must be restored after a failed test.');
     }
 
@@ -92,7 +93,7 @@ class NginxConfigRollbackTest extends TestCase
         $app = $this->makeApp();
 
         // No existing config on the server
-        $this->fakeResults['cat /etc/nginx/sites-available/example.test'] = [
+        $this->fakeResults["cat /etc/nginx/sites-available/shipyard-app-{$app->id}"] = [
             'output' => '', 'exit_code' => 1, 'success' => false,
         ];
         $this->fakeResults['nginx -t'] = [
@@ -108,7 +109,7 @@ class NginxConfigRollbackTest extends TestCase
 
         $removals = array_filter($this->executedCommands, fn ($c) => str_starts_with($c, 'rm -f'));
         $this->assertNotEmpty($removals, 'A brand-new broken config must be removed, not left enabled.');
-        $this->assertStringContainsString('sites-enabled/example.test', implode(' ', $removals));
+        $this->assertStringContainsString("sites-enabled/shipyard-app-{$app->id}", implode(' ', $removals));
     }
 
     public function test_successful_deploy_reloads_nginx(): void

@@ -212,10 +212,18 @@ class CertbotService
         // Update application
         $app->update(['ssl_enabled' => true]);
 
-        // Also update the primary domain if it exists
+        // Nginx templates only emit SSL blocks for SSL-enabled Domain rows,
+        // so make sure one exists; otherwise the certificate obtained above
+        // would never be served.
         $primaryDomain = $app->primaryDomain();
         if ($primaryDomain) {
             $primaryDomain->update(['ssl_enabled' => true]);
+        } elseif ($app->domain) {
+            $app->domains()->create([
+                'domain' => $app->domain,
+                'is_primary' => true,
+                'ssl_enabled' => true,
+            ]);
         }
 
         // Redeploy nginx config with SSL

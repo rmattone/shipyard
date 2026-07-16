@@ -128,18 +128,20 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: test the candidate config before enabling (write to a temp path, `nginx -t` with it staged, or snapshot and restore on failure like `updateConfigContent` does).
   Fixed (July 2026): both `deploy()` and `updateConfigContent()` snapshot the existing config and restore it on a failed `nginx -t` (or remove the file when there was no predecessor). `updateConfigContent` previously "restored" a freshly generated config, which is not guaranteed valid either.
 
-- [ ] **NGINX-2 (High): Legacy SSL path generates invalid config (`server_name ;`, no 443 block).**
+- [x] **NGINX-2 (High): Legacy SSL path generates invalid config (`server_name ;`, no 443 block).**
   `NginxService.php:253-271` (also 413-430, 547-564): an app with `ssl_enabled = true` but zero Domain rows produces an empty `$sslDomainNames` in the redirect block and no 443 server block. Reachable via deprecated `CertbotService::obtainCertificate()` (`CertbotService.php:204`). Combined with NGINX-1, this leaves a broken config enabled.
   Fix: remove the legacy app-level SSL path or make it synthesize a Domain row; guard template generation against the empty-domain case.
+  Fixed (July 2026): templates emit SSL blocks only when SSL-enabled Domain rows exist (the legacy app-level flag alone now yields a valid plain HTTP config), and the deprecated `obtainCertificate()` synthesizes the missing primary Domain row so the issued certificate actually gets served. Regression tests in `NginxTemplateTest`/`CertbotWebrootTest`.
 
 - [x] **NGINX-3 (High): Node.js apps hardcoded to `proxy_pass http://localhost:3000`.**
   `NginxService.php:400,445,469`. `Application` has no port field. Two Node apps on one server both route to whatever holds port 3000.
   Fix: add a `port` column to applications, template it into the proxy blocks and into the PM2 start command.
   Fixed (July 2026): nullable `applications.port` (default 3000 via `Application::getPort()`), templated into all Node.js proxy blocks; `buildPm2RestartCommand()` exports `PORT` and restarts with `--update-env`. API accepts `port` on create/update. UI field not wired yet (see GAP-UI-4 territory). Regression tests in `NginxTemplateTest`/`DeployScriptTest`.
 
-- [ ] **NGINX-4 (High): Config file named after the mutable primary domain, never cleaned up on change.**
+- [x] **NGINX-4 (High): Config file named after the mutable primary domain, never cleaned up on change.**
   `NginxService.php:29-30,56-58` names the file `sites-enabled/{primaryDomain}`; `DomainService::setPrimary()` (`DomainService.php:87-103`) never redeploys or removes the old file. Changing the primary domain leaves the old config enabled (duplicate/conflicting server blocks, stale cert paths), and `remove()` only deletes the file matching the current name, so deleted apps can keep serving.
   Fix: name configs after an immutable key (app id or slug), and add cleanup on primary-domain change and app deletion.
+  Fixed (July 2026): configs are now named `shipyard-app-{id}`. `deploy()` and `remove()` clean up files deployed under the old domain-based naming (after a successful `nginx -t` only, so failed deploys keep the serving files), `deploy()` accepts extra legacy names for the just-renamed-domain case (used by app update), and `DomainService::setPrimary()` now syncs nginx. Regression tests in `NginxConfigNamingTest`; `NginxConfigRollbackTest` updated to the new naming.
 
 - [x] **NGINX-5 (High): PHP-FPM socket hardcoded to `php8.3-fpm.sock`.**
   `NginxService.php:242,302,342` pin php8.3 while the installer (`DatabaseInstallationService.php:238-245`) installs whatever the `php` metapackage resolves to (ondrej PPA resolves newer). Mismatch means every Laravel request 502s.

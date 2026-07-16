@@ -157,10 +157,10 @@ class ApplicationController extends Controller
             }
 
             try {
-                // Remove the config named after the old domain, then deploy
-                // under the new one (config files are named per primary domain).
-                $this->nginxService->remove($application, $oldDomain);
-                $this->nginxService->deploy($application->fresh(['domains']));
+                // Redeploy (config files are named per app id); pass the old
+                // domain so a config deployed under the previous domain-based
+                // naming gets cleaned up.
+                $this->nginxService->deploy($application->fresh(['domains']), [$oldDomain]);
             } catch (\Exception $e) {
                 report($e);
             }

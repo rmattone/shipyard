@@ -106,6 +106,44 @@ class NginxTemplateTest extends TestCase
         $this->assertStringNotContainsString('php8.3-fpm.sock', $config);
     }
 
+    // NGINX-2: the legacy app-level ssl_enabled flag with no SSL-enabled
+    // Domain rows must not produce an invalid config (empty server_name,
+    // no 443 block).
+
+    public function test_legacy_ssl_flag_without_ssl_domains_generates_a_plain_http_config(): void
+    {
+        foreach (['laravel', 'nodejs', 'static'] as $type) {
+            $app = $this->makeApp(['type' => $type, 'ssl_enabled' => true], domain: "legacy-{$type}.test");
+
+            $config = app(NginxService::class)->generateConfig($app);
+
+            $this->assertStringNotContainsString(
+                'server_name ;',
+                $config,
+                "The {$type} template emits an empty server_name when only the legacy ssl flag is set."
+            );
+            $this->assertStringNotContainsString(
+                'listen 443',
+                $config,
+                "The {$type} template must not emit SSL blocks without an SSL-enabled domain (no certificate exists)."
+            );
+        }
+    }
+
+    public function test_legacy_ssl_flag_with_no_domain_rows_does_not_emit_empty_server_names(): void
+    {
+        $app = Application::factory()->create([
+            'type' => 'laravel',
+            'ssl_enabled' => true,
+            'domain' => 'bare.test',
+        ]);
+
+        $config = app(NginxService::class)->generateConfig($app->fresh());
+
+        $this->assertStringNotContainsString('server_name ;', $config);
+        $this->assertStringContainsString('server_name bare.test;', $config);
+    }
+
     // SSL-2: every template must serve ACME challenges from one canonical
     // webroot so certbot's webroot authenticator works for all app types.
 

@@ -88,7 +88,7 @@ class DomainService
     {
         $application = $domain->application;
 
-        return DB::transaction(function () use ($application, $domain) {
+        $result = DB::transaction(function () use ($application, $domain) {
             // Unset all primary flags
             $application->domains()->update(['is_primary' => false]);
 
@@ -100,6 +100,12 @@ class DomainService
 
             return $domain->fresh();
         });
+
+        // Sync nginx so the served config reflects the change (and stale
+        // domain-named config files from the old naming get cleaned up)
+        $this->syncNginxConfig($application->fresh());
+
+        return $result;
     }
 
     /**
