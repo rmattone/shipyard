@@ -231,9 +231,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: apply the same regex to drop.
   Fixed (July 2026): drop enforces the same identifier regex as create. Regression test in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-10 (Low): Dead statement in PostgreSQL dropDatabase.**
+- [x] **DB-10 (Low): Dead statement in PostgreSQL dropDatabase.**
   `PostgreSQLService.php:73`: `buildCommand(...)` result discarded, command built twice. Copy/paste slip.
   Fix: remove the dead line.
+  Fixed (July 2026): dead line removed.
 
 - [ ] **DB-11 (Low): PM2 modeled as a database engine.**
   The `database_installations.engine` enum is `('mysql','postgresql','pm2')` and `DatabaseInstallationService` actually installs PHP, Node, nginx, certbot, and PM2 too. Misleading naming, confuses ownership of provisioning logic, and caused TEST-1.

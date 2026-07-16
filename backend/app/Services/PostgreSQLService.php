@@ -20,17 +20,17 @@ class PostgreSQLService implements DatabaseDriverInterface
 
     public function listDatabases(SSHService $ssh, Database $database): array
     {
-        $sql = "SELECT datname FROM pg_database WHERE datistemplate = false";
+        $sql = 'SELECT datname FROM pg_database WHERE datistemplate = false';
         $command = $this->buildCommand($database, $sql, true);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to list databases: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to list databases: '.$result['output']);
         }
 
         $databases = array_filter(
             array_map('trim', explode("\n", trim($result['output']))),
-            fn($db) => !empty($db) && !in_array($db, $this->systemDatabases)
+            fn ($db) => ! empty($db) && ! in_array($db, $this->systemDatabases)
         );
 
         return array_values($databases);
@@ -52,8 +52,8 @@ class PostgreSQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success'] && !str_contains($result['output'], 'already exists')) {
-            throw new RuntimeException('Failed to create database: ' . $result['output']);
+        if (! $result['success'] && ! str_contains($result['output'], 'already exists')) {
+            throw new RuntimeException('Failed to create database: '.$result['output']);
         }
 
         return true;
@@ -70,15 +70,14 @@ class PostgreSQLService implements DatabaseDriverInterface
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '%s' AND pid <> pg_backend_pid()",
             $this->escapeString($name)
         );
-        $this->buildCommand($database, $terminateSql);
         $ssh->execute($this->buildCommand($database, $terminateSql));
 
-        $sql = sprintf("DROP DATABASE IF EXISTS \"%s\"", $this->escapeName($name));
+        $sql = sprintf('DROP DATABASE IF EXISTS "%s"', $this->escapeName($name));
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to drop database: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to drop database: '.$result['output']);
         }
 
         return true;
@@ -90,15 +89,15 @@ class PostgreSQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql, true);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to list users: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to list users: '.$result['output']);
         }
 
         $lines = array_filter(array_map('trim', explode("\n", trim($result['output']))));
         $users = [];
 
         foreach ($lines as $line) {
-            if (!empty($line)) {
+            if (! empty($line)) {
                 $users[] = [
                     'username' => $line,
                     'host' => '*',
@@ -120,8 +119,8 @@ class PostgreSQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success'] && !str_contains($result['output'], 'already exists')) {
-            throw new RuntimeException('Failed to create user: ' . $result['output']);
+        if (! $result['success'] && ! str_contains($result['output'], 'already exists')) {
+            throw new RuntimeException('Failed to create user: '.$result['output']);
         }
 
         return true;
@@ -129,12 +128,12 @@ class PostgreSQLService implements DatabaseDriverInterface
 
     public function dropUser(SSHService $ssh, Database $database, string $username, string $host): bool
     {
-        $sql = sprintf("DROP USER IF EXISTS \"%s\"", $this->escapeName($username));
+        $sql = sprintf('DROP USER IF EXISTS "%s"', $this->escapeName($username));
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to drop user: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to drop user: '.$result['output']);
         }
 
         return true;
@@ -146,32 +145,32 @@ class PostgreSQLService implements DatabaseDriverInterface
 
         if (in_array('ALL', array_map('strtoupper', $privileges))) {
             $commands[] = sprintf(
-                "GRANT ALL PRIVILEGES ON DATABASE \"%s\" TO \"%s\"",
+                'GRANT ALL PRIVILEGES ON DATABASE "%s" TO "%s"',
                 $this->escapeName($dbName),
                 $this->escapeName($username)
             );
             // PostgreSQL 15+ revoked public CREATE on schema public by default
             $commands[] = sprintf(
-                "GRANT ALL ON SCHEMA public TO \"%s\"",
+                'GRANT ALL ON SCHEMA public TO "%s"',
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO \"%s\"",
+                'GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "%s"',
                 $this->escapeName($username)
             );
             // Laravel apps fail on their first INSERT without sequence
             // privileges (permission denied for sequence xxx_id_seq)
             $commands[] = sprintf(
-                "GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO \"%s\"",
+                'GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "%s"',
                 $this->escapeName($username)
             );
             // Tables/sequences created later (migrations) must be covered too
             $commands[] = sprintf(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO \"%s\"",
+                'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON TABLES TO "%s"',
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO \"%s\"",
+                'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL PRIVILEGES ON SEQUENCES TO "%s"',
                 $this->escapeName($username)
             );
         } else {
@@ -179,7 +178,7 @@ class PostgreSQLService implements DatabaseDriverInterface
                 $privilege = strtoupper($privilege);
                 if (in_array($privilege, ['CONNECT', 'CREATE', 'TEMPORARY', 'TEMP'])) {
                     $commands[] = sprintf(
-                        "GRANT %s ON DATABASE \"%s\" TO \"%s\"",
+                        'GRANT %s ON DATABASE "%s" TO "%s"',
                         $privilege,
                         $this->escapeName($dbName),
                         $this->escapeName($username)
@@ -188,13 +187,13 @@ class PostgreSQLService implements DatabaseDriverInterface
                     // not objects within existing schemas — schema-level grant is also needed
                     if ($privilege === 'CREATE') {
                         $commands[] = sprintf(
-                            "GRANT CREATE ON SCHEMA public TO \"%s\"",
+                            'GRANT CREATE ON SCHEMA public TO "%s"',
                             $this->escapeName($username)
                         );
                     }
                 } else {
                     $commands[] = sprintf(
-                        "GRANT %s ON ALL TABLES IN SCHEMA public TO \"%s\"",
+                        'GRANT %s ON ALL TABLES IN SCHEMA public TO "%s"',
                         $privilege,
                         $this->escapeName($username)
                     );
@@ -206,8 +205,8 @@ class PostgreSQLService implements DatabaseDriverInterface
             $command = $this->buildCommand($database, $sql, false, $dbName);
             $result = $ssh->execute($command);
 
-            if (!$result['success']) {
-                throw new RuntimeException('Failed to grant privileges: ' . $result['output']);
+            if (! $result['success']) {
+                throw new RuntimeException('Failed to grant privileges: '.$result['output']);
             }
         }
 
@@ -220,28 +219,28 @@ class PostgreSQLService implements DatabaseDriverInterface
 
         if (in_array('ALL', array_map('strtoupper', $privileges))) {
             $commands[] = sprintf(
-                "REVOKE ALL PRIVILEGES ON DATABASE \"%s\" FROM \"%s\"",
+                'REVOKE ALL PRIVILEGES ON DATABASE "%s" FROM "%s"',
                 $this->escapeName($dbName),
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "REVOKE ALL ON SCHEMA public FROM \"%s\"",
+                'REVOKE ALL ON SCHEMA public FROM "%s"',
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM \"%s\"",
+                'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM "%s"',
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM \"%s\"",
+                'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM "%s"',
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES FROM \"%s\"",
+                'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON TABLES FROM "%s"',
                 $this->escapeName($username)
             );
             $commands[] = sprintf(
-                "ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON SEQUENCES FROM \"%s\"",
+                'ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL PRIVILEGES ON SEQUENCES FROM "%s"',
                 $this->escapeName($username)
             );
         } else {
@@ -249,20 +248,20 @@ class PostgreSQLService implements DatabaseDriverInterface
                 $privilege = strtoupper($privilege);
                 if (in_array($privilege, ['CONNECT', 'CREATE', 'TEMPORARY', 'TEMP'])) {
                     $commands[] = sprintf(
-                        "REVOKE %s ON DATABASE \"%s\" FROM \"%s\"",
+                        'REVOKE %s ON DATABASE "%s" FROM "%s"',
                         $privilege,
                         $this->escapeName($dbName),
                         $this->escapeName($username)
                     );
                     if ($privilege === 'CREATE') {
                         $commands[] = sprintf(
-                            "REVOKE CREATE ON SCHEMA public FROM \"%s\"",
+                            'REVOKE CREATE ON SCHEMA public FROM "%s"',
                             $this->escapeName($username)
                         );
                     }
                 } else {
                     $commands[] = sprintf(
-                        "REVOKE %s ON ALL TABLES IN SCHEMA public FROM \"%s\"",
+                        'REVOKE %s ON ALL TABLES IN SCHEMA public FROM "%s"',
                         $privilege,
                         $this->escapeName($username)
                     );
@@ -274,8 +273,8 @@ class PostgreSQLService implements DatabaseDriverInterface
             $command = $this->buildCommand($database, $sql, false, $dbName);
             $result = $ssh->execute($command);
 
-            if (!$result['success']) {
-                throw new RuntimeException('Failed to revoke privileges: ' . $result['output']);
+            if (! $result['success']) {
+                throw new RuntimeException('Failed to revoke privileges: '.$result['output']);
             }
         }
 
@@ -303,7 +302,7 @@ class PostgreSQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql, true);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             return [];
         }
 
@@ -328,14 +327,14 @@ class PostgreSQLService implements DatabaseDriverInterface
     public function testConnection(SSHService $ssh, Database $database): array
     {
         try {
-            $sql = "SELECT version()";
+            $sql = 'SELECT version()';
             $command = $this->buildCommand($database, $sql, true);
             $result = $ssh->execute($command);
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 return [
                     'success' => false,
-                    'message' => 'Connection failed: ' . $result['output'],
+                    'message' => 'Connection failed: '.$result['output'],
                 ];
             }
 
