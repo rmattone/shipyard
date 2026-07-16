@@ -171,7 +171,7 @@ class DatabaseUserController extends Controller
         $validated = $request->validate([
             'database' => 'required|string|max:255',
             'privileges' => 'required|array|min:1',
-            'privileges.*' => 'string',
+            'privileges.*' => ['string', $this->privilegeRule()],
         ]);
 
         try {
@@ -219,7 +219,7 @@ class DatabaseUserController extends Controller
         $validated = $request->validate([
             'database' => 'required|string|max:255',
             'privileges' => 'required|array|min:1',
-            'privileges.*' => 'string',
+            'privileges.*' => ['string', $this->privilegeRule()],
         ]);
 
         try {
@@ -258,6 +258,29 @@ class DatabaseUserController extends Controller
                 'user' => $user->fresh(),
             ], 500);
         }
+    }
+
+    /**
+     * Privilege names are interpolated into GRANT/REVOKE statements run as
+     * the admin user, so only known privilege keywords are accepted.
+     */
+    private function privilegeRule(): \Closure
+    {
+        $allowed = [
+            // Shared / MySQL
+            'ALL', 'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP',
+            'ALTER', 'INDEX', 'REFERENCES', 'EXECUTE', 'TRIGGER', 'EVENT',
+            'CREATE VIEW', 'SHOW VIEW', 'CREATE ROUTINE', 'ALTER ROUTINE',
+            'LOCK TABLES', 'CREATE TEMPORARY TABLES',
+            // PostgreSQL
+            'CONNECT', 'TEMPORARY', 'TEMP', 'USAGE', 'TRUNCATE',
+        ];
+
+        return function (string $attribute, mixed $value, \Closure $fail) use ($allowed) {
+            if (! is_string($value) || ! in_array(strtoupper($value), $allowed, true)) {
+                $fail("'{$value}' is not a recognized privilege.");
+            }
+        };
     }
 
     /**

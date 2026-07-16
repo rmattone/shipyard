@@ -116,8 +116,8 @@ class DatabaseController extends Controller
             'port' => 'sometimes|integer|min:1|max:65535',
             'admin_user' => 'required|string|max:255',
             'admin_password' => 'required|string',
-            'charset' => 'sometimes|nullable|string|max:50',
-            'collation' => 'sometimes|nullable|string|max:100',
+            'charset' => ['sometimes', 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_.-]+$/'],
+            'collation' => ['sometimes', 'nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_.-]+$/'],
         ]);
 
         // Set defaults
@@ -168,8 +168,8 @@ class DatabaseController extends Controller
             'admin_user' => 'sometimes|string|max:255',
             'admin_password' => 'sometimes|string',
             'status' => 'sometimes|in:active,inactive',
-            'charset' => 'sometimes|nullable|string|max:50',
-            'collation' => 'sometimes|nullable|string|max:100',
+            'charset' => ['sometimes', 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_.-]+$/'],
+            'collation' => ['sometimes', 'nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_.-]+$/'],
         ]);
 
         // Check for duplicate name if changing
@@ -249,8 +249,8 @@ class DatabaseController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255|regex:/^[a-zA-Z_][a-zA-Z0-9_]*$/',
-            'charset' => 'sometimes|nullable|string|max:50',
-            'collation' => 'sometimes|nullable|string|max:100',
+            'charset' => ['sometimes', 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_.-]+$/'],
+            'collation' => ['sometimes', 'nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_.-]+$/'],
         ]);
 
         try {
