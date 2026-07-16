@@ -274,6 +274,29 @@ class DatabaseDriverSafetyTest extends TestCase
         $this->assertStringContainsString('ALTER USER postgres WITH PASSWORD', $sql);
     }
 
+    // DB-8: mysql -N -e output is tab-separated; splitting on arbitrary
+    // whitespace truncated legal usernames containing spaces.
+
+    public function test_mysql_user_listing_handles_usernames_with_spaces(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['SELECT User, Host'] = [
+            'output' => "alice\tlocalhost\nbob smith\t%",
+            'exit_code' => 0,
+            'success' => true,
+        ];
+        $database = Database::factory()->create();
+
+        $users = app(DatabaseService::class)->listRemoteUsers($database);
+
+        $this->assertContains(['username' => 'alice', 'host' => 'localhost'], $users);
+        $this->assertContains(
+            ['username' => 'bob smith', 'host' => '%'],
+            $users,
+            'A username containing a space must not be truncated at the space.'
+        );
+    }
+
     public function test_postgres_admin_password_with_quotes_is_shell_safe(): void
     {
         $this->mockSsh();

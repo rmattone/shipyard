@@ -89,11 +89,9 @@ class MySQLService implements DatabaseDriverInterface
         $users = [];
 
         foreach ($lines as $line) {
-            if (str_contains($line, 'User') && str_contains($line, 'Host')) {
-                continue; // Skip header
-            }
-
-            $parts = preg_split('/\s+/', trim($line), 2);
+            // mysql -N batch output is tab-separated (no header); splitting
+            // on arbitrary whitespace truncated usernames containing spaces
+            $parts = explode("\t", trim($line, "\r\n"));
             if (count($parts) === 2) {
                 $users[] = [
                     'username' => $parts[0],
