@@ -186,9 +186,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 5. Databases (MySQL / PostgreSQL / installer)
 
-- [ ] **DB-1 (Medium): Passwords containing a single quote produce malformed shell commands.**
+- [x] **DB-1 (Medium): Passwords containing a single quote produce malformed shell commands.**
   `MySQLService.php:254,261` and `PostgreSQLService.php:338-339` wrap passwords in single quotes escaped with `addcslashes(..., "'")` producing `\'`, which does not work inside bash single quotes (correct is `'\''`). Manually registered connections with `'` in the password fail on every operation with confusing shell errors.
   Fix: use `escapeshellarg()` or the `'\''` idiom (see also the correct-but-wrong-layer escaping in DB-6).
+  Fixed (July 2026): both drivers pass the password via `escapeshellarg()` (MySQL through `MYSQL_PWD`, which also silences the password-on-command-line stderr warning). Regression tests in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-2 (Medium): MySQL driver discards all error output.**
   `MySQLService.php:261` appends `2>/dev/null`, so every failure surfaces as "Failed to create database: " with an empty reason, and error-content checks (like PostgreSQL's "already exists" tolerance) are impossible.
