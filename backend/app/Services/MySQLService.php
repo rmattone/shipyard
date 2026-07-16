@@ -251,18 +251,21 @@ class MySQLService implements DatabaseDriverInterface
 
     protected function buildCommand(Database $database, string $sql): string
     {
-        $password = addcslashes($database->admin_password, "'\\");
-
         // Escape characters that bash interprets inside double quotes:
         // " (quote delimiter), ` (command substitution), $ (variable expansion), \ (escape char)
         $escapedSql = addcslashes($sql, '"`$\\');
 
+        // The password goes through MYSQL_PWD as a properly quoted shell
+        // argument: the old -p'...' with addcslashes wrote \' inside single
+        // quotes, which bash does not unescape, breaking any password
+        // containing a quote. The env var also avoids mysql's password-on-
+        // command-line warning on stderr.
         return sprintf(
-            "mysql -h %s -P %d -u %s -p'%s' -N -e \"%s\" 2>/dev/null",
+            'MYSQL_PWD=%s mysql -h %s -P %d -u %s -N -e "%s" 2>/dev/null',
+            escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
             $database->port,
             escapeshellarg($database->admin_user),
-            $password,
             $escapedSql
         );
     }

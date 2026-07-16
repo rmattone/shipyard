@@ -334,9 +334,12 @@ class PostgreSQLService implements DatabaseDriverInterface
         // " (quote delimiter), ` (command substitution), $ (variable expansion), \ (escape char)
         $escapedSql = addcslashes($sql, '"`$\\');
 
+        // escapeshellarg instead of addcslashes: \' inside bash single quotes
+        // is not unescaped, so passwords containing a quote used to produce a
+        // malformed command.
         return sprintf(
-            "PGPASSWORD='%s' psql -h %s -p %d -U %s -d %s %s -c \"%s\"",
-            addcslashes($database->admin_password, "'"),
+            'PGPASSWORD=%s psql -h %s -p %d -U %s -d %s %s -c "%s"',
+            escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
             $database->port,
             escapeshellarg($database->admin_user),
