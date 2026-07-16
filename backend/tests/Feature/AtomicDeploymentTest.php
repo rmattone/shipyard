@@ -92,7 +92,7 @@ class AtomicDeploymentTest extends TestCase
 
         $slug = Str::slug($app->name);
 
-        $activationIndex = $this->indexOfCommandContaining('ln -nfs');
+        $activationIndex = $this->indexOfCommandContaining('mv -T');
         $pm2Index = $this->indexOfCommandContaining("pm2 restart {$slug}");
 
         $this->assertNotNull($activationIndex, 'Expected a symlink activation command.');

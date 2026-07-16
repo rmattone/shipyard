@@ -161,11 +161,16 @@ class DeploymentShellSafetyTest extends TestCase
 
         $releaseQ = escapeshellarg($deployment->release_path);
         $currentQ = escapeshellarg('/var/www/my app/current');
-        $this->assertContains(
-            "ln -nfs {$releaseQ} {$currentQ}",
-            $this->executedCommands,
-            'The symlink swap must quote both paths.'
-        );
+        $swap = null;
+        foreach ($this->executedCommands as $command) {
+            if (str_contains($command, 'mv -T')) {
+                $swap = $command;
+                break;
+            }
+        }
+        $this->assertNotNull($swap, 'Expected the symlink swap command to run.');
+        $this->assertStringContainsString($releaseQ, $swap, 'The symlink swap must quote the release path.');
+        $this->assertStringContainsString($currentQ, $swap, 'The symlink swap must quote the current path.');
 
         $cloneCommands = array_filter($this->executedCommands, fn ($c) => str_contains($c, 'git clone'));
         $this->assertNotEmpty($cloneCommands);

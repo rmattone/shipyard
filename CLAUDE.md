@@ -77,7 +77,7 @@ The system supports two deployment modes:
 ## Key Patterns
 
 ### SSH Operations
-All server interactions go through `SSHService`. Never execute SSH commands directly. The service handles connections, key decryption, and error handling (note: it does not pool connections; each connect() opens a fresh session).
+All server interactions go through `SSHService`. Never execute SSH commands directly. The service handles connections, key decryption, and error handling. Repeated `connect()` calls to the same server reuse the live session; `disconnect()` closes it. The service is a singleton, so always call `disconnect()` when an operation finishes.
 
 ### Environment Variables
 Secrets are encrypted at rest using Laravel's encryption. Access via the `EnvironmentVariable` model, never store plaintext.

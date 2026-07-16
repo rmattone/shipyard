@@ -291,8 +291,14 @@ class DeploymentService
         }
 
         // The wrapped script can embed credentials; runRemoteScript handles
-        // the owner-only permissions, random name, and guaranteed cleanup
-        $result = $this->runRemoteScript($app->server, $scriptContent, 600);
+        // the owner-only permissions, random name, and guaranteed cleanup.
+        // Timeout stays below the job timeout but leaves room for cold
+        // composer/npm builds (600s failed those spuriously).
+        $result = $this->runRemoteScript(
+            $app->server,
+            $scriptContent,
+            \App\Jobs\ProcessDeployment::TIMEOUT_SECONDS - 300
+        );
 
         $deployment->appendLog('---');
         $deployment->appendLog($result['output']);

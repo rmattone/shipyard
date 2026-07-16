@@ -234,11 +234,7 @@ class AtomicDeploymentService
 
         $deployment->appendLog('Activating release...');
 
-        // Atomic symlink swap using ln -nfs
-        // -n: treat LINK_NAME as a normal file if it is a symbolic link to a directory
-        // -f: remove existing destination files
-        // -s: make symbolic links instead of hard links
-        $result = $this->sshService->execute('ln -nfs '.escapeshellarg($releasePath).' '.escapeshellarg($currentPath));
+        $result = $this->sshService->execute($this->atomicSwapCommand($releasePath, $currentPath));
 
         if (! $result['success']) {
             throw new RuntimeException("Failed to activate release: {$result['output']}");
@@ -246,6 +242,30 @@ class AtomicDeploymentService
 
         $deployment->appendLog("Release activated: {$releasePath}");
         $deployment->appendLog('Current symlink now points to the new release.');
+    }
+
+    /**
+     * Command that atomically points $currentPath at $releasePath. Used for
+     * both activation and rollback.
+     *
+     * `ln -nfs` alone is unlink-then-symlink, leaving a window with no
+     * `current` at all; staging the link and renaming it over `current` is
+     * atomic (rename(2)). It also guards against `current` being a real
+     * directory (an app switched from in-place to atomic): `ln -nfs` would
+     * create the link INSIDE it and report success while old code keeps
+     * serving.
+     */
+    public function atomicSwapCommand(string $releasePath, string $currentPath): string
+    {
+        $release = escapeshellarg($releasePath);
+        $current = escapeshellarg($currentPath);
+        $staged = escapeshellarg($currentPath.'.staged');
+
+        return "if [ -e {$current} ] && [ ! -L {$current} ]; then"
+            ." echo 'refusing to activate: current exists and is not a symlink' >&2; exit 1;"
+            .' fi'
+            ." && ln -sfn {$release} {$staged}"
+            ." && mv -T {$staged} {$current}";
     }
 
     /**

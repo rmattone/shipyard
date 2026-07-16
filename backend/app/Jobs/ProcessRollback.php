@@ -59,8 +59,15 @@ class ProcessRollback implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
-        $this->rollbackDeployment->appendLog("ERROR: {$exception->getMessage()}");
-        $this->rollbackDeployment->markAsFailed();
-        $this->rollbackDeployment->application->update(['status' => 'failed']);
+        // The service catch block already logs and marks the failure; this
+        // hook only covers cases where it never ran (worker killed, timeout).
+        $rollbackDeployment = $this->rollbackDeployment->fresh();
+        if ($rollbackDeployment === null || $rollbackDeployment->status === 'failed') {
+            return;
+        }
+
+        $rollbackDeployment->appendLog("ERROR: {$exception->getMessage()}");
+        $rollbackDeployment->markAsFailed();
+        $rollbackDeployment->application->update(['status' => 'failed']);
     }
 }
