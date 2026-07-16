@@ -341,21 +341,25 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 ## 9. Frontend
 
-- [ ] **FE-1 (High): Fake hardcoded SSH public key displayed with a working Copy button.**
+- [x] **FE-1 (High): Fake hardcoded SSH public key displayed with a working Copy button.**
   `frontend/src/pages/servers/ServerSettings.tsx:387,394` renders `ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample... server-manager@{host}`. Users paste it into GitHub/GitLab and clones never authenticate, with no signal why.
   Fix: fetch and display the server's real public key (backend endpoint exists via SSH key services) or remove the section until wired.
+  Fixed (July 2026): the SSH section with the fake key was removed (no backend endpoint actually exposes a per-server public key; SSHKeyService only generates keypairs). A real key display/rotation UI belongs to GAP-UI-3.
 
-- [ ] **FE-2 (High): Deploy button double-fires.**
+- [x] **FE-2 (High): Deploy button double-fires.**
   `frontend/src/pages/apps/AppOverview.tsx:165-182`: the Button is both a `DropdownMenuTrigger` child (asChild merges handlers) and has `onClick={handleDeploy}`. One click starts a deployment AND opens the menu; clicking the menu item queues a second concurrent deployment (compounds DEPLOY-3).
   Fix: split into a split-button (primary action + separate chevron trigger).
+  Fixed (July 2026): split button in AppOverview; the primary button only deploys, the chevron only opens the menu.
 
-- [ ] **FE-3 (High): Navigation to routes that do not exist.**
+- [x] **FE-3 (High): Navigation to routes that do not exist.**
   `GitProviderNew.tsx:187` navigates to `/git-providers/${id}` (real route is `/settings/git-providers/:id`, `App.tsx:72`); `GitProviderNew.tsx:438` and `GitProviderDetail.tsx:128` go to `/git-providers`; `AppNew.tsx:61,89` and `ServerNew.tsx:268` go to `/servers`; `DeploymentDetail.tsx:143` breadcrumb links `/apps`. All render a blank page (no catch-all route, `App.tsx:55-92`).
   Fix: correct the paths, add a catch-all 404 route, and delete the dead legacy pages (FE-15) these paths came from.
+  Fixed (July 2026): paths corrected (`/settings/git-providers/...`, `/`, app overview), a catch-all 404 page added inside the layout, and the seven dead legacy pages deleted (also closes FE-15).
 
-- [ ] **FE-4 (High): Failed login reloads the page, wiping the error.**
+- [x] **FE-4 (High): Failed login reloads the page, wiping the error.**
   `frontend/src/services/api.ts:31-41`: the 401 interceptor unconditionally sets `window.location.href = '/app/login'`, including for the login request itself. Wrong credentials cause a hard reload before the "Invalid credentials" toast renders.
   Fix: skip the redirect for the login endpoint (and when already on the login page).
+  Fixed (July 2026): the 401 interceptor ignores the login request itself and skips the redirect when already on the login page, so "Invalid credentials" actually renders.
 
 - [ ] **FE-5 (Medium): Stale sidebar/navigation after creating resources.**
   `NavigationContext.tsx:85-97` sets `currentServer` to null when the URL id is missing from the cached list instead of fetching it; `refreshServers`/`refreshApps` are never called by `ServerNew.tsx`/`AppNew.tsx`. New servers/apps don't appear in the sidebar until a hard refresh.
@@ -396,9 +400,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 - [ ] **FE-14 (Low): SSE misc.** Token not `encodeURIComponent`ed in `ServerSoftware.tsx:186` (Sanctum tokens contain `|`; `DeploymentDetail.tsx:44` encodes it); `DeploymentDetail.tsx:84-89` permanently disables SSE after one error and re-creates the EventSource on every status transition.
   Fix: encode consistently; reset the SSE flag; narrow effect deps.
 
-- [ ] **FE-15 (Low): ~1,300 lines of dead legacy pages.**
+- [x] **FE-15 (Low): ~1,300 lines of dead legacy pages.**
   Not imported or routed: `pages/Dashboard.tsx`, `apps/AppList.tsx`, `apps/AppDetail.tsx`, `servers/ServerList.tsx`, `servers/ServerDetail.tsx`, `servers/ServerApps.tsx`, `git-providers/GitProviderList.tsx`. Source of the broken paths in FE-3.
   Fix: delete them.
+  Fixed (July 2026): deleted together with FE-3.
 
 - [ ] **FE-16 (Low): Dead footer links.** `Layout.tsx:294-296` ("Status", "Docs", "Help" are `href="#"`).
   Fix: wire or remove.

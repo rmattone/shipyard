@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LoadingSpinner } from '@/components/custom'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import NotFound from './pages/NotFound'
 
 // Organization level pages
 import OrganizationOverview from './pages/OrganizationOverview'
@@ -88,6 +89,9 @@ function AppRoutes() {
         <Route path="apps/:id/environment" element={<AppEnv />} />
         <Route path="apps/:id/settings" element={<AppSettings />} />
         <Route path="apps/:id/deployments/:deploymentId" element={<DeploymentDetail />} />
+
+        {/* Catch-all: unknown paths used to render a blank page */}
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   )

@@ -265,7 +265,7 @@ export default function ServerNew() {
             </div>
 
             <div className="flex justify-end gap-4">
-              <Button type="button" variant="outline" onClick={() => navigate('/servers')}>
+              <Button type="button" variant="outline" onClick={() => navigate('/')}>
                 Cancel
               </Button>
               <Button type="submit" disabled={loading}>

@@ -125,7 +125,7 @@ export default function GitProviderDetail() {
     try {
       await gitProvidersApi.delete(provider.id)
       toast.success('Provider deleted')
-      navigate('/git-providers')
+      navigate('/settings')
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err.response?.data?.message || 'Failed to delete')

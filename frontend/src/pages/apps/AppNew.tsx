@@ -58,7 +58,7 @@ export default function AppNew() {
 
   useEffect(() => {
     if (!serverId) {
-      navigate('/servers')
+      navigate('/')
       return
     }
 
@@ -86,7 +86,7 @@ export default function AppNew() {
         .finally(() => setLoadingNodeVersions(false))
     }).catch(() => {
       toast.error('Server not found')
-      navigate('/servers')
+      navigate('/')
     }).finally(() => {
       setLoadingServer(false)
     })

@@ -184,7 +184,7 @@ export default function GitProviderNew() {
         is_default: formData.is_default,
       })
       toast.success('Git provider created successfully')
-      navigate(`/git-providers/${response.data.id}`)
+      navigate(`/settings/git-providers/${response.data.id}`)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err.response?.data?.message || 'Failed to create git provider')
@@ -435,7 +435,7 @@ export default function GitProviderNew() {
             </div>
 
             <div className="flex justify-end gap-4">
-              <Button type="button" variant="outline" onClick={() => navigate('/git-providers')}>
+              <Button type="button" variant="outline" onClick={() => navigate('/settings')}>
                 Cancel
               </Button>
               <Button type="submit" disabled={loading || !hasCredentials}>
