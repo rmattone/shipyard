@@ -201,9 +201,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: add `GRANT ... ON ALL SEQUENCES IN SCHEMA` and `ALTER DEFAULT PRIVILEGES`.
   Fixed (July 2026): ALL grant/revoke now include `ON ALL SEQUENCES IN SCHEMA public` and `ALTER DEFAULT PRIVILEGES ... ON TABLES/SEQUENCES`. Regression tests in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-4 (Medium): Grant/revoke loops have no rollback; partial state diverges from the record.**
+- [x] **DB-4 (Medium): Grant/revoke loops have no rollback; partial state diverges from the record.**
   `PostgreSQLService.php:190-199,246-253`: if command 2 of 3 fails, command 1 is applied but the exception aborts and `DatabaseUser.privileges` is not updated.
   Fix: apply, verify, then persist what actually succeeded (or re-read effective grants after failure).
+  Fixed (July 2026): on a grant/revoke failure the controller re-reads effective privileges from the server (`getUserPrivileges`) and persists them (best-effort), so the stored record reflects reality after a partial application. Regression test in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-5 (Medium): Privilege names, charset, and collation interpolated raw into SQL.**
   `MySQLService.php:280-287,150-158,44-49`, `PostgreSQLService.php:163-187`; validated only as `'privileges.*' => 'string'` (`DatabaseUserController.php:174`). Arbitrary SQL as the admin user (hardening per threat model), and plain breakage on typos.
