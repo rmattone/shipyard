@@ -216,9 +216,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: base64-pipe the SQL or use here-docs to keep layers separate.
   Fixed (July 2026): both installers pipe base64-encoded SQL into the client, with the password SQL-string-escaped only. Regression tests in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-7 (Low): `mysql_native_password` fails on MySQL 8.4+.**
+- [x] **DB-7 (Low): `mysql_native_password` fails on MySQL 8.4+.**
   `DatabaseInstallationService.php:95`. Plugin deprecated/removed in newer MySQL; breaks once Ubuntu ships 8.4.
   Fix: use `caching_sha2_password` (default) and verify client compatibility.
+  Fixed (July 2026): the installer uses `caching_sha2_password` (supported by the mysql CLI the panel uses and by PHP mysqlnd). Regression test in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-8 (Low): MySQL user listing breaks on usernames with spaces.**
   `MySQLService.php:92-96`: whitespace split truncates legal usernames; header heuristic can skip real rows containing "User" and "Host".

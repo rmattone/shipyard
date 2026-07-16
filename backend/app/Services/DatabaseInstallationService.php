@@ -95,7 +95,9 @@ class DatabaseInstallationService
         // escaping (the old shell-inside-SQL-inside-shell layering was only
         // safe because the password happened to be alphanumeric).
         $sqlPassword = str_replace(['\\', "'"], ['\\\\', "''"], $password);
-        $sql = "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{$sqlPassword}'; FLUSH PRIVILEGES;";
+        // caching_sha2_password: the MySQL 8 default; mysql_native_password is
+        // deprecated and removed in 8.4+ (breaks once Ubuntu ships it)
+        $sql = "ALTER USER 'root'@'localhost' IDENTIFIED WITH caching_sha2_password BY '{$sqlPassword}'; FLUSH PRIVILEGES;";
         $alterCmd = sprintf(
             'echo %s | base64 -d | sudo mysql --defaults-file=/etc/mysql/debian.cnf',
             escapeshellarg(base64_encode($sql))

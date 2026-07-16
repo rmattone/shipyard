@@ -1,0 +1,8 @@
+services:
+  test-target:
+    build: .
+    container_name: shipyard-test-target
+    ports:
+      - "2222:22"
+    volumes:
+      - ./authorized_keys:/root/.ssh/authorized_keys:ro
