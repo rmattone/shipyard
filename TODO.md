@@ -226,9 +226,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: query with a delimiter-safe format (`--batch` with tab parsing or JSON).
   Fixed (July 2026): rows are split on the tab delimiter mysql's batch output actually uses (the `-N` flag already suppresses the header, so the fragile header heuristic is gone too). Regression test in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-9 (Low): Destructive drop is the unvalidated one.**
+- [x] **DB-9 (Low): Destructive drop is the unvalidated one.**
   `DatabaseController.php:283-285` (`dropRemoteDatabase`) accepts any string as DB name while `createRemoteDatabase:251` enforces an identifier regex.
   Fix: apply the same regex to drop.
+  Fixed (July 2026): drop enforces the same identifier regex as create. Regression test in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-10 (Low): Dead statement in PostgreSQL dropDatabase.**
   `PostgreSQLService.php:73`: `buildCommand(...)` result discarded, command built twice. Copy/paste slip.
