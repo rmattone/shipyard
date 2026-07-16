@@ -32,8 +32,11 @@ class CertbotService
         // Obtain certificate using webroot method. The deploy hook is stored
         // in the certificate's renewal config, so every future renewal (from
         // the scheduler or certbot's own timer) reloads nginx to pick up the
-        // new certificate.
-        $webroot = $app->getDocumentRoot();
+        // new certificate. Challenges are served from the canonical ACME
+        // webroot by every nginx template; the app's document root cannot be
+        // used because Node.js apps proxy it entirely to the app process.
+        $webroot = NginxService::ACME_WEBROOT;
+        $this->sshService->execute("mkdir -p {$webroot}");
         $command = sprintf(
             "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
@@ -187,8 +190,9 @@ class CertbotService
         }
 
         // Obtain certificate using webroot method (see obtainCertificateForDomain
-        // for why the deploy hook matters)
-        $webroot = $app->getDocumentRoot();
+        // for why the deploy hook and the canonical webroot matter)
+        $webroot = NginxService::ACME_WEBROOT;
+        $this->sshService->execute("mkdir -p {$webroot}");
         $command = sprintf(
             "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
@@ -227,14 +231,19 @@ class CertbotService
     /**
      * Renew all due certificates on the application's server. The deploy hook
      * covers certificates issued before hooks were stored in their renewal
-     * config; certbot only runs it for certificates actually renewed.
+     * config; certbot only runs it for certificates actually renewed. The
+     * webroot override covers certificates whose renewal config still points
+     * at an app document root from before the canonical ACME webroot existed.
      */
     public function renewCertificates(Application $app): array
     {
         $this->sshService->connect($app->server);
 
+        $webroot = NginxService::ACME_WEBROOT;
+        $this->sshService->execute("mkdir -p {$webroot}");
+
         $result = $this->sshService->execute(
-            "certbot renew --non-interactive --deploy-hook 'systemctl reload nginx'",
+            "certbot renew --non-interactive --webroot -w {$webroot} --deploy-hook 'systemctl reload nginx'",
             300
         );
 

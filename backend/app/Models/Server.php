@@ -18,6 +18,7 @@ class Server extends Model
         'private_key',
         'status',
         'is_local',
+        'php_version',
     ];
 
     protected $hidden = [

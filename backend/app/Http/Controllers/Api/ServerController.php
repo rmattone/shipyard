@@ -141,9 +141,9 @@ class ServerController extends Controller
             $nvmPrefix = 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"; [ -s "/usr/local/nvm/nvm.sh" ] && \. "/usr/local/nvm/nvm.sh" 2>/dev/null; ';
 
             // Check nvm
-            $nvm = $this->sshService->execute($nvmPrefix . 'command -v nvm 2>/dev/null');
-            if ($nvm['success'] && !empty(trim($nvm['output']))) {
-                $version = $this->sshService->execute($nvmPrefix . 'nvm --version 2>/dev/null');
+            $nvm = $this->sshService->execute($nvmPrefix.'command -v nvm 2>/dev/null');
+            if ($nvm['success'] && ! empty(trim($nvm['output']))) {
+                $version = $this->sshService->execute($nvmPrefix.'nvm --version 2>/dev/null');
                 $software['nvm'] = [
                     'installed' => true,
                     'version' => trim($version['output'] ?? ''),
@@ -153,9 +153,9 @@ class ServerController extends Controller
             }
 
             // Check pm2
-            $pm2 = $this->sshService->execute($nvmPrefix . 'which pm2 2>/dev/null || command -v pm2 2>/dev/null');
-            if ($pm2['success'] && !empty(trim($pm2['output']))) {
-                $version = $this->sshService->execute($nvmPrefix . 'pm2 --version 2>/dev/null');
+            $pm2 = $this->sshService->execute($nvmPrefix.'which pm2 2>/dev/null || command -v pm2 2>/dev/null');
+            if ($pm2['success'] && ! empty(trim($pm2['output']))) {
+                $version = $this->sshService->execute($nvmPrefix.'pm2 --version 2>/dev/null');
                 $software['pm2'] = [
                     'installed' => true,
                     'version' => trim($version['output'] ?? ''),
@@ -165,9 +165,9 @@ class ServerController extends Controller
             }
 
             // Check node
-            $node = $this->sshService->execute($nvmPrefix . 'which node 2>/dev/null || command -v node 2>/dev/null');
-            if ($node['success'] && !empty(trim($node['output']))) {
-                $version = $this->sshService->execute($nvmPrefix . 'node --version 2>/dev/null');
+            $node = $this->sshService->execute($nvmPrefix.'which node 2>/dev/null || command -v node 2>/dev/null');
+            if ($node['success'] && ! empty(trim($node['output']))) {
+                $version = $this->sshService->execute($nvmPrefix.'node --version 2>/dev/null');
                 $software['node'] = [
                     'installed' => true,
                     'version' => trim($version['output'] ?? ''),
@@ -177,9 +177,9 @@ class ServerController extends Controller
             }
 
             // Check npm
-            $npm = $this->sshService->execute($nvmPrefix . 'which npm 2>/dev/null || command -v npm 2>/dev/null');
-            if ($npm['success'] && !empty(trim($npm['output']))) {
-                $version = $this->sshService->execute($nvmPrefix . 'npm --version 2>/dev/null');
+            $npm = $this->sshService->execute($nvmPrefix.'which npm 2>/dev/null || command -v npm 2>/dev/null');
+            if ($npm['success'] && ! empty(trim($npm['output']))) {
+                $version = $this->sshService->execute($nvmPrefix.'npm --version 2>/dev/null');
                 $software['npm'] = [
                     'installed' => true,
                     'version' => trim($version['output'] ?? ''),
@@ -190,7 +190,7 @@ class ServerController extends Controller
 
             // Check git
             $git = $this->sshService->execute('which git 2>/dev/null || command -v git 2>/dev/null');
-            if ($git['success'] && !empty(trim($git['output']))) {
+            if ($git['success'] && ! empty(trim($git['output']))) {
                 $version = $this->sshService->execute('git --version 2>/dev/null');
                 $software['git'] = [
                     'installed' => true,
@@ -202,7 +202,7 @@ class ServerController extends Controller
 
             // Check nginx
             $nginx = $this->sshService->execute('which nginx 2>/dev/null || command -v nginx 2>/dev/null');
-            if ($nginx['success'] && !empty(trim($nginx['output']))) {
+            if ($nginx['success'] && ! empty(trim($nginx['output']))) {
                 $version = $this->sshService->execute('nginx -v 2>&1');
                 $software['nginx'] = [
                     'installed' => true,
@@ -214,19 +214,25 @@ class ServerController extends Controller
 
             // Check PHP
             $php = $this->sshService->execute('which php 2>/dev/null || command -v php 2>/dev/null');
-            if ($php['success'] && !empty(trim($php['output']))) {
+            if ($php['success'] && ! empty(trim($php['output']))) {
                 $version = $this->sshService->execute('php --version 2>/dev/null | head -1');
                 $software['php'] = [
                     'installed' => true,
                     'version' => trim($version['output'] ?? ''),
                 ];
+
+                // Record major.minor so nginx configs template the right
+                // PHP-FPM socket path for this server
+                if (preg_match('/PHP (\d+\.\d+)/', $software['php']['version'], $matches)) {
+                    $server->update(['php_version' => $matches[1]]);
+                }
             } else {
                 $software['php'] = ['installed' => false, 'version' => null];
             }
 
             // Check Composer
             $composer = $this->sshService->execute('which composer 2>/dev/null || command -v composer 2>/dev/null');
-            if ($composer['success'] && !empty(trim($composer['output']))) {
+            if ($composer['success'] && ! empty(trim($composer['output']))) {
                 $version = $this->sshService->execute('composer --version 2>/dev/null | head -1');
                 $software['composer'] = [
                     'installed' => true,
@@ -238,7 +244,7 @@ class ServerController extends Controller
 
             // Check Certbot
             $certbot = $this->sshService->execute('which certbot 2>/dev/null || command -v certbot 2>/dev/null');
-            if ($certbot['success'] && !empty(trim($certbot['output']))) {
+            if ($certbot['success'] && ! empty(trim($certbot['output']))) {
                 $version = $this->sshService->execute('certbot --version 2>/dev/null');
                 $software['certbot'] = [
                     'installed' => true,
