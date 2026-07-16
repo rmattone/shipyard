@@ -221,9 +221,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: use `caching_sha2_password` (default) and verify client compatibility.
   Fixed (July 2026): the installer uses `caching_sha2_password` (supported by the mysql CLI the panel uses and by PHP mysqlnd). Regression test in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-8 (Low): MySQL user listing breaks on usernames with spaces.**
+- [x] **DB-8 (Low): MySQL user listing breaks on usernames with spaces.**
   `MySQLService.php:92-96`: whitespace split truncates legal usernames; header heuristic can skip real rows containing "User" and "Host".
   Fix: query with a delimiter-safe format (`--batch` with tab parsing or JSON).
+  Fixed (July 2026): rows are split on the tab delimiter mysql's batch output actually uses (the `-N` flag already suppresses the header, so the fragile header heuristic is gone too). Regression test in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-9 (Low): Destructive drop is the unvalidated one.**
   `DatabaseController.php:283-285` (`dropRemoteDatabase`) accepts any string as DB name while `createRemoteDatabase:251` enforces an identifier regex.
