@@ -75,25 +75,30 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: proper dotenv quoting (double quotes, escape `\`, `"`, `$`, newlines) shared with ENV-1, and write an empty file instead of returning early.
   Fixed (July 2026): both deploy services use the shared `App\Support\EnvFile` serializer (same fix as ENV-1). Note: the empty-env early-return still leaves a stale remote `.env`; tracked as a small follow-up, not yet addressed.
 
-- [ ] **DEPLOY-11 (Low): Symlink swap is not actually atomic.**
+- [x] **DEPLOY-11 (Low): Symlink swap is not actually atomic.**
   `ln -nfs` (`AtomicDeploymentService.php:241`, `RollbackService.php:123`) is unlink-then-symlink, leaving a window where `current` does not exist. Also, if `current` pre-exists as a real directory (app switched from in-place to atomic), `ln -nfs` creates the symlink inside it and exits 0 while old code keeps serving.
   Fix: `ln -s target current.tmp && mv -T current.tmp current`, plus a guard that `current` is not a real directory.
+  Fixed (July 2026): `AtomicDeploymentService::atomicSwapCommand()` stages the link and renames it over `current` (rename(2) is atomic) and refuses to run when `current` exists as a real directory. Used by both activation and rollback. Regression tests in `RollbackReliabilityTest`.
 
-- [ ] **DEPLOY-12 (Low): SSH connections leak, no pooling, singleton state.**
+- [x] **DEPLOY-12 (Low): SSH connections leak, no pooling, singleton state.**
   `SSHService.php:19-59` constructs a new `SSH2`/`SFTP` per call without disconnecting the previous; one atomic deploy connects 5+ times. `SSHService` is a singleton (`AppServiceProvider.php:16`) so stale `$server` state persists across jobs in the long-lived worker. CLAUDE.md's claim that it handles pooling is false.
   Fix: reuse a connection per (server, job) and disconnect explicitly; correct CLAUDE.md.
+  Fixed (July 2026): `connect()`/`connectSftp()` reuse the live session for the same server (and verify liveness via `isConnected()`), close the old session when switching servers, and `disconnect()` clears server state so nothing stale persists across jobs in the long-lived worker. CLAUDE.md corrected. Tests in `SSHServiceConnectionTest` via an injectable fake client.
 
-- [ ] **DEPLOY-13 (Low): phpseclib failure returns `false` output, misread as "not initialized".**
+- [x] **DEPLOY-13 (Low): phpseclib failure returns `false` output, misread as "not initialized".**
   `SSHService.php:90-97`: on failure `exec()` returns `false`, then `str_contains(false, ...)` in `isInitialized`/`releaseExists`/`verifyReleaseExists` treats a transient SSH failure as "structure missing". On timeout `getExitStatus()` returns `false`, rendering "failed with exit code: " (empty) at `DeploymentService.php:245`.
   Fix: check `$result === false` explicitly and surface a distinct error.
+  Fixed (July 2026): `execute()` throws a distinct "command could not be executed" error when phpseclib returns `false`, and a missing exit status (timeout) is reported as exit code -1/failure instead of success. Tests in `SSHServiceConnectionTest`.
 
-- [ ] **DEPLOY-14 (Low): Script timeout (600s) is far below the job timeout (1800s).**
+- [x] **DEPLOY-14 (Low): Script timeout (600s) is far below the job timeout (1800s).**
   `DeploymentService.php:236` hardcodes 600s while `ProcessDeployment.php:18` allows 1800s. A cold `composer install` plus `npm run build` on a small server exceeds 10 minutes and fails spuriously.
   Fix: make the exec timeout configurable per app or align it with the job timeout.
+  Fixed (July 2026): the deploy script now runs with `ProcessDeployment::TIMEOUT_SECONDS - 300` (1500s), keeping it tied to the job timeout in one place. Regression test in `RollbackReliabilityTest`.
 
-- [ ] **DEPLOY-15 (Low): Dead config and double logging in the job.**
+- [x] **DEPLOY-15 (Low): Dead config and double logging in the job.**
   `docker-compose.yml:69` passes `--tries=3` but `ProcessDeployment` sets `$tries = 1` (dead flag). `ProcessDeployment::failed()` duplicates the ERROR log line and `markAsFailed` already done by the service catch block.
   Fix: remove the flag or the duplicate handling.
+  Fixed (July 2026): `--tries=3` removed from the queue worker command (jobs define their own tries), and both jobs' `failed()` hooks now only act when the service catch block did not already record the failure (worker-death safety net, no duplicate ERROR lines). Regression tests in `RollbackReliabilityTest`.
 
 ---
 
@@ -113,13 +118,15 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   `RollbackService.php:21-23` throws for non-atomic apps. No fallback (e.g. `git reset --hard <previous commit>`).
   Fix: either implement a git-based rollback for in-place, or hide/disable rollback affordances for in-place apps and document it.
 
-- [ ] **RB-4 (Low): Post-rollback artisan commands are fire-and-forget.**
+- [x] **RB-4 (Low): Post-rollback artisan commands are fire-and-forget.**
   `RollbackService.php:164-169` never checks results of `optimize:clear` / `optimize` / `queue:restart`; a failing `optimize` (bad cached config) leaves the app 500ing while rollback reports success.
   Fix: check exit codes and mark the rollback failed (or at least warn) when they fail.
+  Fixed (July 2026): post-rollback tasks throw on failure; the rollback is marked active right after the symlink swap (mirroring DEPLOY-6) so a late task failure marks the rollback failed while `is_active` still reflects what the server serves. Regression test in `RollbackReliabilityTest`.
 
-- [ ] **RB-5 (Low): `markAsActive` is two non-transactional updates.**
+- [x] **RB-5 (Low): `markAsActive` is two non-transactional updates.**
   `Deployment.php` (`markAsActive`): clear-all-then-set without a transaction. A concurrent deploy plus rollback can leave zero or two active deployments.
   Fix: wrap in a transaction (relates to DEPLOY-3 locking).
+  Fixed (July 2026): already resolved by the DEPLOY-6 work (`markAsActive` runs in a `DB::transaction`); verified and closed.
 
 ---
 
@@ -453,7 +460,8 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
 
 - [ ] **DOC-1: README overclaims.** Documents GitHub webhook routes that don't exist (API-3), claims SSL auto-renewal (SSL-1), and implies queue worker management via "queue restart" (FEAT-1). Reconcile in whichever direction each item is resolved.
   Partially done (July 2026): webhook routes/instructions corrected (API-3) and SSL auto-renewal is now real (SSL-1). Remaining: the "queue restart" wording still implies worker management that does not exist (FEAT-1).
-- [ ] **DOC-2: CLAUDE.md inaccuracies.** Claims `SSHService` handles connection pooling (it doesn't, DEPLOY-12) and documents `npm run lint` (broken, TEST-2).
+- [x] **DOC-2: CLAUDE.md inaccuracies.** Claims `SSHService` handles connection pooling (it doesn't, DEPLOY-12) and documents `npm run lint` (broken, TEST-2).
+  Done (July 2026): `npm run lint` works since TEST-2, and the SSH note now matches reality since DEPLOY-12 (sessions are reused per server, disconnect explicitly).
 
 ---
 

@@ -38,17 +38,21 @@ class RollbackService
             // Perform the symlink swap
             $this->swapSymlink($app, $targetDeployment, $rollbackDeployment);
 
-            // Run post-rollback tasks
-            $this->runPostRollbackTasks($app, $targetDeployment, $rollbackDeployment);
-
-            $this->sshService->disconnect();
-
-            // Mark the rollback deployment as active
+            // The target release is live from this point on; record that
+            // before the post tasks so a late failure cannot leave the DB
+            // contradicting the server (same pattern as the deploy pipeline).
             $rollbackDeployment->update([
                 'release_path' => $targetDeployment->release_path,
                 'release_id' => $targetDeployment->release_id,
             ]);
             $rollbackDeployment->markAsActive();
+
+            // Run post-rollback tasks (throws on failure: a failed optimize
+            // can leave the app broken while serving the rolled-back release)
+            $this->runPostRollbackTasks($app, $targetDeployment, $rollbackDeployment);
+
+            $this->sshService->disconnect();
+
             $rollbackDeployment->markAsSuccess();
             $app->update(['status' => 'active']);
 
@@ -167,8 +171,10 @@ class RollbackService
 
         $rollbackDeployment->appendLog("Rolling back to release: {$targetDeployment->release_id}");
 
-        // Atomic symlink swap
-        $result = $this->sshService->execute('ln -nfs '.escapeshellarg($releasePath).' '.escapeshellarg($currentPath));
+        // Atomic staged swap, same as release activation
+        $result = $this->sshService->execute(
+            $this->atomicDeploymentService->atomicSwapCommand($releasePath, $currentPath)
+        );
 
         if (! $result['success']) {
             throw new RuntimeException("Failed to swap symlink: {$result['output']}");
@@ -214,6 +220,12 @@ class RollbackService
             $result = $this->sshService->execute($command.' 2>&1', 60);
             if (! empty($result['output'])) {
                 $rollbackDeployment->appendLog($result['output']);
+            }
+
+            // A failing optimize (e.g. bad cached config) leaves the app
+            // 500ing; reporting the rollback as successful would hide that.
+            if (! $result['success']) {
+                throw new RuntimeException("Post-rollback task failed: {$command}");
             }
         }
     }

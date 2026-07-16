@@ -15,6 +15,10 @@ class ProcessDeployment implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    // Referenced by DeploymentService to keep the remote script timeout
+    // aligned with (below) the job timeout.
+    public const TIMEOUT_SECONDS = 1800; // 30 minutes
+
     // High tries with maxExceptions = 1: lock-blocked releases from
     // WithoutOverlapping count as attempts, but a real exception still fails
     // the job immediately.
@@ -22,7 +26,7 @@ class ProcessDeployment implements ShouldQueue
 
     public int $maxExceptions = 1;
 
-    public int $timeout = 1800; // 30 minutes
+    public int $timeout = self::TIMEOUT_SECONDS;
 
     public function __construct(
         public Deployment $deployment
@@ -49,8 +53,15 @@ class ProcessDeployment implements ShouldQueue
 
     public function failed(\Throwable $exception): void
     {
-        $this->deployment->appendLog("ERROR: {$exception->getMessage()}");
-        $this->deployment->markAsFailed();
-        $this->deployment->application->update(['status' => 'failed']);
+        // The service catch block already logs and marks the failure; this
+        // hook only covers cases where it never ran (worker killed, timeout).
+        $deployment = $this->deployment->fresh();
+        if ($deployment === null || $deployment->status === 'failed') {
+            return;
+        }
+
+        $deployment->appendLog("ERROR: {$exception->getMessage()}");
+        $deployment->markAsFailed();
+        $deployment->application->update(['status' => 'failed']);
     }
 }
