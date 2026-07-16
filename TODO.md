@@ -191,9 +191,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: use `escapeshellarg()` or the `'\''` idiom (see also the correct-but-wrong-layer escaping in DB-6).
   Fixed (July 2026): both drivers pass the password via `escapeshellarg()` (MySQL through `MYSQL_PWD`, which also silences the password-on-command-line stderr warning). Regression tests in `DatabaseDriverSafetyTest`.
 
-- [ ] **DB-2 (Medium): MySQL driver discards all error output.**
+- [x] **DB-2 (Medium): MySQL driver discards all error output.**
   `MySQLService.php:261` appends `2>/dev/null`, so every failure surfaces as "Failed to create database: " with an empty reason, and error-content checks (like PostgreSQL's "already exists" tolerance) are impossible.
   Fix: capture stderr, redact the password before logging.
+  Fixed (July 2026): stderr is captured (`2>&1`), possible since DB-1 moved the password to `MYSQL_PWD` (no more password warning noise); the password never appears in output. Regression tests in `DatabaseDriverSafetyTest`.
 
 - [ ] **DB-3 (Medium): PostgreSQL "ALL" grant omits sequences and default privileges.**
   `PostgreSQLService.php:147-161` grants database, schema, and existing tables only. Laravel apps then fail with "permission denied for sequence xxx_id_seq" on first INSERT; tables created later are inaccessible.

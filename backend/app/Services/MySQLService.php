@@ -259,9 +259,10 @@ class MySQLService implements DatabaseDriverInterface
         // argument: the old -p'...' with addcslashes wrote \' inside single
         // quotes, which bash does not unescape, breaking any password
         // containing a quote. The env var also avoids mysql's password-on-
-        // command-line warning on stderr.
+        // command-line warning on stderr, which lets us capture stderr
+        // (2>&1) so failures carry their reason instead of an empty string.
         return sprintf(
-            'MYSQL_PWD=%s mysql -h %s -P %d -u %s -N -e "%s" 2>/dev/null',
+            'MYSQL_PWD=%s mysql -h %s -P %d -u %s -N -e "%s" 2>&1',
             escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
             $database->port,
