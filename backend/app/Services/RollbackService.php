@@ -148,7 +148,7 @@ class RollbackService
 
         $rollbackDeployment->appendLog("Verifying release directory exists: {$releasePath}");
 
-        $result = $this->sshService->execute("test -d {$releasePath} && echo 'exists'");
+        $result = $this->sshService->execute('test -d '.escapeshellarg($releasePath)." && echo 'exists'");
 
         if (! str_contains($result['output'], 'exists')) {
             throw new RuntimeException("Release directory not found: {$releasePath}");
@@ -168,7 +168,7 @@ class RollbackService
         $rollbackDeployment->appendLog("Rolling back to release: {$targetDeployment->release_id}");
 
         // Atomic symlink swap
-        $result = $this->sshService->execute("ln -nfs {$releasePath} {$currentPath}");
+        $result = $this->sshService->execute('ln -nfs '.escapeshellarg($releasePath).' '.escapeshellarg($currentPath));
 
         if (! $result['success']) {
             throw new RuntimeException("Failed to swap symlink: {$result['output']}");
@@ -203,6 +203,7 @@ class RollbackService
         $rollbackDeployment->appendLog('Clearing Laravel caches...');
 
         // Clear and rebuild caches
+        $currentPath = escapeshellarg($currentPath);
         $commands = [
             "cd {$currentPath} && php artisan optimize:clear",
             "cd {$currentPath} && php artisan optimize",
@@ -249,7 +250,7 @@ class RollbackService
         $this->sshService->connect($app->server);
 
         $releasesPath = $app->getReleasesPath();
-        $result = $this->sshService->execute("ls -1 {$releasesPath} 2>/dev/null | LC_ALL=C sort -r");
+        $result = $this->sshService->execute('ls -1 '.escapeshellarg($releasesPath).' 2>/dev/null | LC_ALL=C sort -r');
 
         $this->sshService->disconnect();
 

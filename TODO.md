@@ -60,13 +60,15 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: scheduled reaper that fails deployments older than the job timeout, or use job middleware with heartbeat.
   Fixed (July 2026): `deployments:reap-stale` command scheduled every ten minutes, plus a new `scheduler` docker-compose service running `schedule:work` (nothing executed the scheduler before, which also unblocks SSL-1).
 
-- [ ] **DEPLOY-8 (Medium): Git credentials written to predictable world-readable files in /tmp on the target.**
+- [x] **DEPLOY-8 (Medium): Git credentials written to predictable world-readable files in /tmp on the target.**
   `GitProviderService.php:159-186` and `DeploymentService.php:226-236` embed raw private keys or passwords in scripts uploaded to `/tmp/git-clone-{appId}-{time}.sh` (default 0644, predictable name). Any local user on the target can read credentials during the deploy window or pre-create the path.
   Fix: create with 0600 via SFTP, use unpredictable names, delete in a finally path, or use `GIT_SSH_COMMAND` with an agent-forwarded or per-deploy key file.
+  Fixed (July 2026): shared `RunsRemoteScripts` trait used by both deploy services: random `/tmp/shipyard-script-{32 chars}.sh` name, `touch && chmod 600` before the content is written (SFTP put keeps the inode's mode), and `rm -f` in a finally block so the script is removed even on failure. Regression tests in `DeploymentShellSafetyTest`.
 
-- [ ] **DEPLOY-9 (Medium): Unquoted shell interpolation of deploy_path, branch, repository_url, shared_paths, app name.**
+- [x] **DEPLOY-9 (Medium): Unquoted shell interpolation of deploy_path, branch, repository_url, shared_paths, app name.**
   Throughout `DeploymentService.php` (146, 156, 181, 195), `AtomicDeploymentService.php` (28, 99, 132, 139, 241, 280), `RollbackService.php` (103, 123, 181), `GitProviderService.php` (178, 214). Beyond injection (hardening, per threat model), it is a plain correctness bug: a path containing a space makes `rm -rf` delete a wrong prefix path; a `shared_paths` entry of `""` or `..` rm-rf's the release or releases dir.
   Fix: `escapeshellarg()` every interpolated value and validate `deploy_path`/`shared_paths` against a strict pattern.
+  Fixed (July 2026): `escapeshellarg()` on every interpolated path/branch/URL/credential across all four services (including the generated clone/pull scripts, whose askpass credentials previously broke on quotes, and the PM2 slug already being safe). `shared_paths`/`writable_paths` entries are validated at the API (relative, no `..`, `[\w./-]+`) and re-checked at deploy time by `AtomicDeploymentService::assertSafeRelativePath()`, which aborts before any `rm -rf`. `node_version` (interpolated into `nvm use`) is now format-validated (`[A-Za-z0-9._-]+`); the PM2 app name already goes through `Str::slug`. Regression tests in `DeploymentShellSafetyTest`.
 
 - [x] **DEPLOY-10 (Medium): .env escaping corrupts values.**
   `DeploymentService.php:360-368` and `AtomicDeploymentService.php:163-171` use `addslashes`: a value like `it's` becomes `it\'s` (dotenv does not unescape `\'`). Values containing `"` but no whitespace are not quoted at all; embedded newlines corrupt the file. If the admin deletes all env vars the method returns early and the stale remote `.env` survives.
