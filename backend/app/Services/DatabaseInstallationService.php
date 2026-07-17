@@ -223,11 +223,15 @@ class DatabaseInstallationService
 
         $installation->appendLog('Verifying pm2 installation...');
         $versionResult = $this->sshService->execute($nvmPrefix.'pm2 --version 2>/dev/null', 15);
-        if (! $versionResult['success'] || empty(trim($versionResult['output']))) {
+        // pm2's first run prints its banner and daemon spawn messages before
+        // the version, so pull the last bare-semver line instead of the raw
+        // output (which overflows the version_installed column)
+        preg_match_all('/^\s*(\d+\.\d+\.\d+)\s*$/m', $versionResult['output'] ?? '', $matches);
+        if (! $versionResult['success'] || empty($matches[1])) {
             throw new RuntimeException('pm2 installation verification failed.');
         }
 
-        $version = trim($versionResult['output']);
+        $version = end($matches[1]);
         $installation->update(['version_installed' => "pm2 v{$version}"]);
         $installation->appendLog("pm2 v{$version} installed and configured.");
     }
