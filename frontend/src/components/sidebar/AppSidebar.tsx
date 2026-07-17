@@ -96,7 +96,6 @@ export function AppSidebar() {
         label: `Server: ${currentServer.name}`,
         urls: {
           overview: `/servers/${currentServer.id}`,
-          storage: `/servers/${currentServer.id}/storage`,
           software: `/servers/${currentServer.id}/software`,
           databases: `/servers/${currentServer.id}/databases`,
           settings: `/servers/${currentServer.id}/settings`,
@@ -340,18 +339,6 @@ export function AppSidebar() {
               {/* Server-specific items (when viewing server, not app) */}
               {currentServer && !currentApp && (
                 <>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.pathname === `/servers/${currentServer.id}/storage`}
-                      tooltip="Storage"
-                    >
-                      <NavLink to={contextInfo.urls.storage!}>
-                        <CircleStackIcon className="h-4 w-4" />
-                        <span>Storage</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       asChild
