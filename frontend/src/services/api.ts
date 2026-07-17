@@ -30,7 +30,17 @@ export const getCsrfCookie = () => axios.get('/sanctum/csrf-cookie', { withCrede
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    // 419: the session behind the XSRF cookie expired while the bearer token
+    // stayed valid (tokens outlive sessions). Refresh the cookie and retry
+    // the request once; the request interceptor picks up the new token.
+    const config = error.config as (typeof error.config & { _csrfRetried?: boolean }) | undefined
+    if (error.response?.status === 419 && config && !config._csrfRetried) {
+      config._csrfRetried = true
+      await getCsrfCookie()
+      return api.request(config)
+    }
+
     if (error.response?.status === 401) {
       // A 401 from the login request itself means wrong credentials; a hard
       // redirect here would reload the page and wipe the error message.
