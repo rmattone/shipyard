@@ -111,13 +111,19 @@ class ApplicationImportService
                 continue;
             }
 
-            foreach (EnvFile::parse($result['output']) as $key => $value) {
+            $document = EnvFile::parseDocument($result['output']);
+
+            foreach ($document['variables'] as $key => $value) {
                 EnvironmentVariable::create([
                     'application_id' => $application->id,
                     'key' => $key,
                     'value' => $value,
                 ]);
             }
+
+            // Keep the imported file's structure so panel edits don't
+            // compact what already lives on the server
+            $application->update(['env_layout' => $document['layout']]);
 
             return;
         }

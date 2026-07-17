@@ -27,6 +27,7 @@ class Application extends Model
         'deploy_path',
         'build_command',
         'post_deploy_commands',
+        'env_layout',
         'deploy_script',
         'ssl_enabled',
         'status',
@@ -45,6 +46,7 @@ class Application extends Model
     {
         return [
             'post_deploy_commands' => 'array',
+            'env_layout' => 'array',
             'ssl_enabled' => 'boolean',
             'shared_paths' => 'array',
             'writable_paths' => 'array',

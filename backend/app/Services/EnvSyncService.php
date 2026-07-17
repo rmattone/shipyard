@@ -70,7 +70,10 @@ class EnvSyncService
      */
     private function buildEnvContent(Application $application): string
     {
-        return EnvFile::serialize($application->environmentVariables()->get());
+        return EnvFile::render(
+            $application->env_layout,
+            $application->environmentVariables()->orderBy('id')->get()
+        );
     }
 
     /**

@@ -65,6 +65,86 @@ class EnvFile
     }
 
     /**
+     * Parse .env content keeping its layout: comments, blank lines, and the
+     * order keys appear in. `variables` is the key => value map; `layout` is
+     * the line sequence (`raw` entries verbatim, `var` entries by key) used
+     * by render() to write the file back without compacting it.
+     *
+     * @return array{variables: array<string, string>, layout: array<int, array{type: string, key?: string, text?: string}>}
+     */
+    public static function parseDocument(string $content): array
+    {
+        $variables = [];
+        $layout = [];
+
+        foreach (explode("\n", $content) as $line) {
+            $trimmed = trim($line);
+
+            if ($trimmed !== '' && ! str_starts_with($trimmed, '#')
+                && preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s', $trimmed, $matches)) {
+                $key = strtoupper($matches[1]);
+                if (! array_key_exists($key, $variables)) {
+                    $layout[] = ['type' => 'var', 'key' => $key];
+                }
+                $variables[$key] = self::parseValue($matches[2]);
+
+                continue;
+            }
+
+            $layout[] = ['type' => 'raw', 'text' => $line];
+        }
+
+        return ['variables' => $variables, 'layout' => $layout];
+    }
+
+    /**
+     * Render .env content through a stored layout: values update in place,
+     * keys no longer present are dropped, new keys append at the end, and
+     * comments/blank lines survive verbatim. A null layout degrades to
+     * serialize().
+     *
+     * @param  array<int, array{type: string, key?: string, text?: string}>|null  $layout
+     * @param  iterable<object{key: string, value: string}>  $variables
+     */
+    public static function render(?array $layout, iterable $variables): string
+    {
+        $values = [];
+        foreach ($variables as $var) {
+            $values[$var->key] = (string) ($var->value ?? '');
+        }
+
+        if ($layout === null || $layout === []) {
+            $lines = [];
+            foreach ($values as $key => $value) {
+                $lines[] = self::line($key, $value);
+            }
+
+            return implode("\n", $lines);
+        }
+
+        $lines = [];
+        foreach ($layout as $entry) {
+            if (($entry['type'] ?? '') === 'var') {
+                $key = $entry['key'] ?? '';
+                if (array_key_exists($key, $values)) {
+                    $lines[] = self::line($key, $values[$key]);
+                    unset($values[$key]);
+                }
+
+                continue;
+            }
+
+            $lines[] = $entry['text'] ?? '';
+        }
+
+        foreach ($values as $key => $value) {
+            $lines[] = self::line($key, $value);
+        }
+
+        return implode("\n", $lines);
+    }
+
+    /**
      * Parse .env content into a key => value map, reversing formatValue().
      *
      * @return array<string, string>
