@@ -3,7 +3,9 @@
 namespace App\Services;
 
 use App\Models\Application;
+use App\Models\EnvironmentVariable;
 use App\Models\Server;
+use App\Support\EnvFile;
 
 class ApplicationImportService
 {
@@ -56,7 +58,7 @@ class ApplicationImportService
 
                 $site = $this->matchSite($sites, $dir);
 
-                $imported[] = Application::create([
+                $application = Application::create([
                     'server_id' => $server->id,
                     'git_provider_id' => null,
                     'name' => basename($dir),
@@ -71,12 +73,46 @@ class ApplicationImportService
                     'php_version' => $type === 'laravel' ? $server->php_version : null,
                     'status' => 'active',
                 ]);
+
+                $this->importEnvironmentVariables($application, $dir, $root, $strategy);
+
+                $imported[] = $application;
             }
         } finally {
             $this->sshService->disconnect();
         }
 
         return ['imported' => $imported, 'skipped' => $skipped];
+    }
+
+    /**
+     * Pull the project's .env into encrypted EnvironmentVariable records.
+     * Atomic layouts keep .env in shared/ (that is where EnvSyncService
+     * writes it); everything else has it at the project root.
+     */
+    private function importEnvironmentVariables(Application $application, string $dir, string $root, string $strategy): void
+    {
+        $candidates = $strategy === 'atomic'
+            ? ["{$dir}/shared/.env", "{$root}/.env"]
+            : ["{$root}/.env"];
+
+        foreach ($candidates as $path) {
+            $result = $this->sshService->execute("cat \"{$path}\" 2>/dev/null", 15);
+
+            if (! $result['success'] || trim($result['output'] ?? '') === '') {
+                continue;
+            }
+
+            foreach (EnvFile::parse($result['output']) as $key => $value) {
+                EnvironmentVariable::create([
+                    'application_id' => $application->id,
+                    'key' => $key,
+                    'value' => $value,
+                ]);
+            }
+
+            return;
+        }
     }
 
     /** @return array<int, string> */

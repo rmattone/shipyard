@@ -112,6 +112,36 @@ NGINX;
         $this->assertNull(Application::where('deploy_path', '/var/www/shipyard')->first());
     }
 
+    public function test_project_env_files_are_imported_as_environment_variables(): void
+    {
+        $this->mockSsh([
+            'find /var/www' => "/var/www/shipyard/blog\n/var/www/shipyard/api-service",
+
+            '/var/www/shipyard/blog/current" && test -d' => 'atomic',
+            '/var/www/shipyard/blog/current/artisan' => 'laravel',
+            'cat "/var/www/shipyard/blog/shared/.env"' => "APP_NAME=\"My Blog\"\n# comment\nDB_PASSWORD=s3cret\n",
+
+            '/var/www/shipyard/api-service/current" && test -d' => 'in_place',
+            '/var/www/shipyard/api-service/artisan' => 'nodejs',
+            'cat "/var/www/shipyard/api-service/.env"' => "PORT=3001\n",
+        ]);
+
+        $server = Server::factory()->create();
+
+        $this->actingAs(User::factory()->create())
+            ->postJson("/api/servers/{$server->id}/applications/import")
+            ->assertOk();
+
+        $blog = Application::where('deploy_path', '/var/www/shipyard/blog')->first();
+        $vars = $blog->environmentVariables()->get()->mapWithKeys(fn ($v) => [$v->key => $v->value]);
+        $this->assertSame('My Blog', $vars['APP_NAME'] ?? null);
+        $this->assertSame('s3cret', $vars['DB_PASSWORD'] ?? null);
+        $this->assertCount(2, $vars);
+
+        $api = Application::where('deploy_path', '/var/www/shipyard/api-service')->first();
+        $this->assertSame('3001', $api->environmentVariables()->first()?->value);
+    }
+
     public function test_managed_paths_and_unclassifiable_dirs_are_skipped(): void
     {
         $server = Server::factory()->create();
