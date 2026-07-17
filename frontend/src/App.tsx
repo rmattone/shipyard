@@ -17,7 +17,6 @@ import GitProviderDetail from './pages/git-providers/GitProviderDetail'
 
 // Server level pages
 import ServerOverview from './pages/servers/ServerOverview'
-import ServerStorage from './pages/servers/ServerStorage'
 import ServerSoftware from './pages/servers/ServerSoftware'
 import ServerDatabases from './pages/servers/ServerDatabases'
 import DatabaseDetail from './pages/servers/DatabaseDetail'
@@ -74,7 +73,6 @@ function AppRoutes() {
 
         {/* Server level */}
         <Route path="servers/:id" element={<ServerOverview />} />
-        <Route path="servers/:id/storage" element={<ServerStorage />} />
         <Route path="servers/:id/software" element={<ServerSoftware />} />
         <Route path="servers/:id/databases" element={<ServerDatabases />} />
         <Route path="servers/:id/databases/:databaseId" element={<DatabaseDetail />} />
