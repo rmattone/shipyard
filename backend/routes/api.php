@@ -41,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Servers
     Route::apiResource('servers', ServerController::class);
+    Route::post('/servers/test-connection', [ServerController::class, 'testConnectionAdhoc']);
     Route::post('/servers/{server}/test-connection', [ServerController::class, 'testConnection']);
     Route::get('/servers/{server}/node-versions', [ServerController::class, 'getNodeVersions']);
     Route::get('/servers/{server}/node-versions/remote', [ServerController::class, 'getRemoteNodeVersions']);

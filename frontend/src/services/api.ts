@@ -312,6 +312,11 @@ export const serversApi = {
     api.post<{ success: boolean; message: string; system_info?: string }>(
       '/servers/' + id + '/test-connection'
     ),
+  testConnectionAdhoc: (data: { host: string; port?: number; username: string; private_key: string }) =>
+    api.post<{ success: boolean; message: string; system_info?: string }>(
+      '/servers/test-connection',
+      data
+    ),
   getNodeVersions: (id: number) =>
     api.get<{ versions: string[] }>('/servers/' + id + '/node-versions'),
   getRemoteNodeVersions: (id: number) =>
