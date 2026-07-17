@@ -20,6 +20,10 @@ class FakeSsh2 extends SSH2
     /** @var int|false */
     public $exitStatus = 0;
 
+    public bool $timedOut = false;
+
+    public int $resetCount = 0;
+
     public function __construct()
     {
         parent::__construct('unused.invalid', 22);
@@ -40,6 +44,17 @@ class FakeSsh2 extends SSH2
     public function getExitStatus()
     {
         return $this->exitStatus;
+    }
+
+    public function isTimeout()
+    {
+        return $this->timedOut;
+    }
+
+    public function reset($channel = null)
+    {
+        $this->resetCount++;
+        $this->timedOut = false;
     }
 
     public function disconnect()
@@ -148,5 +163,37 @@ class SSHServiceConnectionTest extends TestCase
 
         $this->assertFalse($result['success'], 'A command with no exit status (timeout) must not read as success.');
         $this->assertSame(-1, $result['exit_code']);
+    }
+
+    // A timed-out exec can leave getExitStatus() holding the PREVIOUS
+    // command's 0, so the timeout must be checked explicitly or the failed
+    // command reads as success.
+    public function test_a_timed_out_command_is_a_failure_even_with_a_stale_exit_status(): void
+    {
+        $service = new TestableSSHService;
+        $service->connect($this->makeServer(1));
+        $service->clients[0]->execReturn = 'partial output';
+        $service->clients[0]->exitStatus = 0;
+        $service->clients[0]->timedOut = true;
+
+        $result = $service->execute('sudo add-apt-repository -y ppa:ondrej/php', 60);
+
+        $this->assertFalse($result['success'], 'A timed-out command must never read as success.');
+        $this->assertStringContainsString('timed out after 60s', $result['output']);
+    }
+
+    // phpseclib leaves the exec channel open after a timeout; without a
+    // reset() every subsequent command fails with "Please close the channel
+    // (1) before trying to open it again".
+    public function test_the_channel_is_reset_after_a_timeout(): void
+    {
+        $service = new TestableSSHService;
+        $service->connect($this->makeServer(1));
+        $service->clients[0]->execReturn = 'partial output';
+        $service->clients[0]->timedOut = true;
+
+        $service->execute('slow command', 60);
+
+        $this->assertSame(1, $service->clients[0]->resetCount, 'The channel must be reset after a timeout.');
     }
 }

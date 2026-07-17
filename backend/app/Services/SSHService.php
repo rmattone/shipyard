@@ -142,6 +142,19 @@ class SSHService
         $this->ssh->setTimeout($timeout);
         $output = $this->ssh->exec($command);
 
+        // A timed-out exec leaves the channel open (every later command dies
+        // with "Please close the channel") and getExitStatus() can hold the
+        // previous command's 0, making the failure read as success.
+        if ($this->ssh->isTimeout()) {
+            $this->ssh->reset();
+
+            return [
+                'output' => (is_string($output) ? $output : '')."\n[command timed out after {$timeout}s]",
+                'exit_code' => -1,
+                'success' => false,
+            ];
+        }
+
         // phpseclib returns false when the command could not be executed at
         // all (connection dropped, channel failure). Treating that as empty
         // output makes transient failures read as "directory missing".
