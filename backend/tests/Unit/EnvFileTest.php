@@ -61,4 +61,45 @@ class EnvFileTest extends TestCase
 
         $this->assertSame(['FOO' => 'bar', 'BAZ' => 'qux'], $parsed);
     }
+
+    // The panel editor and server sync must not compact the file: comments,
+    // blank lines, and the order the user wrote survive the round-trip.
+    public function test_document_round_trips_comments_blank_lines_and_order(): void
+    {
+        $content = "# App settings\nAPP_NAME=shipyard\n\n# Database\nDB_HOST=localhost\nDB_PASSWORD=secret";
+
+        $doc = EnvFile::parseDocument($content);
+        $vars = collect($doc['variables'])->map(fn ($v, $k) => (object) ['key' => $k, 'value' => $v]);
+
+        $this->assertSame($content, EnvFile::render($doc['layout'], $vars));
+    }
+
+    public function test_render_updates_values_in_place(): void
+    {
+        $doc = EnvFile::parseDocument("# db\nDB_HOST=old\n\nAPP_NAME=x");
+        $vars = [
+            (object) ['key' => 'DB_HOST', 'value' => 'new'],
+            (object) ['key' => 'APP_NAME', 'value' => 'x'],
+        ];
+
+        $this->assertSame("# db\nDB_HOST=new\n\nAPP_NAME=x", EnvFile::render($doc['layout'], $vars));
+    }
+
+    public function test_render_drops_deleted_keys_and_appends_new_ones(): void
+    {
+        $doc = EnvFile::parseDocument("# kept\nGONE=1\nKEPT=2");
+        $vars = [
+            (object) ['key' => 'KEPT', 'value' => '2'],
+            (object) ['key' => 'ADDED', 'value' => '3'],
+        ];
+
+        $this->assertSame("# kept\nKEPT=2\nADDED=3", EnvFile::render($doc['layout'], $vars));
+    }
+
+    public function test_render_without_layout_matches_serialize(): void
+    {
+        $vars = [(object) ['key' => 'B', 'value' => '2'], (object) ['key' => 'A', 'value' => '1']];
+
+        $this->assertSame("B=2\nA=1", EnvFile::render(null, $vars));
+    }
 }

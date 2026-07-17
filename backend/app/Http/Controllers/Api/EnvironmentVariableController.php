@@ -99,7 +99,10 @@ class EnvironmentVariableController extends Controller
      */
     public function getEnvFile(Application $application): JsonResponse
     {
-        $content = EnvFile::serialize($application->environmentVariables()->get());
+        $content = EnvFile::render(
+            $application->env_layout,
+            $application->environmentVariables()->orderBy('id')->get()
+        );
 
         return response()->json(['content' => $content]);
     }
@@ -113,19 +116,23 @@ class EnvironmentVariableController extends Controller
             'content' => 'present|string',
         ]);
 
-        $variables = EnvFile::parse($validated['content']);
+        $document = EnvFile::parseDocument($validated['content']);
 
         // Replace the set atomically: a mid-loop encryption/DB error must not
         // leave the application with its secrets half-deleted.
-        DB::transaction(function () use ($application, $variables) {
+        DB::transaction(function () use ($application, $document) {
             $application->environmentVariables()->delete();
 
-            foreach ($variables as $key => $value) {
+            foreach ($document['variables'] as $key => $value) {
                 $application->environmentVariables()->create([
                     'key' => $key,
                     'value' => $value,
                 ]);
             }
+
+            // Keep the file's structure (comments, blank lines, key order)
+            // so later renders don't compact what the user wrote
+            $application->update(['env_layout' => $document['layout']]);
         });
 
         // Auto-sync to server if the app has been deployed
