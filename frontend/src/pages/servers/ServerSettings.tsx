@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { LoadingSpinner } from '@/components/custom'
 import { TagBadge } from '@/components/custom/TagBadge'
@@ -49,6 +50,7 @@ export default function ServerSettings() {
     host: '',
     port: 22,
     username: '',
+    private_key: '',
   })
 
   // Tags state
@@ -75,6 +77,7 @@ export default function ServerSettings() {
         host: response.data.host,
         port: response.data.port,
         username: response.data.username,
+        private_key: '',
       })
     } catch {
       toast.error('Failed to load server')
@@ -90,6 +93,7 @@ export default function ServerSettings() {
     try {
       const response = await serversApi.update(parseInt(id), formData)
       setServer(response.data)
+      setFormData({ ...formData, private_key: '' })
       toast.success('Server updated')
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
@@ -328,6 +332,23 @@ export default function ServerSettings() {
                       value={formData.username}
                       onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                       className="w-64"
+                    />
+                  </div>
+
+                  {/* SSH Private Key */}
+                  <div className="flex items-start justify-between py-4 border-b">
+                    <div>
+                      <p className="font-medium">SSH private key</p>
+                      <p className="text-sm text-muted-foreground">
+                        Paste a new key to replace the current one. Leave blank to keep it.
+                      </p>
+                    </div>
+                    <Textarea
+                      value={formData.private_key}
+                      onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
+                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                      className="w-64 font-mono text-xs"
+                      rows={4}
                     />
                   </div>
                 </>

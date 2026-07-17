@@ -101,6 +101,34 @@ class ServerController extends Controller
         return response()->json($result, $result['success'] ? 200 : 422);
     }
 
+    /**
+     * Test connection details before a server record exists. Nothing is
+     * persisted; the transient model only carries credentials to SSHService.
+     */
+    public function testConnectionAdhoc(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'host' => 'required|string|max:255',
+            'port' => 'nullable|integer|min:1|max:65535',
+            'username' => 'required|string|max:255',
+            'private_key' => 'required|string',
+        ]);
+
+        $server = new Server([
+            'name' => 'connection-test',
+            'host' => $validated['host'],
+            'port' => $validated['port'] ?? 22,
+            'username' => $validated['username'],
+            'private_key' => $validated['private_key'],
+            'status' => 'active',
+            'is_local' => false,
+        ]);
+
+        $result = $this->sshService->testConnection($server);
+
+        return response()->json($result, $result['success'] ? 200 : 422);
+    }
+
     public function getNodeVersions(Server $server): JsonResponse
     {
         $versions = $this->nodeVersionService->getInstalledVersions($server);

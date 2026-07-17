@@ -22,6 +22,7 @@ import { KeyIcon, ComputerDesktopIcon, ExclamationTriangleIcon } from '@heroicon
 export default function ServerNew() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
+  const [testing, setTesting] = useState(false)
   const [generating, setGenerating] = useState(false)
   const [publicKey, setPublicKey] = useState('')
   const [isDocker, setIsDocker] = useState(false)
@@ -63,6 +64,26 @@ export default function ServerNew() {
   const copyPublicKey = () => {
     navigator.clipboard.writeText(publicKey)
     toast.success('Public key copied to clipboard')
+  }
+
+  const canTest = !formData.is_local && formData.host !== '' && formData.username !== '' && formData.private_key !== ''
+
+  const handleTestConnection = async () => {
+    setTesting(true)
+    try {
+      const response = await serversApi.testConnectionAdhoc({
+        host: formData.host,
+        port: parseInt(formData.port) || 22,
+        username: formData.username,
+        private_key: formData.private_key,
+      })
+      toast.success(response.data.message)
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Connection failed')
+    } finally {
+      setTesting(false)
+    }
   }
 
   const handleSubmit = async (e: FormEvent) => {
@@ -265,6 +286,15 @@ export default function ServerNew() {
             </div>
 
             <div className="flex justify-end gap-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleTestConnection}
+                disabled={!canTest || testing}
+              >
+                {testing && <LoadingSpinner size="sm" className="mr-2" />}
+                Test Connection
+              </Button>
               <Button type="button" variant="outline" onClick={() => navigate('/')}>
                 Cancel
               </Button>
