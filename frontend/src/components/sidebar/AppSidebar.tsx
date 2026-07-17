@@ -23,6 +23,7 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
+  useSidebar,
 } from '@/components/ui/sidebar'
 import {
   Collapsible,
@@ -32,6 +33,8 @@ import {
 
 export function AppSidebar() {
   const navigate = useNavigate()
+  const { state } = useSidebar()
+  const collapsed = state === 'collapsed'
   const { servers, apps, currentServer, currentApp, loadingServers, loadingApps } = useNavigation()
 
   // Track which servers are expanded
@@ -66,8 +69,66 @@ export function AppSidebar() {
     return apps.filter(app => app.server_id === serverId)
   }
 
+  // Collapsed: a compact rail with letter avatars per server (the nested
+  // tree does not degrade into icons legibly, so it gets its own markup)
+  if (collapsed) {
+    return (
+      <Sidebar variant="inset" collapsible="icon">
+        <SidebarHeader>
+          <NavLink to="/" className="flex items-center justify-center py-1">
+            <div className="h-8 w-8 rounded-md bg-slate-800 dark:bg-white p-1.5 flex items-center justify-center">
+              <img src={shipyardLogo} alt="ShipYard" className="h-full w-full object-contain invert dark:invert-0" />
+            </div>
+          </NavLink>
+        </SidebarHeader>
+
+        <SidebarContent>
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    tooltip="Organization"
+                    isActive={!currentServer && !currentApp}
+                  >
+                    <NavLink to="/">
+                      <BuildingOffice2Icon className="h-4 w-4" />
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+
+                {servers.map((server) => (
+                  <SidebarMenuItem key={server.id}>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip={server.name}
+                      isActive={currentServer?.id === server.id}
+                    >
+                      <NavLink to={`/servers/${server.id}`}>
+                        <div className="h-5 w-5 rounded bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center text-xs font-semibold flex-shrink-0">
+                          {server.name.charAt(0).toUpperCase()}
+                        </div>
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+
+                <SidebarMenuItem>
+                  <SidebarMenuButton tooltip="Add Server" onClick={() => navigate('/servers/new')}>
+                    <PlusIcon className="h-4 w-4" />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+      </Sidebar>
+    )
+  }
+
   return (
-    <Sidebar variant="inset">
+    <Sidebar variant="inset" collapsible="icon">
       {/* Header with logo */}
       <SidebarHeader>
         <NavLink to="/" className="flex items-center gap-2 px-2 py-1">
