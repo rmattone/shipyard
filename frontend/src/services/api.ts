@@ -473,6 +473,10 @@ export const gitProvidersApi = {
 // Applications
 export const applicationsApi = {
   list: () => api.get<Application[]>('/applications'),
+  importFromServer: (serverId: number) =>
+    api.post<{ imported: Application[]; skipped: { path: string; reason: string }[] }>(
+      '/servers/' + serverId + '/applications/import'
+    ),
   get: (id: number) => api.get<Application>('/applications/' + id),
   create: (data: Partial<Application>) =>
     api.post<{ application: Application; webhook_url: string; webhook_secret: string }>(
