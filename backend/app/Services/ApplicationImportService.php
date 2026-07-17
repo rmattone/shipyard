@@ -40,7 +40,15 @@ class ApplicationImportService
                     continue;
                 }
 
-                if ($server->applications()->where('deploy_path', $dir)->exists()) {
+                $existing = $server->applications()->where('deploy_path', $dir)->first();
+                if ($existing !== null) {
+                    // Backfill env for apps imported before their variables
+                    // were synced; never touch an app that already has some
+                    if (! $existing->environmentVariables()->exists()) {
+                        $existingRoot = $existing->deployment_strategy === 'atomic' ? "{$dir}/current" : $dir;
+                        $this->importEnvironmentVariables($existing, $dir, $existingRoot, $existing->deployment_strategy);
+                    }
+
                     $skipped[] = ['path' => $dir, 'reason' => 'already managed'];
 
                     continue;

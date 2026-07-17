@@ -142,6 +142,31 @@ NGINX;
         $this->assertSame('3001', $api->environmentVariables()->first()?->value);
     }
 
+    // Apps imported before env support existed (or whose env was never
+    // synced) get their variables backfilled on the next import run.
+    public function test_rerunning_import_backfills_env_for_managed_apps_without_variables(): void
+    {
+        $server = Server::factory()->create();
+        $existing = Application::factory()->create([
+            'server_id' => $server->id,
+            'deploy_path' => '/var/www/shipyard/blog',
+            'deployment_strategy' => 'in_place',
+        ]);
+        $existing->environmentVariables()->delete();
+
+        $this->mockSsh([
+            'find /var/www' => '/var/www/shipyard/blog',
+            'cat "/var/www/shipyard/blog/.env"' => "APP_KEY=abc123\n",
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('imported'));
+        $this->assertSame('abc123', $existing->environmentVariables()->first()?->value);
+    }
+
     public function test_managed_paths_and_unclassifiable_dirs_are_skipped(): void
     {
         $server = Server::factory()->create();
