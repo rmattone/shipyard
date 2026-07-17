@@ -241,7 +241,20 @@ class DatabaseInstallationService
         // 1. Add Ondrej's PPA (latest PHP versions)
         $installation->appendLog('Adding PHP repository...');
         $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common', 120);
-        $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:ondrej/php', 60);
+
+        // The PPA lags new Ubuntu releases; adding it for an unpublished
+        // series makes apt update 404 and kills the install, so probe its
+        // Release file first and fall back to the distro's own PHP packages
+        $probe = $this->sshService->execute(
+            '. /etc/os-release && curl -fsI --max-time 15 "https://ppa.launchpadcontent.net/ondrej/php/ubuntu/dists/${VERSION_CODENAME}/Release" >/dev/null 2>&1 && echo available || echo unavailable',
+            30
+        );
+
+        if (trim($probe['output']) === 'available') {
+            $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:ondrej/php', 180);
+        } else {
+            $installation->appendLog('The ondrej/php PPA is not published for this release yet. Using distro PHP packages.');
+        }
 
         // 2. Update and install PHP packages
         $installation->appendLog('Updating package lists...');
