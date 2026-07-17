@@ -1,21 +1,13 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useNavigate, useLocation } from 'react-router-dom'
+import { NavLink, useNavigate } from 'react-router-dom'
 import { useNavigation } from '@/contexts/NavigationContext'
 import shipyardLogo from '@/assets/shipyard.svg'
 import {
   ServerIcon,
-  Cog6ToothIcon,
   PlusIcon,
   CubeIcon,
-  CircleStackIcon,
-  RocketLaunchIcon,
-  GlobeAltIcon,
-  Squares2X2Icon,
-  CommandLineIcon,
-  DocumentTextIcon,
   BuildingOffice2Icon,
   ChevronRightIcon,
-  WrenchScrewdriverIcon,
 } from '@heroicons/react/24/outline'
 import {
   Sidebar,
@@ -31,7 +23,6 @@ import {
   SidebarMenuSub,
   SidebarMenuSubButton,
   SidebarMenuSubItem,
-  SidebarSeparator,
 } from '@/components/ui/sidebar'
 import {
   Collapsible,
@@ -41,7 +32,6 @@ import {
 
 export function AppSidebar() {
   const navigate = useNavigate()
-  const location = useLocation()
   const { servers, apps, currentServer, currentApp, loadingServers, loadingApps } = useNavigation()
 
   // Track which servers are expanded
@@ -75,56 +65,6 @@ export function AppSidebar() {
   const getServerApps = (serverId: number) => {
     return apps.filter(app => app.server_id === serverId)
   }
-
-  // Helper to determine contextual URLs and label
-  const getContextInfo = () => {
-    if (currentApp) {
-      return {
-        label: `App: ${currentApp.name}`,
-        urls: {
-          overview: `/apps/${currentApp.id}`,
-          deployments: `/apps/${currentApp.id}/deployments`,
-          domains: `/apps/${currentApp.id}/domains`,
-          logs: `/apps/${currentApp.id}/logs`,
-          environment: `/apps/${currentApp.id}/environment`,
-          settings: `/apps/${currentApp.id}/settings`,
-        },
-      }
-    }
-    if (currentServer) {
-      return {
-        label: `Server: ${currentServer.name}`,
-        urls: {
-          overview: `/servers/${currentServer.id}`,
-          software: `/servers/${currentServer.id}/software`,
-          databases: `/servers/${currentServer.id}/databases`,
-          settings: `/servers/${currentServer.id}/settings`,
-        },
-      }
-    }
-    return {
-      label: 'Organization',
-      urls: {
-        overview: '/',
-        settings: '/settings',
-      },
-    }
-  }
-
-  const contextInfo = getContextInfo()
-
-  // Check active states for contextual menu
-  const isOverviewActive = currentApp
-    ? location.pathname === `/apps/${currentApp.id}`
-    : currentServer
-      ? location.pathname === `/servers/${currentServer.id}`
-      : location.pathname === '/'
-
-  const isSettingsActive = currentApp
-    ? location.pathname === `/apps/${currentApp.id}/settings`
-    : currentServer
-      ? location.pathname === `/servers/${currentServer.id}/settings`
-      : location.pathname === '/settings'
 
   return (
     <Sidebar variant="inset">
@@ -258,139 +198,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarSeparator />
-
-        {/* Contextual Menu Section */}
-        <SidebarGroup>
-          <SidebarGroupLabel>{contextInfo.label}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {/* Overview - always shown */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isOverviewActive}
-                  tooltip="Overview"
-                >
-                  <NavLink to={contextInfo.urls.overview} end>
-                    <Squares2X2Icon className="h-4 w-4" />
-                    <span>Overview</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-
-              {/* App-specific items */}
-              {currentApp && (
-                <>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={
-                        location.pathname === `/apps/${currentApp.id}/deployments` ||
-                        location.pathname.startsWith(`/apps/${currentApp.id}/deployments/`)
-                      }
-                      tooltip="Deployments"
-                    >
-                      <NavLink to={contextInfo.urls.deployments!}>
-                        <RocketLaunchIcon className="h-4 w-4" />
-                        <span>Deployments</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.pathname === `/apps/${currentApp.id}/domains`}
-                      tooltip="Domains"
-                    >
-                      <NavLink to={contextInfo.urls.domains!}>
-                        <GlobeAltIcon className="h-4 w-4" />
-                        <span>Domains</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.pathname === `/apps/${currentApp.id}/logs`}
-                      tooltip="Logs"
-                    >
-                      <NavLink to={contextInfo.urls.logs!}>
-                        <DocumentTextIcon className="h-4 w-4" />
-                        <span>Logs</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.pathname === `/apps/${currentApp.id}/environment`}
-                      tooltip="Environment"
-                    >
-                      <NavLink to={contextInfo.urls.environment!}>
-                        <CommandLineIcon className="h-4 w-4" />
-                        <span>Environment</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </>
-              )}
-
-              {/* Server-specific items (when viewing server, not app) */}
-              {currentServer && !currentApp && (
-                <>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.pathname === `/servers/${currentServer.id}/software`}
-                      tooltip="Software"
-                    >
-                      <NavLink to={contextInfo.urls.software!}>
-                        <WrenchScrewdriverIcon className="h-4 w-4" />
-                        <span>Software</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      asChild
-                      isActive={location.pathname.startsWith(`/servers/${currentServer.id}/databases`)}
-                      tooltip="Databases"
-                    >
-                      <NavLink to={contextInfo.urls.databases!}>
-                        <CircleStackIcon className="h-4 w-4" />
-                        <span>Databases</span>
-                      </NavLink>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton
-                      onClick={() => navigate(`/servers/${currentServer.id}/apps/new`)}
-                      tooltip="Add App"
-                    >
-                      <PlusIcon className="h-4 w-4" />
-                      <span>Add App</span>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                </>
-              )}
-
-              {/* Settings - always shown */}
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={isSettingsActive}
-                  tooltip="Settings"
-                >
-                  <NavLink to={contextInfo.urls.settings}>
-                    <Cog6ToothIcon className="h-4 w-4" />
-                    <span>Settings</span>
-                  </NavLink>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
       </SidebarContent>
     </Sidebar>
   )
