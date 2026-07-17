@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Jobs\ProcessDeployment;
 use App\Models\Application;
 use App\Models\Deployment;
+use App\Models\Server;
+use App\Services\ApplicationImportService;
 use App\Services\CertbotService;
 use App\Services\NginxService;
 use Illuminate\Http\JsonResponse;
@@ -25,6 +27,22 @@ class ApplicationController extends Controller
             ->get();
 
         return response()->json($applications);
+    }
+
+    /**
+     * Scan a server for existing projects and import them as applications.
+     */
+    public function import(Server $server, ApplicationImportService $importService): JsonResponse
+    {
+        try {
+            $result = $importService->import($server);
+
+            return response()->json($result);
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Import failed: '.$e->getMessage(),
+            ], 422);
+        }
     }
 
     public function store(Request $request): JsonResponse

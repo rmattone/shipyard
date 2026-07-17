@@ -80,6 +80,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/git-providers/{git_provider}/branches', [GitProviderController::class, 'branches']);
 
     // Applications
+    Route::post('/servers/{server}/applications/import', [ApplicationController::class, 'import']);
     Route::apiResource('applications', ApplicationController::class);
     Route::post('/applications/{application}/deploy', [ApplicationController::class, 'deploy']);
     Route::post('/applications/{application}/setup-ssl', [ApplicationController::class, 'setupSsl']);
