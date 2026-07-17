@@ -28,7 +28,6 @@ import AppOverview from './pages/apps/AppOverview'
 import AppDeployments from './pages/apps/AppDeployments'
 import AppDomains from './pages/apps/AppDomains'
 import AppLogs from './pages/apps/AppLogs'
-import AppEnv from './pages/apps/AppEnv'
 import AppSettings from './pages/apps/AppSettings'
 import DeploymentDetail from './pages/apps/DeploymentDetail'
 
@@ -84,7 +83,6 @@ function AppRoutes() {
         <Route path="apps/:id/deployments" element={<AppDeployments />} />
         <Route path="apps/:id/domains" element={<AppDomains />} />
         <Route path="apps/:id/logs" element={<AppLogs />} />
-        <Route path="apps/:id/environment" element={<AppEnv />} />
         <Route path="apps/:id/settings" element={<AppSettings />} />
         <Route path="apps/:id/deployments/:deploymentId" element={<DeploymentDetail />} />
 

@@ -18,7 +18,6 @@ export function ContextTabs() {
       { label: 'Deployments', to: `/apps/${currentApp.id}/deployments` },
       { label: 'Domains', to: `/apps/${currentApp.id}/domains` },
       { label: 'Logs', to: `/apps/${currentApp.id}/logs` },
-      { label: 'Environment', to: `/apps/${currentApp.id}/environment` },
       { label: 'Settings', to: `/apps/${currentApp.id}/settings` },
     ]
   } else if (currentServer) {
