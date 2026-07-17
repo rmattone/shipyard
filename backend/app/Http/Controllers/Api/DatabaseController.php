@@ -25,6 +25,7 @@ class DatabaseController extends Controller
     {
         try {
             $detected = $this->databaseService->detectDatabaseServers($server);
+
             return response()->json($detected);
         } catch (RuntimeException $e) {
             return response()->json([
@@ -42,6 +43,22 @@ class DatabaseController extends Controller
             'engine' => 'required|in:mysql,postgresql,pm2,php,node,nginx,certbot',
             'version' => 'nullable|string|max:50',
         ]);
+
+        // Reinstalling an engine that already has a connection record would
+        // reset the server's admin password and orphan the stored credentials
+        if (in_array($validated['engine'], ['mysql', 'postgresql'], true)) {
+            $alreadyInstalled = $server->databases()
+                ->where('type', $validated['engine'])
+                ->exists();
+
+            if ($alreadyInstalled) {
+                $label = $validated['engine'] === 'mysql' ? 'MySQL' : 'PostgreSQL';
+
+                return response()->json([
+                    'message' => "{$label} is already installed on this server.",
+                ], 409);
+            }
+        }
 
         // Check for duplicate running installation
         $running = $server->databaseInstallations()
@@ -61,7 +78,7 @@ class DatabaseController extends Controller
         ];
 
         // Add version_requested for node engine
-        if ($validated['engine'] === 'node' && !empty($validated['version'])) {
+        if ($validated['engine'] === 'node' && ! empty($validated['version'])) {
             $installationData['version_requested'] = $validated['version'];
         }
 
@@ -230,6 +247,7 @@ class DatabaseController extends Controller
 
         try {
             $databases = $this->databaseService->listRemoteDatabases($database);
+
             return response()->json(['databases' => $databases]);
         } catch (RuntimeException $e) {
             return response()->json([
