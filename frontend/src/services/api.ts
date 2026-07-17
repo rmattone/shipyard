@@ -80,7 +80,7 @@ export interface Application {
   type: 'laravel' | 'nodejs' | 'static'
   node_version: string | null
   domain: string
-  repository_url: string
+  repository_url: string | null
   branch: string
   deploy_path: string
   deploy_script?: string

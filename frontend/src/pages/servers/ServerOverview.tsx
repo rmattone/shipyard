@@ -329,7 +329,7 @@ export default function ServerOverview() {
                           )}
                         </div>
                         <div className="text-sm text-muted-foreground truncate">
-                          {getRepoName(app.repository_url)}:{app.branch} · {getTypeLabel(app.type)}
+                          {app.repository_url ? `${getRepoName(app.repository_url)}:${app.branch} · ` : ''}{getTypeLabel(app.type)}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">

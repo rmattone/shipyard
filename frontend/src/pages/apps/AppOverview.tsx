@@ -384,7 +384,7 @@ export default function AppOverview() {
             <dl className="space-y-3">
               <div>
                 <dt className="text-muted-foreground text-sm">URL</dt>
-                <dd className="font-mono text-sm break-all mt-1">{getRepoName(app.repository_url)}</dd>
+                <dd className="font-mono text-sm break-all mt-1">{app.repository_url ? getRepoName(app.repository_url) : 'Not connected'}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground text-sm">Deploy path</dt>
