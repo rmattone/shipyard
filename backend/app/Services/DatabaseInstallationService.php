@@ -422,16 +422,23 @@ class DatabaseInstallationService
 
         $isMySQL = $installation->engine === 'mysql';
 
-        Database::create([
-            'server_id' => $installation->server_id,
-            'name' => $isMySQL ? 'MySQL' : 'PostgreSQL',
-            'type' => $installation->engine,
-            'host' => 'localhost',
-            'port' => $isMySQL ? 3306 : 5432,
-            'admin_user' => $isMySQL ? 'root' : 'postgres',
-            'admin_password' => $password,
-            'status' => 'active',
-        ]);
+        // updateOrCreate: the server-side install already succeeded at this
+        // point, so an existing record must absorb the fresh credentials
+        // instead of tripping the unique key and stranding a stale password
+        Database::updateOrCreate(
+            [
+                'server_id' => $installation->server_id,
+                'name' => $isMySQL ? 'MySQL' : 'PostgreSQL',
+            ],
+            [
+                'type' => $installation->engine,
+                'host' => 'localhost',
+                'port' => $isMySQL ? 3306 : 5432,
+                'admin_user' => $isMySQL ? 'root' : 'postgres',
+                'admin_password' => $password,
+                'status' => 'active',
+            ]
+        );
 
         $installation->appendLog('Database connection record created.');
     }
