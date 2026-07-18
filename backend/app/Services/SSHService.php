@@ -4,68 +4,118 @@ namespace App\Services;
 
 use App\Models\Server;
 use phpseclib3\Crypt\PublicKeyLoader;
-use phpseclib3\Net\SSH2;
 use phpseclib3\Net\SFTP;
+use phpseclib3\Net\SSH2;
 use RuntimeException;
 use Symfony\Component\Process\Process;
 
 class SSHService
 {
     private ?SSH2 $ssh = null;
+
     private ?SFTP $sftp = null;
+
     private ?Server $server = null;
+
     private bool $isLocal = false;
 
     public function connect(Server $server): self
     {
-        $this->server = $server;
         $this->isLocal = $server->isLocal();
 
         if ($this->isLocal) {
+            $this->server = $server;
+
             return $this;
         }
 
-        $this->ssh = new SSH2($server->host, $server->port);
-        $this->ssh->setTimeout(30);
+        // Reuse the live session for repeated connect() calls to the same
+        // server: one atomic deploy calls connect() five-plus times and used
+        // to leak a fresh SSH session each time.
+        if ($this->ssh !== null && $this->isSameServer($server) && $this->ssh->isConnected()) {
+            $this->server = $server;
 
-        $key = PublicKeyLoader::load($server->private_key);
+            return $this;
+        }
 
-        if (!$this->ssh->login($server->username, $key)) {
+        if (! $this->isSameServer($server)) {
+            $this->disconnect();
+        } elseif ($this->ssh !== null) {
+            $this->ssh->disconnect();
+        }
+
+        $this->server = $server;
+
+        $ssh = $this->makeSshClient($server);
+        $ssh->setTimeout(30);
+
+        if (! $ssh->login($server->username, $this->loadPrivateKey($server))) {
             throw new RuntimeException("SSH authentication failed for {$server->host}");
         }
+
+        $this->ssh = $ssh;
 
         return $this;
     }
 
     public function connectSftp(Server $server): self
     {
-        $this->server = $server;
         $this->isLocal = $server->isLocal();
 
         if ($this->isLocal) {
+            $this->server = $server;
+
             return $this;
         }
 
-        $this->sftp = new SFTP($server->host, $server->port);
-        $this->sftp->setTimeout(30);
+        if ($this->sftp !== null && $this->isSameServer($server) && $this->sftp->isConnected()) {
+            $this->server = $server;
 
-        $key = PublicKeyLoader::load($server->private_key);
+            return $this;
+        }
 
-        if (!$this->sftp->login($server->username, $key)) {
+        if (! $this->isSameServer($server)) {
+            $this->disconnect();
+        } elseif ($this->sftp !== null) {
+            $this->sftp->disconnect();
+        }
+
+        $this->server = $server;
+
+        $sftp = $this->makeSftpClient($server);
+        $sftp->setTimeout(30);
+
+        if (! $sftp->login($server->username, $this->loadPrivateKey($server))) {
             throw new RuntimeException("SFTP authentication failed for {$server->host}");
         }
+
+        $this->sftp = $sftp;
 
         return $this;
     }
 
+    private function isSameServer(Server $server): bool
+    {
+        return $this->server !== null && $this->server->id === $server->id;
+    }
+
+    protected function makeSshClient(Server $server): SSH2
+    {
+        return new SSH2($server->host, $server->port);
+    }
+
+    protected function makeSftpClient(Server $server): SFTP
+    {
+        return new SFTP($server->host, $server->port);
+    }
+
+    protected function loadPrivateKey(Server $server): mixed
+    {
+        return PublicKeyLoader::load($server->private_key);
+    }
+
     public function disconnect(): void
     {
-        if ($this->isLocal) {
-            $this->server = null;
-            $this->isLocal = false;
-            return;
-        }
-
         if ($this->ssh) {
             $this->ssh->disconnect();
             $this->ssh = null;
@@ -74,6 +124,9 @@ class SSHService
             $this->sftp->disconnect();
             $this->sftp = null;
         }
+
+        $this->server = null;
+        $this->isLocal = false;
     }
 
     public function execute(string $command, int $timeout = 300): array
@@ -82,18 +135,44 @@ class SSHService
             return $this->executeLocal($command, $timeout);
         }
 
-        if (!$this->ssh) {
+        if (! $this->ssh) {
             throw new RuntimeException('Not connected to any server');
         }
 
         $this->ssh->setTimeout($timeout);
         $output = $this->ssh->exec($command);
+
+        // A timed-out exec leaves the channel open (every later command dies
+        // with "Please close the channel") and getExitStatus() can hold the
+        // previous command's 0, making the failure read as success.
+        if ($this->ssh->isTimeout()) {
+            $this->ssh->reset();
+
+            return [
+                'output' => (is_string($output) ? $output : '')."\n[command timed out after {$timeout}s]",
+                'exit_code' => -1,
+                'success' => false,
+            ];
+        }
+
+        // phpseclib returns false when the command could not be executed at
+        // all (connection dropped, channel failure). Treating that as empty
+        // output makes transient failures read as "directory missing".
+        if ($output === false) {
+            throw new RuntimeException("SSH command could not be executed (connection lost?): {$command}");
+        }
+
+        // getExitStatus() returns false when no status arrived (e.g. timeout);
+        // that must not be mistaken for exit code 0.
         $exitCode = $this->ssh->getExitStatus();
+        if (! is_int($exitCode)) {
+            $exitCode = -1;
+        }
 
         return [
             'output' => $output,
-            'exit_code' => $exitCode ?? 0,
-            'success' => ($exitCode ?? 0) === 0,
+            'exit_code' => $exitCode,
+            'success' => $exitCode === 0,
         ];
     }
 
@@ -101,7 +180,7 @@ class SSHService
     {
         // Commands that require sudo on local server
         if ($this->commandRequiresSudo($command)) {
-            $command = 'sudo ' . $command;
+            $command = 'sudo '.$command;
         }
 
         $process = Process::fromShellCommandline($command);
@@ -110,7 +189,7 @@ class SSHService
         $process->run();
 
         return [
-            'output' => $process->getOutput() . $process->getErrorOutput(),
+            'output' => $process->getOutput().$process->getErrorOutput(),
             'exit_code' => $process->getExitCode(),
             'success' => $process->isSuccessful(),
         ];
@@ -144,17 +223,18 @@ class SSHService
     {
         if ($this->isLocal) {
             $dir = dirname($remotePath);
-            if (!is_dir($dir)) {
+            if (! is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
+
             return copy($localPath, $remotePath);
         }
 
-        if (!$this->sftp && $this->server) {
+        if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
 
-        if (!$this->sftp) {
+        if (! $this->sftp) {
             throw new RuntimeException('Not connected to any server');
         }
 
@@ -183,17 +263,18 @@ class SSHService
                 return $process->isSuccessful();
             }
             $dir = dirname($remotePath);
-            if (!is_dir($dir)) {
+            if (! is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
+
             return file_put_contents($remotePath, $content) !== false;
         }
 
-        if (!$this->sftp && $this->server) {
+        if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
 
-        if (!$this->sftp) {
+        if (! $this->sftp) {
             throw new RuntimeException('Not connected to any server');
         }
 
@@ -203,17 +284,18 @@ class SSHService
     public function download(string $remotePath): ?string
     {
         if ($this->isLocal) {
-            if (!file_exists($remotePath)) {
+            if (! file_exists($remotePath)) {
                 return null;
             }
+
             return file_get_contents($remotePath);
         }
 
-        if (!$this->sftp && $this->server) {
+        if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
 
-        if (!$this->sftp) {
+        if (! $this->sftp) {
             throw new RuntimeException('Not connected to any server');
         }
 
@@ -226,11 +308,11 @@ class SSHService
             return file_exists($remotePath);
         }
 
-        if (!$this->sftp && $this->server) {
+        if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
 
-        if (!$this->sftp) {
+        if (! $this->sftp) {
             throw new RuntimeException('Not connected to any server');
         }
 

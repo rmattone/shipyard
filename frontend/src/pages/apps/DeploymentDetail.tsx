@@ -140,7 +140,7 @@ export default function DeploymentDetail() {
       <div className="flex justify-between items-center">
         <div>
           <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <Link to="/apps" className="hover:text-foreground">
+            <Link to="/" className="hover:text-foreground">
               Applications
             </Link>
             <span>/</span>

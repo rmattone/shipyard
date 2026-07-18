@@ -60,6 +60,28 @@ class ServerApiTest extends TestCase
             ->assertJsonFragment(['name' => 'Updated Server']);
     }
 
+    public function test_updating_the_private_key_replaces_it(): void
+    {
+        $server = Server::factory()->create(['private_key' => 'old-key']);
+
+        $this->actingAs($this->user)
+            ->putJson("/api/servers/{$server->id}", ['private_key' => 'new-key'])
+            ->assertOk();
+
+        $this->assertSame('new-key', $server->fresh()->private_key);
+    }
+
+    public function test_update_without_a_private_key_keeps_the_existing_one(): void
+    {
+        $server = Server::factory()->create(['private_key' => 'old-key']);
+
+        $this->actingAs($this->user)
+            ->putJson("/api/servers/{$server->id}", ['name' => 'Renamed', 'private_key' => ''])
+            ->assertOk();
+
+        $this->assertSame('old-key', $server->fresh()->private_key);
+    }
+
     public function test_can_delete_server(): void
     {
         $server = Server::factory()->create();

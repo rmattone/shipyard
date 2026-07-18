@@ -2,10 +2,11 @@
 
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\DatabaseController;
+use App\Http\Controllers\Api\DatabaseInstallationStreamController;
 use App\Http\Controllers\Api\DatabaseUserController;
 use App\Http\Controllers\Api\DeploymentController;
-use App\Http\Controllers\Api\DatabaseInstallationStreamController;
 use App\Http\Controllers\Api\DeploymentStreamController;
 use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\EnvironmentVariableController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Api\GitProviderController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\NginxController;
 use App\Http\Controllers\Api\RollbackController;
+use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
@@ -20,8 +22,8 @@ use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
 
-// Public routes
-Route::post('/auth/login', [AuthController::class, 'login']);
+// Public routes (login is strictly throttled per IP on top of the api limiter)
+Route::post('/auth/login', [AuthController::class, 'login'])->middleware('throttle:login');
 
 // Webhook route (validated by secret)
 Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
@@ -41,6 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Servers
     Route::apiResource('servers', ServerController::class);
+    Route::post('/servers/test-connection', [ServerController::class, 'testConnectionAdhoc']);
     Route::post('/servers/{server}/test-connection', [ServerController::class, 'testConnection']);
     Route::get('/servers/{server}/node-versions', [ServerController::class, 'getNodeVersions']);
     Route::get('/servers/{server}/node-versions/remote', [ServerController::class, 'getRemoteNodeVersions']);
@@ -53,6 +56,22 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/servers/{server}/tags', [TagController::class, 'store']);
     Route::put('/servers/{server}/tags/{tag}', [TagController::class, 'update']);
     Route::delete('/servers/{server}/tags/{tag}', [TagController::class, 'destroy']);
+
+    // Scheduled tasks (server-scoped cron entries)
+    Route::get('/servers/{server}/scheduled-tasks', [ScheduledTaskController::class, 'index']);
+    Route::post('/servers/{server}/scheduled-tasks', [ScheduledTaskController::class, 'store']);
+    Route::get('/servers/{server}/scheduled-tasks/{scheduledTask}', [ScheduledTaskController::class, 'show']);
+    Route::get('/servers/{server}/scheduled-tasks/{scheduledTask}/output', [ScheduledTaskController::class, 'output']);
+    Route::delete('/servers/{server}/scheduled-tasks/{scheduledTask}', [ScheduledTaskController::class, 'destroy']);
+
+    // Daemons (server-scoped systemd-managed processes)
+    Route::get('/servers/{server}/daemons', [DaemonController::class, 'index']);
+    Route::post('/servers/{server}/daemons', [DaemonController::class, 'store']);
+    Route::get('/servers/{server}/daemons/{daemon}', [DaemonController::class, 'show']);
+    Route::get('/servers/{server}/daemons/{daemon}/status', [DaemonController::class, 'status']);
+    Route::get('/servers/{server}/daemons/{daemon}/output', [DaemonController::class, 'output']);
+    Route::post('/servers/{server}/daemons/{daemon}/restart', [DaemonController::class, 'restart']);
+    Route::delete('/servers/{server}/daemons/{daemon}', [DaemonController::class, 'destroy']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);
@@ -80,6 +99,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/git-providers/{git_provider}/branches', [GitProviderController::class, 'branches']);
 
     // Applications
+    Route::post('/servers/{server}/applications/import', [ApplicationController::class, 'import']);
     Route::apiResource('applications', ApplicationController::class);
     Route::post('/applications/{application}/deploy', [ApplicationController::class, 'deploy']);
     Route::post('/applications/{application}/setup-ssl', [ApplicationController::class, 'setupSsl']);

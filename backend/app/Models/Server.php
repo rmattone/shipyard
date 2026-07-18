@@ -18,6 +18,7 @@ class Server extends Model
         'private_key',
         'status',
         'is_local',
+        'php_version',
     ];
 
     protected $hidden = [
@@ -56,6 +57,16 @@ class Server extends Model
     public function databaseInstallations(): HasMany
     {
         return $this->hasMany(DatabaseInstallation::class);
+    }
+
+    public function scheduledTasks(): HasMany
+    {
+        return $this->hasMany(ScheduledTask::class);
+    }
+
+    public function daemons(): HasMany
+    {
+        return $this->hasMany(Daemon::class);
     }
 
     public function isActive(): bool

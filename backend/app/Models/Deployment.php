@@ -5,7 +5,9 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Str;
 
 class Deployment extends Model
 {
@@ -64,7 +66,7 @@ class Deployment extends Model
     {
         $timestamp = now()->format('Y-m-d H:i:s');
         $formattedMessage = "[{$timestamp}] {$message}\n";
-        $this->log = ($this->log ?? '') . $formattedMessage;
+        $this->log = ($this->log ?? '').$formattedMessage;
         $this->save();
 
         // Publish log chunk to Redis for SSE streaming
@@ -127,7 +129,7 @@ class Deployment extends Model
 
     public function getDuration(): ?int
     {
-        if (!$this->started_at || !$this->finished_at) {
+        if (! $this->started_at || ! $this->finished_at) {
             return null;
         }
 
@@ -136,10 +138,13 @@ class Deployment extends Model
 
     /**
      * Generate a timestamp-based release ID.
+     * The random suffix prevents collisions when two deployments are created
+     * within the same second (e.g. a webhook push racing a manual deploy).
+     * The fixed-width timestamp prefix keeps lexicographic release ordering.
      */
     public static function generateReleaseId(): string
     {
-        return now()->format('YmdHis');
+        return now()->format('YmdHis').'-'.Str::lower(Str::random(6));
     }
 
     /**
@@ -163,13 +168,15 @@ class Deployment extends Model
      */
     public function markAsActive(): void
     {
-        // Deactivate all other deployments for this application
-        static::where('application_id', $this->application_id)
-            ->where('id', '!=', $this->id)
-            ->update(['is_active' => false]);
+        DB::transaction(function () {
+            // Deactivate all other deployments for this application
+            static::where('application_id', $this->application_id)
+                ->where('id', '!=', $this->id)
+                ->update(['is_active' => false]);
 
-        // Activate this deployment
-        $this->update(['is_active' => true]);
+            // Activate this deployment
+            $this->update(['is_active' => true]);
+        });
     }
 
     /**

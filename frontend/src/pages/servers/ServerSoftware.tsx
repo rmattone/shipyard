@@ -83,6 +83,7 @@ export default function ServerSoftware() {
 
   const [server, setServer] = useState<Server | null>(null)
   const [software, setSoftware] = useState<ServerSoftwareType | null>(null)
+  const [installedDbEngines, setInstalledDbEngines] = useState<Set<string>>(new Set())
   const [loadingSoftware, setLoadingSoftware] = useState(true)
   const [loading, setLoading] = useState(true)
 
@@ -104,6 +105,7 @@ export default function ServerSoftware() {
   useEffect(() => {
     loadServer()
     loadSoftware()
+    loadDatabases()
   }, [serverId])
 
   // Auto-scroll log to bottom
@@ -144,6 +146,22 @@ export default function ServerSoftware() {
     } finally {
       setLoadingSoftware(false)
     }
+  }
+
+  const loadDatabases = async () => {
+    try {
+      const res = await databasesApi.list(serverId)
+      setInstalledDbEngines(new Set(res.data.map(db => db.type)))
+    } catch {
+      // Non-critical
+    }
+  }
+
+  const isEngineInstalled = (engine: InstallableEngine): boolean => {
+    if (engine === 'mysql' || engine === 'postgresql') {
+      return installedDbEngines.has(engine)
+    }
+    return software?.[engine]?.installed ?? false
   }
 
   const openInstallDialog = async (engine: InstallableEngine) => {
@@ -209,6 +227,7 @@ export default function ServerSoftware() {
         if (data.status === 'success') {
           toast.success(`${ENGINE_LABELS[installEngine]} installed successfully!`)
           loadSoftware()
+          loadDatabases()
         } else {
           toast.error(`${ENGINE_LABELS[installEngine]} installation failed.`)
         }
@@ -346,14 +365,21 @@ export default function ServerSoftware() {
                     </p>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  onClick={() => openInstallDialog(engine)}
-                  disabled={installing}
-                >
-                  <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
-                  Install
-                </Button>
+                {isEngineInstalled(engine) ? (
+                  <Badge variant="outline" className="text-emerald-500 border-emerald-500/40">
+                    <CheckCircleIcon className="h-4 w-4 mr-1" />
+                    Installed
+                  </Badge>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => openInstallDialog(engine)}
+                    disabled={installing}
+                  >
+                    <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
+                    Install
+                  </Button>
+                )}
               </div>
             ))}
 
@@ -392,7 +418,8 @@ export default function ServerSoftware() {
                 {installEngine === 'pm2' ? (
                   <p>
                     This will install {ENGINE_LABELS[installEngine]} globally on {server.name} via npm.
-                    Node.js and npm must already be installed. This operation requires Ubuntu or Debian.
+                    If Node.js is not installed yet, the latest LTS will be installed automatically via nvm.
+                    This operation requires Ubuntu or Debian.
                   </p>
                 ) : installEngine === 'php' ? (
                   <p>

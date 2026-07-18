@@ -96,7 +96,7 @@ export default function AppSettings() {
           type: appData.type,
           node_version: appData.node_version || 'default',
           deploy_path: appData.deploy_path,
-          repository_url: appData.repository_url,
+          repository_url: appData.repository_url ?? '',
           branch: appData.branch,
           git_provider_id: appData.git_provider_id?.toString() || '',
         })

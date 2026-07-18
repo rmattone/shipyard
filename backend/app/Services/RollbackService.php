@@ -4,10 +4,13 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Deployment;
+use App\Services\Concerns\RestartsLinkedDaemons;
 use RuntimeException;
 
 class RollbackService
 {
+    use RestartsLinkedDaemons;
+
     public function __construct(
         private SSHService $sshService,
         private AtomicDeploymentService $atomicDeploymentService
@@ -18,11 +21,11 @@ class RollbackService
      */
     public function rollback(Application $app, Deployment $targetDeployment, Deployment $rollbackDeployment): Deployment
     {
-        if (!$app->usesAtomicDeployments()) {
+        if (! $app->usesAtomicDeployments()) {
             throw new RuntimeException('Rollback is only supported for atomic deployments.');
         }
 
-        if (!$targetDeployment->release_path) {
+        if (! $targetDeployment->release_path) {
             throw new RuntimeException('Target deployment does not have a release path.');
         }
 
@@ -38,17 +41,21 @@ class RollbackService
             // Perform the symlink swap
             $this->swapSymlink($app, $targetDeployment, $rollbackDeployment);
 
-            // Run post-rollback tasks
-            $this->runPostRollbackTasks($app, $targetDeployment, $rollbackDeployment);
-
-            $this->sshService->disconnect();
-
-            // Mark the rollback deployment as active
+            // The target release is live from this point on; record that
+            // before the post tasks so a late failure cannot leave the DB
+            // contradicting the server (same pattern as the deploy pipeline).
             $rollbackDeployment->update([
                 'release_path' => $targetDeployment->release_path,
                 'release_id' => $targetDeployment->release_id,
             ]);
             $rollbackDeployment->markAsActive();
+
+            // Run post-rollback tasks (throws on failure: a failed optimize
+            // can leave the app broken while serving the rolled-back release)
+            $this->runPostRollbackTasks($app, $targetDeployment, $rollbackDeployment);
+
+            $this->sshService->disconnect();
+
             $rollbackDeployment->markAsSuccess();
             $app->update(['status' => 'active']);
 
@@ -72,23 +79,71 @@ class RollbackService
     {
         $currentDeployment = $app->activeDeployment();
 
-        if (!$currentDeployment) {
+        if (! $currentDeployment) {
             throw new RuntimeException('No active deployment found.');
         }
 
-        // Find the most recent successful deployment that is not the current one
-        $targetDeployment = $app->deployments()
-            ->where('status', 'success')
-            ->where('id', '!=', $currentDeployment->id)
-            ->whereNotNull('release_path')
-            ->orderByDesc('created_at')
-            ->first();
+        // Resolve the release the server is actually serving. "Previous" must
+        // mean the newest successful release older than the live one; picking
+        // "newest success that is not the active record" ping-pongs between
+        // two releases (after R5->R4, it would re-activate R5).
+        $currentReleasePath = $this->resolveCurrentReleasePath($app) ?? $currentDeployment->release_path;
 
-        if (!$targetDeployment) {
+        $targetDeployment = $this->findPreviousDeployment($app, $currentReleasePath);
+
+        if (! $targetDeployment) {
             throw new RuntimeException('No previous deployment available for rollback.');
         }
 
         return $this->rollback($app, $targetDeployment, $rollbackDeployment);
+    }
+
+    /**
+     * Resolve the release path the `current` symlink points to.
+     */
+    private function resolveCurrentReleasePath(Application $app): ?string
+    {
+        if (! $app->usesAtomicDeployments()) {
+            return null;
+        }
+
+        $this->sshService->connect($app->server);
+        $path = $this->atomicDeploymentService->getCurrentReleasePath($app);
+        $this->sshService->disconnect();
+
+        return $path;
+    }
+
+    /**
+     * Find the newest successful deployment whose release is older than the
+     * currently live release.
+     */
+    private function findPreviousDeployment(Application $app, ?string $currentReleasePath): ?Deployment
+    {
+        // The deployment that originally built the live release. Rollbacks
+        // reuse an existing release_path, so the earliest record for that
+        // path is the original deploy and marks the chronological cutoff.
+        $reference = $currentReleasePath
+            ? $app->deployments()
+                ->where('release_path', $currentReleasePath)
+                ->orderBy('id')
+                ->first()
+            : null;
+
+        $query = $app->deployments()
+            ->where('status', 'success')
+            ->whereNotNull('release_path')
+            ->orderByDesc('id');
+
+        if ($currentReleasePath) {
+            $query->where('release_path', '!=', $currentReleasePath);
+        }
+
+        if ($reference) {
+            $query->where('id', '<', $reference->id);
+        }
+
+        return $query->first();
     }
 
     /**
@@ -100,13 +155,13 @@ class RollbackService
 
         $rollbackDeployment->appendLog("Verifying release directory exists: {$releasePath}");
 
-        $result = $this->sshService->execute("test -d {$releasePath} && echo 'exists'");
+        $result = $this->sshService->execute('test -d '.escapeshellarg($releasePath)." && echo 'exists'");
 
-        if (!str_contains($result['output'], 'exists')) {
+        if (! str_contains($result['output'], 'exists')) {
             throw new RuntimeException("Release directory not found: {$releasePath}");
         }
 
-        $rollbackDeployment->appendLog("Release directory verified.");
+        $rollbackDeployment->appendLog('Release directory verified.');
     }
 
     /**
@@ -119,14 +174,16 @@ class RollbackService
 
         $rollbackDeployment->appendLog("Rolling back to release: {$targetDeployment->release_id}");
 
-        // Atomic symlink swap
-        $result = $this->sshService->execute("ln -nfs {$releasePath} {$currentPath}");
+        // Atomic staged swap, same as release activation
+        $result = $this->sshService->execute(
+            $this->atomicDeploymentService->atomicSwapCommand($releasePath, $currentPath)
+        );
 
-        if (!$result['success']) {
+        if (! $result['success']) {
             throw new RuntimeException("Failed to swap symlink: {$result['output']}");
         }
 
-        $rollbackDeployment->appendLog("Symlink swapped successfully.");
+        $rollbackDeployment->appendLog('Symlink swapped successfully.');
     }
 
     /**
@@ -134,7 +191,7 @@ class RollbackService
      */
     private function runPostRollbackTasks(Application $app, Deployment $targetDeployment, Deployment $rollbackDeployment): void
     {
-        $rollbackDeployment->appendLog("Running post-rollback tasks...");
+        $rollbackDeployment->appendLog('Running post-rollback tasks...');
 
         $currentPath = $app->getCurrentPath();
 
@@ -144,7 +201,10 @@ class RollbackService
             $this->runNodejsPostRollbackTasks($app, $rollbackDeployment);
         }
 
-        $rollbackDeployment->appendLog("Post-rollback tasks completed.");
+        // Bounce linked daemons onto the restored release
+        $this->restartLinkedDaemons($app, $rollbackDeployment);
+
+        $rollbackDeployment->appendLog('Post-rollback tasks completed.');
     }
 
     /**
@@ -152,9 +212,10 @@ class RollbackService
      */
     private function runLaravelPostRollbackTasks(string $currentPath, Deployment $rollbackDeployment): void
     {
-        $rollbackDeployment->appendLog("Clearing Laravel caches...");
+        $rollbackDeployment->appendLog('Clearing Laravel caches...');
 
         // Clear and rebuild caches
+        $currentPath = escapeshellarg($currentPath);
         $commands = [
             "cd {$currentPath} && php artisan optimize:clear",
             "cd {$currentPath} && php artisan optimize",
@@ -162,9 +223,15 @@ class RollbackService
         ];
 
         foreach ($commands as $command) {
-            $result = $this->sshService->execute($command . " 2>&1", 60);
-            if (!empty($result['output'])) {
+            $result = $this->sshService->execute($command.' 2>&1', 60);
+            if (! empty($result['output'])) {
                 $rollbackDeployment->appendLog($result['output']);
+            }
+
+            // A failing optimize (e.g. bad cached config) leaves the app
+            // 500ing; reporting the rollback as successful would hide that.
+            if (! $result['success']) {
+                throw new RuntimeException("Post-rollback task failed: {$command}");
             }
         }
     }
@@ -178,10 +245,14 @@ class RollbackService
 
         $rollbackDeployment->appendLog("Restarting PM2 process: {$appName}");
 
-        $result = $this->sshService->execute("pm2 restart {$appName} 2>&1", 60);
+        $result = $this->sshService->execute($app->buildPm2RestartCommand().' 2>&1', 120);
 
-        if (!empty($result['output'])) {
+        if (! empty($result['output'])) {
             $rollbackDeployment->appendLog($result['output']);
+        }
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to restart PM2 process after rollback.');
         }
     }
 
@@ -190,18 +261,18 @@ class RollbackService
      */
     public function getAvailableReleases(Application $app): array
     {
-        if (!$app->usesAtomicDeployments()) {
+        if (! $app->usesAtomicDeployments()) {
             return [];
         }
 
         $this->sshService->connect($app->server);
 
         $releasesPath = $app->getReleasesPath();
-        $result = $this->sshService->execute("ls -1 {$releasesPath} 2>/dev/null | sort -r");
+        $result = $this->sshService->execute('ls -1 '.escapeshellarg($releasesPath).' 2>/dev/null | LC_ALL=C sort -r');
 
         $this->sshService->disconnect();
 
-        if (!$result['success'] || empty(trim($result['output']))) {
+        if (! $result['success'] || empty(trim($result['output']))) {
             return [];
         }
 

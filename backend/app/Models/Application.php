@@ -19,12 +19,15 @@ class Application extends Model
         'name',
         'type',
         'node_version',
+        'port',
+        'php_version',
         'domain',
         'repository_url',
         'branch',
         'deploy_path',
         'build_command',
         'post_deploy_commands',
+        'env_layout',
         'deploy_script',
         'ssl_enabled',
         'status',
@@ -43,10 +46,12 @@ class Application extends Model
     {
         return [
             'post_deploy_commands' => 'array',
+            'env_layout' => 'array',
             'ssl_enabled' => 'boolean',
             'shared_paths' => 'array',
             'writable_paths' => 'array',
             'releases_to_keep' => 'integer',
+            'port' => 'integer',
         ];
     }
 
@@ -72,6 +77,7 @@ class Application extends Model
         $safeName = strtolower(preg_replace('/[^a-zA-Z0-9\-]/', '-', $name));
         $safeName = preg_replace('/-+/', '-', $safeName); // collapse multiple dashes
         $safeName = trim($safeName, '-');
+
         return "/var/www/shipyard/{$safeName}";
     }
 
@@ -339,6 +345,27 @@ SCRIPT;
         return $this->hasMany(Deployment::class)->orderByDesc('created_at');
     }
 
+    /**
+     * Whether a deployment or rollback is already queued or running for this
+     * application. Used to reject concurrent pipeline runs.
+     */
+    public function hasDeploymentInProgress(): bool
+    {
+        return $this->deployments()
+            ->whereIn('status', ['pending', 'running'])
+            ->exists();
+    }
+
+    public function scheduledTasks(): HasMany
+    {
+        return $this->hasMany(ScheduledTask::class);
+    }
+
+    public function daemons(): HasMany
+    {
+        return $this->hasMany(Daemon::class);
+    }
+
     public function domains(): HasMany
     {
         return $this->hasMany(Domain::class);
@@ -384,6 +411,54 @@ SCRIPT;
     public function isStatic(): bool
     {
         return $this->type === 'static';
+    }
+
+    /**
+     * TCP port the app process listens on (Node.js). Nginx proxies to this
+     * port and PM2 starts the process with it in the environment.
+     */
+    public function getPort(): int
+    {
+        return $this->port ?? 3000;
+    }
+
+    /**
+     * PHP-FPM version for the nginx fastcgi socket. Per-app value first,
+     * then the version detected on the server, then 8.3.
+     */
+    public function getPhpVersion(): string
+    {
+        return $this->php_version ?? $this->server?->php_version ?? '8.3';
+    }
+
+    /**
+     * Build the command that restarts (or starts) the PM2 process for this app.
+     * Sources nvm first: pm2 is typically installed via nvm and is not on the
+     * PATH of a non-interactive SSH session. Used after atomic release
+     * activation and after rollbacks.
+     */
+    public function buildPm2RestartCommand(): string
+    {
+        $appName = Str::slug($this->name);
+        $workingDir = $this->usesAtomicDeployments() ? $this->getCurrentPath() : $this->deploy_path;
+
+        $parts = [
+            'export NVM_DIR="$HOME/.nvm"',
+            '[ -s "$NVM_DIR/nvm.sh" ] && \\. "$NVM_DIR/nvm.sh"',
+            '[ -s "/usr/local/nvm/nvm.sh" ] && \\. "/usr/local/nvm/nvm.sh"',
+        ];
+
+        if (! empty($this->node_version)) {
+            $parts[] = "nvm use {$this->node_version} || nvm install {$this->node_version}";
+        }
+
+        $parts[] = "cd {$workingDir}";
+        // Nginx proxies to getPort(), so the process must bind the same port.
+        // --update-env makes an already-running process pick up a changed PORT.
+        $parts[] = 'export PORT='.$this->getPort();
+        $parts[] = "pm2 restart {$appName} --update-env || pm2 start npm --name \"{$appName}\" -- start";
+
+        return implode('; ', $parts);
     }
 
     public function getWebhookUrl(): string
