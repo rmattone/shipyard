@@ -15,6 +15,9 @@ const statusStyles: Record<string, string> = {
   deploying: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
   running: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
   pending: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
+  installing: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
+  removing: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
+  installed: "bg-green-100 text-green-800 hover:bg-green-100",
   failed: "bg-red-100 text-red-800 hover:bg-red-100",
 }
 

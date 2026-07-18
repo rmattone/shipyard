@@ -30,11 +30,31 @@ export const getCsrfCookie = () => axios.get('/sanctum/csrf-cookie', { withCrede
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
+    // 419: the session behind the XSRF cookie expired while the bearer token
+    // stayed valid (tokens outlive sessions). Refresh the cookie and retry
+    // the request once; the request interceptor picks up the new token.
+    const config = error.config as (typeof error.config & { _csrfRetried?: boolean }) | undefined
+    if (error.response?.status === 419 && config && !config._csrfRetried) {
+      config._csrfRetried = true
+      await getCsrfCookie()
+      return api.request(config)
+    }
+
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
-      localStorage.removeItem('user')
-      window.location.href = '/app/login'
+      // A 401 from the login request itself means wrong credentials; a hard
+      // redirect here would reload the page and wipe the error message.
+      const requestUrl: string = error.config?.url ?? ''
+      const isLoginRequest = requestUrl.includes('/auth/login')
+      const isOnLoginPage = window.location.pathname.endsWith('/login')
+
+      if (!isLoginRequest) {
+        localStorage.removeItem('token')
+        localStorage.removeItem('user')
+      }
+      if (!isLoginRequest && !isOnLoginPage) {
+        window.location.href = '/app/login'
+      }
     }
     return Promise.reject(error)
   }
@@ -48,6 +68,7 @@ export interface Server {
   username: string
   status: 'active' | 'inactive'
   is_local: boolean
+  php_version?: string | null
   applications_count?: number
   created_at: string
 }
@@ -59,11 +80,13 @@ export interface Application {
   name: string
   type: 'laravel' | 'nodejs' | 'static'
   node_version: string | null
+  php_version?: string | null
   domain: string
-  repository_url: string
+  repository_url: string | null
   branch: string
   deploy_path: string
   deploy_script?: string
+  deployment_strategy?: 'in_place' | 'atomic'
   build_command: string | null
   post_deploy_commands: string[] | null
   ssl_enabled: boolean
@@ -76,6 +99,42 @@ export interface Application {
   domains?: Domain[]
   tags?: Tag[]
   created_at: string
+}
+
+export interface ScheduledTask {
+  id: number
+  server_id: number
+  application_id: number | null
+  command: string
+  user: string
+  frequency: 'minutely' | 'hourly' | 'nightly' | 'weekly' | 'monthly' | 'reboot' | 'custom'
+  minute: string | null
+  hour: string | null
+  day: string | null
+  month: string | null
+  weekday: string | null
+  cron_expression: string
+  status: 'installing' | 'installed' | 'removing' | 'failed'
+  log: string | null
+  created_at: string
+}
+
+export interface Daemon {
+  id: number
+  server_id: number
+  application_id: number | null
+  command: string
+  user: string
+  directory: string
+  processes: number
+  status: 'installing' | 'installed' | 'removing' | 'failed'
+  log: string | null
+  created_at: string
+}
+
+export interface DaemonStatus {
+  state: 'running' | 'degraded' | 'stopped'
+  instances: Record<number, string>
 }
 
 export interface Deployment {
@@ -301,6 +360,11 @@ export const serversApi = {
     api.post<{ success: boolean; message: string; system_info?: string }>(
       '/servers/' + id + '/test-connection'
     ),
+  testConnectionAdhoc: (data: { host: string; port?: number; username: string; private_key: string }) =>
+    api.post<{ success: boolean; message: string; system_info?: string }>(
+      '/servers/test-connection',
+      data
+    ),
   getNodeVersions: (id: number) =>
     api.get<{ versions: string[] }>('/servers/' + id + '/node-versions'),
   getRemoteNodeVersions: (id: number) =>
@@ -323,6 +387,62 @@ export const tagsApi = {
     api.put<Tag>('/servers/' + serverId + '/tags/' + tagId, data),
   delete: (serverId: number, tagId: number) =>
     api.delete('/servers/' + serverId + '/tags/' + tagId),
+}
+
+// Scheduled tasks (server-scoped)
+export const scheduledTasksApi = {
+  list: (serverId: number, applicationId?: number) =>
+    api.get<ScheduledTask[]>('/servers/' + serverId + '/scheduled-tasks', {
+      params: applicationId ? { application_id: applicationId } : undefined,
+    }),
+  get: (serverId: number, taskId: number) =>
+    api.get<ScheduledTask>('/servers/' + serverId + '/scheduled-tasks/' + taskId),
+  create: (serverId: number, data: {
+    command: string
+    user: string
+    frequency: ScheduledTask['frequency']
+    application_id?: number
+    minute?: string
+    hour?: string
+    day?: string
+    month?: string
+    weekday?: string
+  }) => api.post<ScheduledTask>('/servers/' + serverId + '/scheduled-tasks', data),
+  delete: (serverId: number, taskId: number) =>
+    api.delete('/servers/' + serverId + '/scheduled-tasks/' + taskId),
+  output: (serverId: number, taskId: number, lines?: number) =>
+    api.get<{ output: string; exists: boolean }>(
+      '/servers/' + serverId + '/scheduled-tasks/' + taskId + '/output',
+      { params: lines ? { lines } : undefined }
+    ),
+}
+
+// Daemons (server-scoped)
+export const daemonsApi = {
+  list: (serverId: number, applicationId?: number) =>
+    api.get<Daemon[]>('/servers/' + serverId + '/daemons', {
+      params: applicationId ? { application_id: applicationId } : undefined,
+    }),
+  get: (serverId: number, daemonId: number) =>
+    api.get<Daemon>('/servers/' + serverId + '/daemons/' + daemonId),
+  create: (serverId: number, data: {
+    command: string
+    user: string
+    directory?: string
+    processes?: number
+    application_id?: number
+  }) => api.post<Daemon>('/servers/' + serverId + '/daemons', data),
+  delete: (serverId: number, daemonId: number) =>
+    api.delete('/servers/' + serverId + '/daemons/' + daemonId),
+  restart: (serverId: number, daemonId: number) =>
+    api.post<{ message: string }>('/servers/' + serverId + '/daemons/' + daemonId + '/restart'),
+  status: (serverId: number, daemonId: number) =>
+    api.get<DaemonStatus>('/servers/' + serverId + '/daemons/' + daemonId + '/status'),
+  output: (serverId: number, daemonId: number, lines?: number) =>
+    api.get<{ output: string; exists: boolean }>(
+      '/servers/' + serverId + '/daemons/' + daemonId + '/output',
+      { params: lines ? { lines } : undefined }
+    ),
 }
 
 // Databases (server-scoped)
@@ -462,6 +582,10 @@ export const gitProvidersApi = {
 // Applications
 export const applicationsApi = {
   list: () => api.get<Application[]>('/applications'),
+  importFromServer: (serverId: number) =>
+    api.post<{ imported: Application[]; skipped: { path: string; reason: string }[] }>(
+      '/servers/' + serverId + '/applications/import'
+    ),
   get: (id: number) => api.get<Application>('/applications/' + id),
   create: (data: Partial<Application>) =>
     api.post<{ application: Application; webhook_url: string; webhook_secret: string }>(
@@ -490,6 +614,28 @@ export const applicationsApi = {
     api.post<{ deploy_path: string }>('/applications/generate-path', { name }),
   syncTags: (id: number, tagIds: number[]) =>
     api.put<Tag[]>('/applications/' + id + '/tags', { tag_ids: tagIds }),
+  getReleases: (id: number) =>
+    api.get<{ releases: Release[]; current_deployment_id: number | null }>(
+      '/applications/' + id + '/releases'
+    ),
+  rollback: (id: number, deploymentId: number) =>
+    api.post<{ message: string; deployment_id: number; target_release_id: string }>(
+      '/applications/' + id + '/rollback',
+      { deployment_id: deploymentId }
+    ),
+  rollbackToPrevious: (id: number) =>
+    api.post<{ message: string; deployment_id: number; target_release_id: string }>(
+      '/applications/' + id + '/rollback/previous'
+    ),
+}
+
+export interface Release {
+  release_id: string
+  deployment_id: number | null
+  is_active: boolean
+  commit_hash: string | null
+  commit_message: string | null
+  created_at: string | null
 }
 
 // Environment Variables

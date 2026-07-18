@@ -19,6 +19,7 @@ import {
   ChevronDownIcon,
   CubeIcon,
   XMarkIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
 
@@ -52,45 +53,68 @@ export default function ServerOverview() {
   const [testing, setTesting] = useState(false)
   const [serverTags, setServerTags] = useState<Tag[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
+  const [importing, setImporting] = useState(false)
+
+  const loadData = async () => {
+    if (!id) return
+    try {
+      const [serverRes, appsRes, tagsRes] = await Promise.all([
+        serversApi.get(parseInt(id)),
+        applicationsApi.list(),
+        tagsApi.list(parseInt(id)),
+      ])
+
+      setServer(serverRes.data)
+      setServerTags(tagsRes.data)
+      const serverApps = appsRes.data.filter(app => app.server_id === parseInt(id))
+
+      // Load last deployment for each app
+      const appsWithDeploys = await Promise.all(
+        serverApps.map(async (app) => {
+          try {
+            const deploymentsRes = await applicationsApi.getDeployments(app.id)
+            const lastDeploy = deploymentsRes.data.data[0] || null
+            return { ...app, last_deployment: lastDeploy }
+          } catch {
+            return { ...app, last_deployment: null }
+          }
+        })
+      )
+
+      setApplications(appsWithDeploys)
+    } catch {
+      // Handle error
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    if (!id) return
-
-    const loadData = async () => {
-      try {
-        const [serverRes, appsRes, tagsRes] = await Promise.all([
-          serversApi.get(parseInt(id)),
-          applicationsApi.list(),
-          tagsApi.list(parseInt(id)),
-        ])
-
-        setServer(serverRes.data)
-        setServerTags(tagsRes.data)
-        const serverApps = appsRes.data.filter(app => app.server_id === parseInt(id))
-
-        // Load last deployment for each app
-        const appsWithDeploys = await Promise.all(
-          serverApps.map(async (app) => {
-            try {
-              const deploymentsRes = await applicationsApi.getDeployments(app.id)
-              const lastDeploy = deploymentsRes.data.data[0] || null
-              return { ...app, last_deployment: lastDeploy }
-            } catch {
-              return { ...app, last_deployment: null }
-            }
-          })
-        )
-
-        setApplications(appsWithDeploys)
-      } catch {
-        // Handle error
-      } finally {
-        setLoading(false)
-      }
-    }
-
     loadData()
   }, [id])
+
+  const handleImportApps = async () => {
+    if (!server) return
+    setImporting(true)
+
+    try {
+      const res = await applicationsApi.importFromServer(server.id)
+      const imported = res.data.imported.length
+      const skipped = res.data.skipped.length
+
+      if (imported === 0) {
+        toast.info(skipped > 0 ? `No new apps found (${skipped} skipped)` : 'No existing apps found on this server')
+      } else {
+        toast.success(`Imported ${imported} app${imported === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}`)
+        loadData()
+      }
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Failed to import apps')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const handleTestConnection = async () => {
     if (!server) return
@@ -250,9 +274,15 @@ export default function ServerOverview() {
                   </span>
                 )}
               </h2>
-              <Button variant="ghost" size="icon" onClick={() => navigate(`/servers/${id}/apps/new`)}>
-                <PlusIcon className="h-4 w-4" />
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" onClick={handleImportApps} disabled={importing}>
+                  {importing ? <LoadingSpinner size="sm" /> : <ArrowDownTrayIcon className="h-4 w-4 mr-1" />}
+                  Import existing
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => navigate(`/servers/${id}/apps/new`)}>
+                  <PlusIcon className="h-4 w-4" />
+                </Button>
+              </div>
             </div>
             {filteredApplications.length === 0 ? (
               <div className="p-8 text-center">
@@ -299,7 +329,7 @@ export default function ServerOverview() {
                           )}
                         </div>
                         <div className="text-sm text-muted-foreground truncate">
-                          {getRepoName(app.repository_url)}:{app.branch} · {getTypeLabel(app.type)}
+                          {app.repository_url ? `${getRepoName(app.repository_url)}:${app.branch} · ` : ''}{getTypeLabel(app.type)}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">

@@ -89,11 +89,9 @@ class MySQLService implements DatabaseDriverInterface
         $users = [];
 
         foreach ($lines as $line) {
-            if (str_contains($line, 'User') && str_contains($line, 'Host')) {
-                continue; // Skip header
-            }
-
-            $parts = preg_split('/\s+/', trim($line), 2);
+            // mysql -N batch output is tab-separated (no header); splitting
+            // on arbitrary whitespace truncated usernames containing spaces
+            $parts = explode("\t", trim($line, "\r\n"));
             if (count($parts) === 2) {
                 $users[] = [
                     'username' => $parts[0],
@@ -251,18 +249,22 @@ class MySQLService implements DatabaseDriverInterface
 
     protected function buildCommand(Database $database, string $sql): string
     {
-        $password = addcslashes($database->admin_password, "'\\");
-
         // Escape characters that bash interprets inside double quotes:
         // " (quote delimiter), ` (command substitution), $ (variable expansion), \ (escape char)
         $escapedSql = addcslashes($sql, '"`$\\');
 
+        // The password goes through MYSQL_PWD as a properly quoted shell
+        // argument: the old -p'...' with addcslashes wrote \' inside single
+        // quotes, which bash does not unescape, breaking any password
+        // containing a quote. The env var also avoids mysql's password-on-
+        // command-line warning on stderr, which lets us capture stderr
+        // (2>&1) so failures carry their reason instead of an empty string.
         return sprintf(
-            "mysql -h %s -P %d -u %s -p'%s' -N -e \"%s\" 2>/dev/null",
+            'MYSQL_PWD=%s mysql -h %s -P %d -u %s -N -e "%s" 2>&1',
+            escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
             $database->port,
             escapeshellarg($database->admin_user),
-            $password,
             $escapedSql
         );
     }

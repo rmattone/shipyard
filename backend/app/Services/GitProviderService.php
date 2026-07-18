@@ -33,14 +33,14 @@ class GitProviderService
      */
     private function validatePrivateKey(string $privateKey): void
     {
-        if (!preg_match('/^-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/', $privateKey)) {
+        if (! preg_match('/^-----BEGIN (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----/', $privateKey)) {
             throw new RuntimeException("Invalid SSH key format: Key must start with '-----BEGIN ... PRIVATE KEY-----'");
         }
-        if (!preg_match('/-----END (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----\n?$/', $privateKey)) {
+        if (! preg_match('/-----END (RSA |OPENSSH |EC |DSA )?PRIVATE KEY-----\n?$/', $privateKey)) {
             throw new RuntimeException("Invalid SSH key format: Key must end with '-----END ... PRIVATE KEY-----'");
         }
         if (stripos($privateKey, 'ENCRYPTED') !== false) {
-            throw new RuntimeException("Passphrase-protected SSH keys are not supported. Please use an unencrypted key.");
+            throw new RuntimeException('Passphrase-protected SSH keys are not supported. Please use an unencrypted key.');
         }
     }
 
@@ -75,7 +75,7 @@ class GitProviderService
 
             // Check for common SSH key errors
             if (stripos($outputStr, 'error in libcrypto') !== false) {
-                throw new RuntimeException("SSH key format error. Please ensure the key is valid and not corrupted. Try generating a new key.");
+                throw new RuntimeException('SSH key format error. Please ensure the key is valid and not corrupted. Try generating a new key.');
             }
             if (stripos($outputStr, 'invalid format') !== false) {
                 throw new RuntimeException("Invalid SSH key format. Please ensure you're using a valid OpenSSH private key.");
@@ -116,8 +116,7 @@ class GitProviderService
                 ];
             }
 
-            throw new RuntimeException("SSH connection failed: " . $outputStr);
-
+            throw new RuntimeException('SSH connection failed: '.$outputStr);
         } finally {
             // Clean up temp key file
             @unlink($keyFile);
@@ -153,8 +152,10 @@ class GitProviderService
         string $branch,
         string $targetPath
     ): string {
-        $sshUrl = $provider->getSSHUrl($repoUrl);
+        $sshUrl = escapeshellarg($provider->getSSHUrl($repoUrl));
         $privateKey = $provider->getNormalizedPrivateKey();
+        $branch = escapeshellarg($branch);
+        $targetPath = escapeshellarg($targetPath);
 
         return <<<BASH
 #!/bin/bash
@@ -196,7 +197,11 @@ BASH;
         string $targetPath
     ): string {
         [$username, $password] = $provider->getCredentials();
-        $httpsUrl = $provider->getCleanHttpsUrl($repoUrl);
+        $username = escapeshellarg($username);
+        $password = escapeshellarg($password);
+        $httpsUrl = escapeshellarg($provider->getCleanHttpsUrl($repoUrl));
+        $branch = escapeshellarg($branch);
+        $targetPath = escapeshellarg($targetPath);
 
         return <<<BASH
 # Create temporary askpass script
@@ -204,8 +209,8 @@ _ASKPASS_SCRIPT=\$(mktemp)
 cat > "\$_ASKPASS_SCRIPT" << 'ASKPASS_EOF'
 #!/bin/bash
 case "\$1" in
-    *Username*|*username*) echo '{$username}' ;;
-    *Password*|*password*) echo '{$password}' ;;
+    *Username*|*username*) echo {$username} ;;
+    *Password*|*password*) echo {$password} ;;
 esac
 ASKPASS_EOF
 chmod +x "\$_ASKPASS_SCRIPT"
@@ -251,8 +256,10 @@ BASH;
         string $branch,
         string $targetPath
     ): string {
-        $sshUrl = $provider->getSSHUrl($repoUrl);
+        $sshUrl = escapeshellarg($provider->getSSHUrl($repoUrl));
         $privateKey = $provider->getNormalizedPrivateKey();
+        $branch = escapeshellarg($branch);
+        $targetPath = escapeshellarg($targetPath);
 
         return <<<BASH
 #!/bin/bash
@@ -298,7 +305,11 @@ BASH;
         string $targetPath
     ): string {
         [$username, $password] = $provider->getCredentials();
-        $httpsUrl = $provider->getCleanHttpsUrl($repoUrl);
+        $username = escapeshellarg($username);
+        $password = escapeshellarg($password);
+        $httpsUrl = escapeshellarg($provider->getCleanHttpsUrl($repoUrl));
+        $branch = escapeshellarg($branch);
+        $targetPath = escapeshellarg($targetPath);
 
         return <<<BASH
 cd {$targetPath}
@@ -308,8 +319,8 @@ _ASKPASS_SCRIPT=\$(mktemp)
 cat > "\$_ASKPASS_SCRIPT" << 'ASKPASS_EOF'
 #!/bin/bash
 case "\$1" in
-    *Username*|*username*) echo '{$username}' ;;
-    *Password*|*password*) echo '{$password}' ;;
+    *Username*|*username*) echo {$username} ;;
+    *Password*|*password*) echo {$password} ;;
 esac
 ASKPASS_EOF
 chmod +x "\$_ASKPASS_SCRIPT"
@@ -335,7 +346,7 @@ BASH;
      */
     public function generateSSHTestCommand(GitProvider $provider): string
     {
-        $host = $provider->getEffectiveHost();
+        $host = escapeshellarg('git@'.$provider->getEffectiveHost());
         $privateKey = $provider->private_key;
 
         return <<<BASH
@@ -347,7 +358,7 @@ SSH_KEY_EOF
 chmod 600 "\$_SSH_KEY_FILE"
 
 # Test SSH connection (most git hosts return exit code 1 on success but with a welcome message)
-ssh -i "\$_SSH_KEY_FILE" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -T git@{$host} 2>&1
+ssh -i "\$_SSH_KEY_FILE" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -T {$host} 2>&1
 _SSH_STATUS=\$?
 
 # Cleanup
@@ -369,9 +380,9 @@ BASH;
             'PRIVATE-TOKEN' => $provider->access_token,
         ])->get("{$provider->getApiBaseUrl()}/user");
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new RuntimeException(
-                "GitLab API error: " . ($response->json('message') ?? $response->body())
+                'GitLab API error: '.($response->json('message') ?? $response->body())
             );
         }
 
@@ -393,9 +404,9 @@ BASH;
             'X-GitHub-Api-Version' => '2022-11-28',
         ])->get("{$provider->getApiBaseUrl()}/user");
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             throw new RuntimeException(
-                "GitHub API error: " . ($response->json('message') ?? $response->body())
+                'GitHub API error: '.($response->json('message') ?? $response->body())
             );
         }
 
@@ -417,7 +428,7 @@ BASH;
             $provider->access_token
         )->get("{$provider->getApiBaseUrl()}/user");
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             $error = $response->json('error.message') ?? $response->body();
             throw new RuntimeException("Bitbucket API error: {$error}");
         }
@@ -438,7 +449,7 @@ BASH;
     public function listRepositories(GitProvider $provider, string $search = '', int $page = 1, int $perPage = 20): array
     {
         // Repository listing requires API access token
-        if (!$provider->usesAccessToken()) {
+        if (! $provider->usesAccessToken()) {
             throw new RuntimeException('Repository listing requires an access token. SSH-only providers cannot list repositories.');
         }
 
@@ -467,14 +478,14 @@ BASH;
             'PRIVATE-TOKEN' => $provider->access_token,
         ])->get("{$provider->getApiBaseUrl()}/projects", $query);
 
-        if (!$response->successful()) {
-            throw new RuntimeException("GitLab API error: " . ($response->json('message') ?? $response->body()));
+        if (! $response->successful()) {
+            throw new RuntimeException('GitLab API error: '.($response->json('message') ?? $response->body()));
         }
 
         $projects = $response->json();
 
         return [
-            'repositories' => array_map(fn($project) => [
+            'repositories' => array_map(fn ($project) => [
                 'id' => $project['id'],
                 'name' => $project['name'],
                 'full_name' => $project['path_with_namespace'],
@@ -501,14 +512,14 @@ BASH;
                 'Accept' => 'application/vnd.github+json',
                 'X-GitHub-Api-Version' => '2022-11-28',
             ])->get("{$provider->getApiBaseUrl()}/search/repositories", [
-                'q' => $search . ' in:name user:@me',
+                'q' => $search.' in:name user:@me',
                 'per_page' => $perPage,
                 'page' => $page,
                 'sort' => 'updated',
             ]);
 
-            if (!$response->successful()) {
-                throw new RuntimeException("GitHub API error: " . ($response->json('message') ?? $response->body()));
+            if (! $response->successful()) {
+                throw new RuntimeException('GitHub API error: '.($response->json('message') ?? $response->body()));
             }
 
             $data = $response->json();
@@ -527,8 +538,8 @@ BASH;
                 'affiliation' => 'owner,collaborator,organization_member',
             ]);
 
-            if (!$response->successful()) {
-                throw new RuntimeException("GitHub API error: " . ($response->json('message') ?? $response->body()));
+            if (! $response->successful()) {
+                throw new RuntimeException('GitHub API error: '.($response->json('message') ?? $response->body()));
             }
 
             $repos = $response->json();
@@ -536,7 +547,7 @@ BASH;
         }
 
         return [
-            'repositories' => array_map(fn($repo) => [
+            'repositories' => array_map(fn ($repo) => [
                 'id' => $repo['id'],
                 'name' => $repo['name'],
                 'full_name' => $repo['full_name'],
@@ -572,7 +583,7 @@ BASH;
             $provider->access_token
         )->get("{$provider->getApiBaseUrl()}/repositories", $query);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             $error = $response->json('error.message') ?? $response->body();
             throw new RuntimeException("Bitbucket API error: {$error}");
         }
@@ -581,7 +592,7 @@ BASH;
         $repos = $data['values'] ?? [];
 
         return [
-            'repositories' => array_map(fn($repo) => [
+            'repositories' => array_map(fn ($repo) => [
                 'id' => $repo['uuid'],
                 'name' => $repo['name'],
                 'full_name' => $repo['full_name'],
@@ -595,7 +606,7 @@ BASH;
             ], $repos),
             'page' => $page,
             'per_page' => $perPage,
-            'has_more' => !empty($data['next']),
+            'has_more' => ! empty($data['next']),
         ];
     }
 
@@ -606,6 +617,7 @@ BASH;
                 return $link['href'];
             }
         }
+
         return '';
     }
 
@@ -614,7 +626,7 @@ BASH;
      */
     public function listBranches(GitProvider $provider, string $repository): array
     {
-        if (!$provider->usesAccessToken()) {
+        if (! $provider->usesAccessToken()) {
             throw new RuntimeException('Branch listing requires an access token.');
         }
 
@@ -637,14 +649,14 @@ BASH;
             'per_page' => 100,
         ]);
 
-        if (!$response->successful()) {
-            throw new RuntimeException("GitLab API error: " . ($response->json('message') ?? $response->body()));
+        if (! $response->successful()) {
+            throw new RuntimeException('GitLab API error: '.($response->json('message') ?? $response->body()));
         }
 
         $branches = $response->json();
 
         return [
-            'branches' => array_map(fn($branch) => [
+            'branches' => array_map(fn ($branch) => [
                 'name' => $branch['name'],
                 'default' => $branch['default'] ?? false,
             ], $branches),
@@ -661,8 +673,8 @@ BASH;
             'per_page' => 100,
         ]);
 
-        if (!$response->successful()) {
-            throw new RuntimeException("GitHub API error: " . ($response->json('message') ?? $response->body()));
+        if (! $response->successful()) {
+            throw new RuntimeException('GitHub API error: '.($response->json('message') ?? $response->body()));
         }
 
         $branches = $response->json();
@@ -677,7 +689,7 @@ BASH;
         $defaultBranch = $repoResponse->successful() ? ($repoResponse->json()['default_branch'] ?? 'main') : 'main';
 
         return [
-            'branches' => array_map(fn($branch) => [
+            'branches' => array_map(fn ($branch) => [
                 'name' => $branch['name'],
                 'default' => $branch['name'] === $defaultBranch,
             ], $branches),
@@ -693,7 +705,7 @@ BASH;
             'pagelen' => 100,
         ]);
 
-        if (!$response->successful()) {
+        if (! $response->successful()) {
             $error = $response->json('error.message') ?? $response->body();
             throw new RuntimeException("Bitbucket API error: {$error}");
         }
@@ -710,7 +722,7 @@ BASH;
         $defaultBranch = $repoResponse->successful() ? ($repoResponse->json()['mainbranch']['name'] ?? 'main') : 'main';
 
         return [
-            'branches' => array_map(fn($branch) => [
+            'branches' => array_map(fn ($branch) => [
                 'name' => $branch['name'],
                 'default' => $branch['name'] === $defaultBranch,
             ], $branches),

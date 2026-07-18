@@ -37,4 +37,38 @@ class DeployScriptTest extends TestCase
             'static atomic' => ['static', 'atomic'],
         ];
     }
+
+    /**
+     * NGINX-3: nginx proxies to the app's configured port, so the PM2
+     * process must be started with the same PORT in its environment.
+     */
+    public function test_pm2_restart_command_exports_the_configured_port(): void
+    {
+        $app = new Application([
+            'name' => 'My App',
+            'type' => 'nodejs',
+            'deploy_path' => '/var/www/shipyard/my-app',
+            'deployment_strategy' => 'atomic',
+            'port' => 3100,
+        ]);
+
+        $command = $app->buildPm2RestartCommand();
+
+        $this->assertStringContainsString('export PORT=3100', $command);
+        $this->assertStringContainsString('--update-env', $command);
+    }
+
+    public function test_pm2_restart_command_defaults_to_port_3000(): void
+    {
+        $app = new Application([
+            'name' => 'My App',
+            'type' => 'nodejs',
+            'deploy_path' => '/var/www/shipyard/my-app',
+            'deployment_strategy' => 'atomic',
+        ]);
+
+        $command = $app->buildPm2RestartCommand();
+
+        $this->assertStringContainsString('export PORT=3000', $command);
+    }
 }

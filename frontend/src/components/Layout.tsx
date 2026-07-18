@@ -9,6 +9,7 @@ import {
   SidebarTrigger,
 } from '@/components/ui/sidebar'
 import { AppSidebar } from '@/components/sidebar'
+import { ContextTabs } from '@/components/ContextTabs'
 import {
   ServerIcon,
   ArrowRightStartOnRectangleIcon,
@@ -277,6 +278,9 @@ export default function Layout() {
               </DropdownMenu>
             </div>
           </div>
+
+          {/* Context tabs (org / server / app views) */}
+          <ContextTabs />
         </header>
 
         {/* Main content */}

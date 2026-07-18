@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\EnvironmentVariable;
 use App\Services\EnvSyncService;
+use App\Support\EnvFile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class EnvironmentVariableController extends Controller
 {
@@ -97,16 +99,10 @@ class EnvironmentVariableController extends Controller
      */
     public function getEnvFile(Application $application): JsonResponse
     {
-        $variables = $application->environmentVariables()->get();
-
-        $content = $variables->map(function ($var) {
-            $value = $var->value;
-            // Quote values that contain spaces, special characters, or are empty
-            if (preg_match('/[\s#"\'\\\\]/', $value) || $value === '') {
-                $value = '"' . addslashes($value) . '"';
-            }
-            return $var->key . '=' . $value;
-        })->implode("\n");
+        $content = EnvFile::render(
+            $application->env_layout,
+            $application->environmentVariables()->orderBy('id')->get()
+        );
 
         return response()->json(['content' => $content]);
     }
@@ -120,44 +116,24 @@ class EnvironmentVariableController extends Controller
             'content' => 'present|string',
         ]);
 
-        $content = $validated['content'];
-        $lines = explode("\n", $content);
-        $variables = [];
+        $document = EnvFile::parseDocument($validated['content']);
 
-        foreach ($lines as $line) {
-            $line = trim($line);
+        // Replace the set atomically: a mid-loop encryption/DB error must not
+        // leave the application with its secrets half-deleted.
+        DB::transaction(function () use ($application, $document) {
+            $application->environmentVariables()->delete();
 
-            // Skip empty lines and comments
-            if ($line === '' || str_starts_with($line, '#')) {
-                continue;
+            foreach ($document['variables'] as $key => $value) {
+                $application->environmentVariables()->create([
+                    'key' => $key,
+                    'value' => $value,
+                ]);
             }
 
-            // Parse KEY=VALUE format
-            if (preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/', $line, $matches)) {
-                $key = strtoupper($matches[1]);
-                $value = $matches[2];
-
-                // Handle quoted values
-                if (preg_match('/^"(.*)"$/', $value, $quotedMatch)) {
-                    $value = stripslashes($quotedMatch[1]);
-                } elseif (preg_match("/^'(.*)'$/", $value, $quotedMatch)) {
-                    $value = $quotedMatch[1];
-                }
-
-                $variables[$key] = $value;
-            }
-        }
-
-        // Delete all existing variables
-        $application->environmentVariables()->delete();
-
-        // Create new variables
-        foreach ($variables as $key => $value) {
-            $application->environmentVariables()->create([
-                'key' => $key,
-                'value' => $value,
-            ]);
-        }
+            // Keep the file's structure (comments, blank lines, key order)
+            // so later renders don't compact what the user wrote
+            $application->update(['env_layout' => $document['layout']]);
+        });
 
         // Auto-sync to server if the app has been deployed
         $syncResult = null;

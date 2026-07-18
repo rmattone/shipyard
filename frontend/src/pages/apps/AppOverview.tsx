@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { applicationsApi, Application, Deployment } from '../../services/api'
 import { toast } from 'sonner'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -157,29 +158,46 @@ export default function AppOverview() {
             <div className="flex items-center gap-3">
               <h1 className="text-2xl font-bold">{app.name}</h1>
               <StatusBadge status={app.status} />
+              {!app.git_provider_id && (
+                <Badge variant="outline" className="text-amber-500 border-amber-500/40">
+                  Git provider not connected
+                </Badge>
+              )}
             </div>
             <p className="text-muted-foreground">{app.domain}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button onClick={handleDeploy} disabled={deploying}>
-                {deploying ? (
-                  <LoadingSpinner size="sm" className="mr-2" />
-                ) : (
-                  <RocketLaunchIcon className="h-4 w-4 mr-2" />
-                )}
-                Deploy
-                <ChevronDownIcon className="h-4 w-4 ml-2" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleDeploy} disabled={deploying}>
-                Deploy from {app.branch}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          {/* Split button: the primary action deploys, only the chevron opens
+              the menu. A single button doing both used to fire a deployment
+              AND open the menu, allowing a second concurrent deployment. */}
+          <div className="flex items-center">
+            <Button onClick={handleDeploy} disabled={deploying} className="rounded-r-none">
+              {deploying ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <RocketLaunchIcon className="h-4 w-4 mr-2" />
+              )}
+              Deploy
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  disabled={deploying}
+                  size="icon"
+                  className="rounded-l-none border-l border-primary-foreground/20"
+                  aria-label="Deploy options"
+                >
+                  <ChevronDownIcon className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={handleDeploy} disabled={deploying}>
+                  Deploy from {app.branch}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon">
@@ -366,7 +384,7 @@ export default function AppOverview() {
             <dl className="space-y-3">
               <div>
                 <dt className="text-muted-foreground text-sm">URL</dt>
-                <dd className="font-mono text-sm break-all mt-1">{getRepoName(app.repository_url)}</dd>
+                <dd className="font-mono text-sm break-all mt-1">{app.repository_url ? getRepoName(app.repository_url) : 'Not connected'}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground text-sm">Deploy path</dt>

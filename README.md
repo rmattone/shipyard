@@ -179,6 +179,8 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 3. Click **Test Connection** to verify
 4. Save the server
 
+> **Note on non-root users:** software installation, nginx configuration, and SSL certificate management need root privileges. When the SSH user is not `root`, ShipYard runs those commands with `sudo -n`, so the user must have passwordless sudo. On the target server, run `visudo` and add a line like `deploy ALL=(ALL) NOPASSWD:ALL` (replace `deploy` with your SSH user).
+
 ### Deploying an Application
 
 1. Go to **Applications** → **New Application**
@@ -194,12 +196,12 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 ### Setting Up Automatic Deployments
 
 1. Go to your application's **Settings**
-2. Copy the **Webhook URL**
-3. Add it to your Git provider:
-   - **GitHub**: Settings → Webhooks → Add webhook
-   - **GitLab**: Settings → Webhooks → Add webhook
-   - **Bitbucket**: Settings → Webhooks → Add webhook
-4. Push to your repository - ShipYard will deploy automatically
+2. Copy the **Webhook URL** and the **Webhook Secret**
+3. Add it to your Git provider (all use the same URL, `/api/webhook/{app-id}`):
+   - **GitHub**: Settings → Webhooks → Add webhook. Set the secret to the webhook secret. Content type `application/json`.
+   - **GitLab**: Settings → Webhooks → Add webhook. Put the webhook secret in the **Secret token** field.
+   - **Bitbucket**: Settings → Webhooks → Add webhook. Append the secret as a query string: `/api/webhook/{app-id}?token=YOUR_SECRET`.
+4. Push to your repository. ShipYard deploys automatically when the pushed branch matches the application's branch.
 
 ### Managing Environment Variables
 
@@ -296,6 +298,7 @@ cd .. && rm -rf shipyard
 | `mysql` | Database server |
 | `redis` | Cache and queue backend |
 | `queue` | Background job processor |
+| `scheduler` | Laravel scheduler (stale deployment reaper, maintenance tasks) |
 
 ### Project Structure
 
@@ -348,13 +351,21 @@ docker compose logs -f queue
 
 ### Running Tests
 
+Backend tests run against a dedicated MySQL database (`server_management_testing`) on the Docker MySQL service, so the stack must be up. The test database is created automatically on fresh installs. If your MySQL volume predates this feature, create it once with:
+
 ```bash
-# Backend tests
+docker compose exec mysql sh -c 'mysql -uroot -p"$MYSQL_ROOT_PASSWORD" -e "CREATE DATABASE IF NOT EXISTS server_management_testing; GRANT ALL PRIVILEGES ON server_management_testing.* TO \"$MYSQL_USER\"@\"%\"; FLUSH PRIVILEGES;"'
+```
+
+```bash
+# Backend tests (require docker compose up -d)
 docker compose exec app php artisan test
 
 # Frontend tests (inside Docker)
 docker compose exec app bash -c "cd /var/www/frontend && npm test"
 ```
+
+Note: running `php artisan test` outside Docker will not work by default because MySQL is not exposed on the host. The test suite never touches the `server_management` development database.
 
 ### Useful Commands
 
@@ -420,9 +431,7 @@ docker compose exec app php artisan queue:restart
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/webhook/github/{app-id}` | POST | GitHub webhook |
-| `/api/webhook/gitlab/{app-id}` | POST | GitLab webhook |
-| `/api/webhook/bitbucket/{app-id}` | POST | Bitbucket webhook |
+| `/api/webhook/{app-id}` | POST | Push webhook (GitHub, GitLab, or Bitbucket; the provider is inferred from the application) |
 
 ---
 

@@ -2,41 +2,33 @@
 
 namespace App\Providers;
 
-use App\Services\CertbotService;
-use App\Services\DeploymentService;
-use App\Services\GitLabService;
-use App\Services\NginxService;
-use App\Services\SSHService;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        $this->app->singleton(SSHService::class);
-        $this->app->singleton(GitLabService::class);
-
-        $this->app->singleton(NginxService::class, function ($app) {
-            return new NginxService($app->make(SSHService::class));
-        });
-
-        $this->app->singleton(CertbotService::class, function ($app) {
-            return new CertbotService(
-                $app->make(SSHService::class),
-                $app->make(NginxService::class)
-            );
-        });
-
-        $this->app->singleton(DeploymentService::class, function ($app) {
-            return new DeploymentService(
-                $app->make(SSHService::class),
-                $app->make(NginxService::class)
-            );
-        });
+        // Services are resolved via container auto-wiring. Do not add
+        // singleton bindings for SSH-backed services: the queue worker is
+        // long-lived and a singleton SSHService would leak per-server
+        // connection state across jobs.
     }
 
     public function boot(): void
     {
-        //
+        // Generous ceiling for the SPA (dashboard polling during deployments
+        // is the heaviest legitimate consumer); still stops line-speed abuse.
+        RateLimiter::for('api', function (Request $request) {
+            return Limit::perMinute(120)->by($request->user()?->id ?: $request->ip());
+        });
+
+        // The panel holds SSH keys and git tokens for every managed server;
+        // the single admin password must not be brute-forceable.
+        RateLimiter::for('login', function (Request $request) {
+            return Limit::perMinute(5)->by($request->ip());
+        });
     }
 }

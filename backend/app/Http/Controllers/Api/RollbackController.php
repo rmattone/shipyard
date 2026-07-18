@@ -21,7 +21,7 @@ class RollbackController extends Controller
      */
     public function releases(Application $application): JsonResponse
     {
-        if (!$application->usesAtomicDeployments()) {
+        if (! $application->usesAtomicDeployments()) {
             return response()->json([
                 'message' => 'Rollback is only available for atomic deployments.',
                 'releases' => [],
@@ -45,7 +45,7 @@ class RollbackController extends Controller
             'deployment_id' => 'required|exists:deployments,id',
         ]);
 
-        if (!$application->usesAtomicDeployments()) {
+        if (! $application->usesAtomicDeployments()) {
             return response()->json([
                 'message' => 'Rollback is only available for atomic deployments.',
             ], 422);
@@ -61,9 +61,18 @@ class RollbackController extends Controller
         }
 
         // Verify target deployment has a release path
-        if (!$targetDeployment->release_path) {
+        if (! $targetDeployment->release_path) {
             return response()->json([
                 'message' => 'Target deployment does not have a release path.',
+            ], 422);
+        }
+
+        // Only roll back to a deployment that actually succeeded. A deployment
+        // that cloned but failed its build still has a release directory, and
+        // activating it would put broken code live.
+        if ($targetDeployment->status !== 'success') {
+            return response()->json([
+                'message' => 'Target deployment did not complete successfully and cannot be rolled back to.',
             ], 422);
         }
 
@@ -72,6 +81,12 @@ class RollbackController extends Controller
             return response()->json([
                 'message' => 'Target deployment is already active.',
             ], 422);
+        }
+
+        if ($application->hasDeploymentInProgress()) {
+            return response()->json([
+                'message' => 'A deployment is already pending or running for this application.',
+            ], 409);
         }
 
         // Create rollback deployment record
@@ -98,7 +113,7 @@ class RollbackController extends Controller
      */
     public function rollbackToPrevious(Application $application): JsonResponse
     {
-        if (!$application->usesAtomicDeployments()) {
+        if (! $application->usesAtomicDeployments()) {
             return response()->json([
                 'message' => 'Rollback is only available for atomic deployments.',
             ], 422);
@@ -106,7 +121,7 @@ class RollbackController extends Controller
 
         $currentDeployment = $application->activeDeployment();
 
-        if (!$currentDeployment) {
+        if (! $currentDeployment) {
             return response()->json([
                 'message' => 'No active deployment found.',
             ], 422);
@@ -120,10 +135,16 @@ class RollbackController extends Controller
             ->orderByDesc('created_at')
             ->first();
 
-        if (!$previousDeployment) {
+        if (! $previousDeployment) {
             return response()->json([
                 'message' => 'No previous deployment available for rollback.',
             ], 422);
+        }
+
+        if ($application->hasDeploymentInProgress()) {
+            return response()->json([
+                'message' => 'A deployment is already pending or running for this application.',
+            ], 409);
         }
 
         // Create rollback deployment record

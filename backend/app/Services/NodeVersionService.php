@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Server;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 
 class NodeVersionService
 {
@@ -31,14 +33,14 @@ BASH;
             $result = $this->sshService->execute($command, 30);
             $this->sshService->disconnect();
 
-            if (!$result['success'] || empty(trim($result['output']))) {
+            if (! $result['success'] || empty(trim($result['output']))) {
                 return [];
             }
 
             // Parse the output - each line is a version
             $versions = array_filter(
                 array_map('trim', explode("\n", trim($result['output']))),
-                fn($v) => preg_match('/^\d+\.\d+\.\d+$/', $v)
+                fn ($v) => preg_match('/^\d+\.\d+\.\d+$/', $v)
             );
 
             return array_values($versions);
@@ -48,37 +50,40 @@ BASH;
     }
 
     /**
-     * Get available LTS Node.js versions from remote (via nvm ls-remote --lts).
+     * Get available LTS Node.js versions from the nodejs.org release index.
+     *
+     * Not fetched from the server: a fresh server has no nvm yet (the Node
+     * install is what installs it), so `nvm ls-remote` there is always empty
+     * exactly when the version picker is needed.
      *
      * @return array<string> List of available LTS versions (e.g., ["22.14.0", "20.18.0", "18.20.4"])
      */
     public function getRemoteLtsVersions(Server $server): array
     {
+        $cached = Cache::get('node-lts-versions');
+        if (is_array($cached)) {
+            return $cached;
+        }
+
         try {
-            $this->sshService->connect($server);
-
-            // Source nvm and list remote LTS versions
-            $command = <<<'BASH'
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-[ -s "/usr/local/nvm/nvm.sh" ] && \. "/usr/local/nvm/nvm.sh"
-nvm ls-remote --lts 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | sed 's/^v//' | sort -V -r | uniq | head -20
-BASH;
-
-            $result = $this->sshService->execute($command, 60);
-            $this->sshService->disconnect();
-
-            if (!$result['success'] || empty(trim($result['output']))) {
+            $response = Http::timeout(15)->get('https://nodejs.org/dist/index.json');
+            if (! $response->successful()) {
                 return [];
             }
 
-            // Parse the output - each line is a version
-            $versions = array_filter(
-                array_map('trim', explode("\n", trim($result['output']))),
-                fn($v) => preg_match('/^\d+\.\d+\.\d+$/', $v)
-            );
+            $versions = collect($response->json())
+                ->filter(fn ($release) => ($release['lts'] ?? false) !== false)
+                ->map(fn ($release) => ltrim($release['version'] ?? '', 'v'))
+                ->filter(fn ($v) => preg_match('/^\d+\.\d+\.\d+$/', $v))
+                ->take(20)
+                ->values()
+                ->all();
 
-            return array_values($versions);
+            if ($versions !== []) {
+                Cache::put('node-lts-versions', $versions, now()->addHour());
+            }
+
+            return $versions;
         } catch (\Exception $e) {
             return [];
         }
@@ -87,8 +92,7 @@ BASH;
     /**
      * Set the default Node.js version via nvm.
      *
-     * @param Server $server
-     * @param string $version The version to set as default (e.g., "20.18.0")
+     * @param  string  $version  The version to set as default (e.g., "20.18.0")
      * @return array{success: bool, message: string}
      */
     public function setDefaultVersion(Server $server, string $version): array
@@ -107,10 +111,10 @@ BASH;
             $result = $this->sshService->execute($command, 30);
             $this->sshService->disconnect();
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 return [
                     'success' => false,
-                    'message' => 'Failed to set default Node.js version: ' . ($result['output'] ?? 'Unknown error'),
+                    'message' => 'Failed to set default Node.js version: '.($result['output'] ?? 'Unknown error'),
                 ];
             }
 
@@ -121,7 +125,7 @@ BASH;
         } catch (\Exception $e) {
             return [
                 'success' => false,
-                'message' => 'Failed to set default Node.js version: ' . $e->getMessage(),
+                'message' => 'Failed to set default Node.js version: '.$e->getMessage(),
             ];
         }
     }

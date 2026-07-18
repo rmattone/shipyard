@@ -25,6 +25,7 @@ class DatabaseController extends Controller
     {
         try {
             $detected = $this->databaseService->detectDatabaseServers($server);
+
             return response()->json($detected);
         } catch (RuntimeException $e) {
             return response()->json([
@@ -42,6 +43,22 @@ class DatabaseController extends Controller
             'engine' => 'required|in:mysql,postgresql,pm2,php,node,nginx,certbot',
             'version' => 'nullable|string|max:50',
         ]);
+
+        // Reinstalling an engine that already has a connection record would
+        // reset the server's admin password and orphan the stored credentials
+        if (in_array($validated['engine'], ['mysql', 'postgresql'], true)) {
+            $alreadyInstalled = $server->databases()
+                ->where('type', $validated['engine'])
+                ->exists();
+
+            if ($alreadyInstalled) {
+                $label = $validated['engine'] === 'mysql' ? 'MySQL' : 'PostgreSQL';
+
+                return response()->json([
+                    'message' => "{$label} is already installed on this server.",
+                ], 409);
+            }
+        }
 
         // Check for duplicate running installation
         $running = $server->databaseInstallations()
@@ -61,7 +78,7 @@ class DatabaseController extends Controller
         ];
 
         // Add version_requested for node engine
-        if ($validated['engine'] === 'node' && !empty($validated['version'])) {
+        if ($validated['engine'] === 'node' && ! empty($validated['version'])) {
             $installationData['version_requested'] = $validated['version'];
         }
 
@@ -116,8 +133,8 @@ class DatabaseController extends Controller
             'port' => 'sometimes|integer|min:1|max:65535',
             'admin_user' => 'required|string|max:255',
             'admin_password' => 'required|string',
-            'charset' => 'sometimes|nullable|string|max:50',
-            'collation' => 'sometimes|nullable|string|max:100',
+            'charset' => ['sometimes', 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_.-]+$/'],
+            'collation' => ['sometimes', 'nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_.-]+$/'],
         ]);
 
         // Set defaults
@@ -168,8 +185,8 @@ class DatabaseController extends Controller
             'admin_user' => 'sometimes|string|max:255',
             'admin_password' => 'sometimes|string',
             'status' => 'sometimes|in:active,inactive',
-            'charset' => 'sometimes|nullable|string|max:50',
-            'collation' => 'sometimes|nullable|string|max:100',
+            'charset' => ['sometimes', 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_.-]+$/'],
+            'collation' => ['sometimes', 'nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_.-]+$/'],
         ]);
 
         // Check for duplicate name if changing
@@ -230,6 +247,7 @@ class DatabaseController extends Controller
 
         try {
             $databases = $this->databaseService->listRemoteDatabases($database);
+
             return response()->json(['databases' => $databases]);
         } catch (RuntimeException $e) {
             return response()->json([
@@ -249,8 +267,8 @@ class DatabaseController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255|regex:/^[a-zA-Z_][a-zA-Z0-9_]*$/',
-            'charset' => 'sometimes|nullable|string|max:50',
-            'collation' => 'sometimes|nullable|string|max:100',
+            'charset' => ['sometimes', 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9_.-]+$/'],
+            'collation' => ['sometimes', 'nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9_.-]+$/'],
         ]);
 
         try {
@@ -280,8 +298,10 @@ class DatabaseController extends Controller
             return response()->json(['message' => 'Not found'], 404);
         }
 
+        // Same identifier rule as createRemoteDatabase; the destructive
+        // endpoint must not be the unvalidated one
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'required|string|max:255|regex:/^[a-zA-Z_][a-zA-Z0-9_]*$/',
         ]);
 
         try {

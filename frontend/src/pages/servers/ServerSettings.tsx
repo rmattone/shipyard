@@ -33,7 +33,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Pencil, Trash2, Plus } from 'lucide-react'
 
-type SettingsSection = 'general' | 'ssh' | 'tags' | 'danger'
+type SettingsSection = 'general' | 'tags' | 'danger'
 
 export default function ServerSettings() {
   const { id } = useParams<{ id: string }>()
@@ -50,6 +50,7 @@ export default function ServerSettings() {
     host: '',
     port: 22,
     username: '',
+    private_key: '',
   })
 
   // Tags state
@@ -76,6 +77,7 @@ export default function ServerSettings() {
         host: response.data.host,
         port: response.data.port,
         username: response.data.username,
+        private_key: '',
       })
     } catch {
       toast.error('Failed to load server')
@@ -91,6 +93,7 @@ export default function ServerSettings() {
     try {
       const response = await serversApi.update(parseInt(id), formData)
       setServer(response.data)
+      setFormData({ ...formData, private_key: '' })
       toast.success('Server updated')
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
@@ -132,11 +135,6 @@ export default function ServerSettings() {
       setDeleting(false)
       setShowDeleteDialog(false)
     }
-  }
-
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard.writeText(text)
-    toast.success(`${label} copied!`)
   }
 
   // Load tags when switching to tags section
@@ -221,7 +219,6 @@ export default function ServerSettings() {
 
   const sidebarItems = [
     { id: 'general' as const, label: 'General' },
-    ...(!server.is_local ? [{ id: 'ssh' as const, label: 'SSH' }] : []),
     { id: 'tags' as const, label: 'Tags' },
     { id: 'danger' as const, label: 'Danger Zone' },
   ]
@@ -337,6 +334,23 @@ export default function ServerSettings() {
                       className="w-64"
                     />
                   </div>
+
+                  {/* SSH Private Key */}
+                  <div className="flex items-start justify-between py-4 border-b">
+                    <div>
+                      <p className="font-medium">SSH private key</p>
+                      <p className="text-sm text-muted-foreground">
+                        Paste a new key to replace the current one. Leave blank to keep it.
+                      </p>
+                    </div>
+                    <Textarea
+                      value={formData.private_key}
+                      onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
+                      placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+                      className="w-64 font-mono text-xs"
+                      rows={4}
+                    />
+                  </div>
                 </>
               )}
 
@@ -359,43 +373,6 @@ export default function ServerSettings() {
                   {saving && <LoadingSpinner size="sm" className="mr-2" />}
                   Save Changes
                 </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {activeSection === 'ssh' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>SSH Keys</CardTitle>
-              <CardDescription>
-                Public keys for authenticating with Git providers and other services.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Server Public Key */}
-              <div className="space-y-3">
-                <div>
-                  <p className="font-medium">Server Public Key</p>
-                  <p className="text-sm text-muted-foreground">
-                    Add this key to your Git provider to allow the server to clone repositories.
-                  </p>
-                </div>
-                <div className="relative">
-                  <Textarea
-                    readOnly
-                    value={`ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample... server-manager@${server.host}`}
-                    className="font-mono text-xs h-24 resize-none"
-                  />
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="absolute top-2 right-2"
-                    onClick={() => copyToClipboard(`ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample... server-manager@${server.host}`, 'Public key')}
-                  >
-                    Copy
-                  </Button>
-                </div>
               </div>
             </CardContent>
           </Card>

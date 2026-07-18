@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LoadingSpinner } from '@/components/custom'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import NotFound from './pages/NotFound'
 
 // Organization level pages
 import OrganizationOverview from './pages/OrganizationOverview'
@@ -16,10 +17,11 @@ import GitProviderDetail from './pages/git-providers/GitProviderDetail'
 
 // Server level pages
 import ServerOverview from './pages/servers/ServerOverview'
-import ServerStorage from './pages/servers/ServerStorage'
 import ServerSoftware from './pages/servers/ServerSoftware'
 import ServerDatabases from './pages/servers/ServerDatabases'
 import DatabaseDetail from './pages/servers/DatabaseDetail'
+import ServerScheduler from './pages/servers/ServerScheduler'
+import ServerDaemons from './pages/servers/ServerDaemons'
 import ServerSettings from './pages/servers/ServerSettings'
 import AppNew from './pages/apps/AppNew'
 
@@ -28,7 +30,8 @@ import AppOverview from './pages/apps/AppOverview'
 import AppDeployments from './pages/apps/AppDeployments'
 import AppDomains from './pages/apps/AppDomains'
 import AppLogs from './pages/apps/AppLogs'
-import AppEnv from './pages/apps/AppEnv'
+import AppScheduler from './pages/apps/AppScheduler'
+import AppDaemons from './pages/apps/AppDaemons'
 import AppSettings from './pages/apps/AppSettings'
 import DeploymentDetail from './pages/apps/DeploymentDetail'
 
@@ -73,10 +76,11 @@ function AppRoutes() {
 
         {/* Server level */}
         <Route path="servers/:id" element={<ServerOverview />} />
-        <Route path="servers/:id/storage" element={<ServerStorage />} />
         <Route path="servers/:id/software" element={<ServerSoftware />} />
         <Route path="servers/:id/databases" element={<ServerDatabases />} />
         <Route path="servers/:id/databases/:databaseId" element={<DatabaseDetail />} />
+        <Route path="servers/:id/scheduler" element={<ServerScheduler />} />
+        <Route path="servers/:id/daemons" element={<ServerDaemons />} />
         <Route path="servers/:id/settings" element={<ServerSettings />} />
         <Route path="servers/:serverId/apps/new" element={<AppNew />} />
 
@@ -85,9 +89,13 @@ function AppRoutes() {
         <Route path="apps/:id/deployments" element={<AppDeployments />} />
         <Route path="apps/:id/domains" element={<AppDomains />} />
         <Route path="apps/:id/logs" element={<AppLogs />} />
-        <Route path="apps/:id/environment" element={<AppEnv />} />
+        <Route path="apps/:id/scheduler" element={<AppScheduler />} />
+        <Route path="apps/:id/daemons" element={<AppDaemons />} />
         <Route path="apps/:id/settings" element={<AppSettings />} />
         <Route path="apps/:id/deployments/:deploymentId" element={<DeploymentDetail />} />
+
+        {/* Catch-all: unknown paths used to render a blank page */}
+        <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
   )

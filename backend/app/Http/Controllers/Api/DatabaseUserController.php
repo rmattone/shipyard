@@ -171,7 +171,7 @@ class DatabaseUserController extends Controller
         $validated = $request->validate([
             'database' => 'required|string|max:255',
             'privileges' => 'required|array|min:1',
-            'privileges.*' => 'string',
+            'privileges.*' => ['string', $this->privilegeRule()],
         ]);
 
         try {
@@ -198,8 +198,11 @@ class DatabaseUserController extends Controller
                 'user' => $user->fresh(),
             ]);
         } catch (RuntimeException $e) {
+            $this->resyncPrivilegesFromServer($database, $user);
+
             return response()->json([
                 'message' => $e->getMessage(),
+                'user' => $user->fresh(),
             ], 500);
         }
     }
@@ -216,7 +219,7 @@ class DatabaseUserController extends Controller
         $validated = $request->validate([
             'database' => 'required|string|max:255',
             'privileges' => 'required|array|min:1',
-            'privileges.*' => 'string',
+            'privileges.*' => ['string', $this->privilegeRule()],
         ]);
 
         try {
@@ -248,9 +251,58 @@ class DatabaseUserController extends Controller
                 'user' => $user->fresh(),
             ]);
         } catch (RuntimeException $e) {
+            $this->resyncPrivilegesFromServer($database, $user);
+
             return response()->json([
                 'message' => $e->getMessage(),
+                'user' => $user->fresh(),
             ], 500);
+        }
+    }
+
+    /**
+     * Privilege names are interpolated into GRANT/REVOKE statements run as
+     * the admin user, so only known privilege keywords are accepted.
+     */
+    private function privilegeRule(): \Closure
+    {
+        $allowed = [
+            // Shared / MySQL
+            'ALL', 'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP',
+            'ALTER', 'INDEX', 'REFERENCES', 'EXECUTE', 'TRIGGER', 'EVENT',
+            'CREATE VIEW', 'SHOW VIEW', 'CREATE ROUTINE', 'ALTER ROUTINE',
+            'LOCK TABLES', 'CREATE TEMPORARY TABLES',
+            // PostgreSQL
+            'CONNECT', 'TEMPORARY', 'TEMP', 'USAGE', 'TRUNCATE',
+        ];
+
+        return function (string $attribute, mixed $value, \Closure $fail) use ($allowed) {
+            if (! is_string($value) || ! in_array(strtoupper($value), $allowed, true)) {
+                $fail("'{$value}' is not a recognized privilege.");
+            }
+        };
+    }
+
+    /**
+     * A grant/revoke sequence can fail midway with earlier commands already
+     * applied on the server, so the stored record must be re-read from
+     * reality instead of being left stale (best-effort).
+     */
+    private function resyncPrivilegesFromServer(Database $database, DatabaseUser $user): void
+    {
+        try {
+            $effective = $this->databaseService->getUserPrivileges($database, $user->username, $user->host);
+
+            $privileges = [];
+            foreach ($effective as $entry) {
+                if (! empty($entry['database']) && ! empty($entry['privileges'])) {
+                    $privileges[$entry['database']] = array_values($entry['privileges']);
+                }
+            }
+
+            $user->update(['privileges' => $privileges ?: null]);
+        } catch (\Throwable) {
+            // If the re-read fails too, leave the stored record untouched.
         }
     }
 }
