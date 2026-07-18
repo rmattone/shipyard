@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\DatabaseController;
 use App\Http\Controllers\Api\DatabaseInstallationStreamController;
 use App\Http\Controllers\Api\DatabaseUserController;
@@ -62,6 +63,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/servers/{server}/scheduled-tasks/{scheduledTask}', [ScheduledTaskController::class, 'show']);
     Route::get('/servers/{server}/scheduled-tasks/{scheduledTask}/output', [ScheduledTaskController::class, 'output']);
     Route::delete('/servers/{server}/scheduled-tasks/{scheduledTask}', [ScheduledTaskController::class, 'destroy']);
+
+    // Daemons (server-scoped systemd-managed processes)
+    Route::get('/servers/{server}/daemons', [DaemonController::class, 'index']);
+    Route::post('/servers/{server}/daemons', [DaemonController::class, 'store']);
+    Route::get('/servers/{server}/daemons/{daemon}', [DaemonController::class, 'show']);
+    Route::get('/servers/{server}/daemons/{daemon}/status', [DaemonController::class, 'status']);
+    Route::get('/servers/{server}/daemons/{daemon}/output', [DaemonController::class, 'output']);
+    Route::post('/servers/{server}/daemons/{daemon}/restart', [DaemonController::class, 'restart']);
+    Route::delete('/servers/{server}/daemons/{daemon}', [DaemonController::class, 'destroy']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);

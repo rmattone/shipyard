@@ -119,6 +119,24 @@ export interface ScheduledTask {
   created_at: string
 }
 
+export interface Daemon {
+  id: number
+  server_id: number
+  application_id: number | null
+  command: string
+  user: string
+  directory: string
+  processes: number
+  status: 'installing' | 'installed' | 'removing' | 'failed'
+  log: string | null
+  created_at: string
+}
+
+export interface DaemonStatus {
+  state: 'running' | 'degraded' | 'stopped'
+  instances: Record<number, string>
+}
+
 export interface Deployment {
   id: number
   application_id: number
@@ -395,6 +413,34 @@ export const scheduledTasksApi = {
   output: (serverId: number, taskId: number, lines?: number) =>
     api.get<{ output: string; exists: boolean }>(
       '/servers/' + serverId + '/scheduled-tasks/' + taskId + '/output',
+      { params: lines ? { lines } : undefined }
+    ),
+}
+
+// Daemons (server-scoped)
+export const daemonsApi = {
+  list: (serverId: number, applicationId?: number) =>
+    api.get<Daemon[]>('/servers/' + serverId + '/daemons', {
+      params: applicationId ? { application_id: applicationId } : undefined,
+    }),
+  get: (serverId: number, daemonId: number) =>
+    api.get<Daemon>('/servers/' + serverId + '/daemons/' + daemonId),
+  create: (serverId: number, data: {
+    command: string
+    user: string
+    directory?: string
+    processes?: number
+    application_id?: number
+  }) => api.post<Daemon>('/servers/' + serverId + '/daemons', data),
+  delete: (serverId: number, daemonId: number) =>
+    api.delete('/servers/' + serverId + '/daemons/' + daemonId),
+  restart: (serverId: number, daemonId: number) =>
+    api.post<{ message: string }>('/servers/' + serverId + '/daemons/' + daemonId + '/restart'),
+  status: (serverId: number, daemonId: number) =>
+    api.get<DaemonStatus>('/servers/' + serverId + '/daemons/' + daemonId + '/status'),
+  output: (serverId: number, daemonId: number, lines?: number) =>
+    api.get<{ output: string; exists: boolean }>(
+      '/servers/' + serverId + '/daemons/' + daemonId + '/output',
       { params: lines ? { lines } : undefined }
     ),
 }

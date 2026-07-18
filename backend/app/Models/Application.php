@@ -361,6 +361,11 @@ SCRIPT;
         return $this->hasMany(ScheduledTask::class);
     }
 
+    public function daemons(): HasMany
+    {
+        return $this->hasMany(Daemon::class);
+    }
+
     public function domains(): HasMany
     {
         return $this->hasMany(Domain::class);
