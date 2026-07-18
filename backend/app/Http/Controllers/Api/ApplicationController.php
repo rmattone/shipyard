@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessDeployment;
+use App\Jobs\ProcessScheduledTaskRemoval;
 use App\Models\Application;
 use App\Models\Deployment;
 use App\Models\Server;
@@ -207,6 +208,13 @@ class ApplicationController extends Controller
             } catch (\Exception $e) {
                 // Log but continue with deletion
             }
+        }
+
+        // Schedule removal of linked cron entries; the task rows outlive the
+        // app (FK nulls on delete) so the jobs can still clean the crontab.
+        foreach ($application->scheduledTasks()->where('status', '!=', 'removing')->get() as $task) {
+            $task->markAsRemoving();
+            ProcessScheduledTaskRemoval::dispatch($task);
         }
 
         $application->delete();

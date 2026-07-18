@@ -356,6 +356,11 @@ SCRIPT;
             ->exists();
     }
 
+    public function scheduledTasks(): HasMany
+    {
+        return $this->hasMany(ScheduledTask::class);
+    }
+
     public function domains(): HasMany
     {
         return $this->hasMany(Domain::class);

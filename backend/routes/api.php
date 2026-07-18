@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\GitProviderController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\NginxController;
 use App\Http\Controllers\Api\RollbackController;
+use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
@@ -54,6 +55,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/servers/{server}/tags', [TagController::class, 'store']);
     Route::put('/servers/{server}/tags/{tag}', [TagController::class, 'update']);
     Route::delete('/servers/{server}/tags/{tag}', [TagController::class, 'destroy']);
+
+    // Scheduled tasks (server-scoped cron entries)
+    Route::get('/servers/{server}/scheduled-tasks', [ScheduledTaskController::class, 'index']);
+    Route::post('/servers/{server}/scheduled-tasks', [ScheduledTaskController::class, 'store']);
+    Route::get('/servers/{server}/scheduled-tasks/{scheduledTask}', [ScheduledTaskController::class, 'show']);
+    Route::get('/servers/{server}/scheduled-tasks/{scheduledTask}/output', [ScheduledTaskController::class, 'output']);
+    Route::delete('/servers/{server}/scheduled-tasks/{scheduledTask}', [ScheduledTaskController::class, 'destroy']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);

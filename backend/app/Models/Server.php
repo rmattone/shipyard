@@ -59,6 +59,11 @@ class Server extends Model
         return $this->hasMany(DatabaseInstallation::class);
     }
 
+    public function scheduledTasks(): HasMany
+    {
+        return $this->hasMany(ScheduledTask::class);
+    }
+
     public function isActive(): bool
     {
         return $this->status === 'active';
