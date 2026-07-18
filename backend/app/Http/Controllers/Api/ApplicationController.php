@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessDaemonRemoval;
 use App\Jobs\ProcessDeployment;
 use App\Jobs\ProcessScheduledTaskRemoval;
 use App\Models\Application;
@@ -215,6 +216,12 @@ class ApplicationController extends Controller
         foreach ($application->scheduledTasks()->where('status', '!=', 'removing')->get() as $task) {
             $task->markAsRemoving();
             ProcessScheduledTaskRemoval::dispatch($task);
+        }
+
+        // Same for linked daemons: stop the units before they run a dead path.
+        foreach ($application->daemons()->where('status', '!=', 'removing')->get() as $daemon) {
+            $daemon->markAsRemoving();
+            ProcessDaemonRemoval::dispatch($daemon);
         }
 
         $application->delete();

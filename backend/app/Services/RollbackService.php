@@ -4,10 +4,13 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Deployment;
+use App\Services\Concerns\RestartsLinkedDaemons;
 use RuntimeException;
 
 class RollbackService
 {
+    use RestartsLinkedDaemons;
+
     public function __construct(
         private SSHService $sshService,
         private AtomicDeploymentService $atomicDeploymentService
@@ -197,6 +200,9 @@ class RollbackService
         } elseif ($app->isNodejs()) {
             $this->runNodejsPostRollbackTasks($app, $rollbackDeployment);
         }
+
+        // Bounce linked daemons onto the restored release
+        $this->restartLinkedDaemons($app, $rollbackDeployment);
 
         $rollbackDeployment->appendLog('Post-rollback tasks completed.');
     }

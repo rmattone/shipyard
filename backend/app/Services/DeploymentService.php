@@ -4,12 +4,13 @@ namespace App\Services;
 
 use App\Models\Application;
 use App\Models\Deployment;
+use App\Services\Concerns\RestartsLinkedDaemons;
 use App\Services\Concerns\RunsRemoteScripts;
 use RuntimeException;
 
 class DeploymentService
 {
-    use RunsRemoteScripts;
+    use RestartsLinkedDaemons, RunsRemoteScripts;
 
     public function __construct(
         private SSHService $sshService,
@@ -71,6 +72,9 @@ class DeploymentService
 
             // Restart the PM2 process so Node.js apps serve the new release
             $this->restartNodeProcess($app, $deployment);
+
+            // Restart linked daemons so queue workers pick up the new release
+            $this->restartLinkedDaemons($app, $deployment);
 
             // The release is live: record that before best-effort housekeeping,
             // so a late failure cannot leave the DB contradicting the server.
@@ -186,6 +190,9 @@ class DeploymentService
             if ($app->isLaravel()) {
                 $this->fixLaravelPermissions($app, $deployment);
             }
+
+            // Restart linked daemons so queue workers pick up the new code
+            $this->restartLinkedDaemons($app, $deployment);
 
             $this->sshService->disconnect();
 
