@@ -20,6 +20,7 @@ import ServerOverview from './pages/servers/ServerOverview'
 import ServerSoftware from './pages/servers/ServerSoftware'
 import ServerDatabases from './pages/servers/ServerDatabases'
 import DatabaseDetail from './pages/servers/DatabaseDetail'
+import ServerScheduler from './pages/servers/ServerScheduler'
 import ServerSettings from './pages/servers/ServerSettings'
 import AppNew from './pages/apps/AppNew'
 
@@ -28,6 +29,7 @@ import AppOverview from './pages/apps/AppOverview'
 import AppDeployments from './pages/apps/AppDeployments'
 import AppDomains from './pages/apps/AppDomains'
 import AppLogs from './pages/apps/AppLogs'
+import AppScheduler from './pages/apps/AppScheduler'
 import AppSettings from './pages/apps/AppSettings'
 import DeploymentDetail from './pages/apps/DeploymentDetail'
 
@@ -75,6 +77,7 @@ function AppRoutes() {
         <Route path="servers/:id/software" element={<ServerSoftware />} />
         <Route path="servers/:id/databases" element={<ServerDatabases />} />
         <Route path="servers/:id/databases/:databaseId" element={<DatabaseDetail />} />
+        <Route path="servers/:id/scheduler" element={<ServerScheduler />} />
         <Route path="servers/:id/settings" element={<ServerSettings />} />
         <Route path="servers/:serverId/apps/new" element={<AppNew />} />
 
@@ -83,6 +86,7 @@ function AppRoutes() {
         <Route path="apps/:id/deployments" element={<AppDeployments />} />
         <Route path="apps/:id/domains" element={<AppDomains />} />
         <Route path="apps/:id/logs" element={<AppLogs />} />
+        <Route path="apps/:id/scheduler" element={<AppScheduler />} />
         <Route path="apps/:id/settings" element={<AppSettings />} />
         <Route path="apps/:id/deployments/:deploymentId" element={<DeploymentDetail />} />
 

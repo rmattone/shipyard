@@ -18,6 +18,7 @@ export function ContextTabs() {
       { label: 'Deployments', to: `/apps/${currentApp.id}/deployments` },
       { label: 'Domains', to: `/apps/${currentApp.id}/domains` },
       { label: 'Logs', to: `/apps/${currentApp.id}/logs` },
+      { label: 'Scheduler', to: `/apps/${currentApp.id}/scheduler` },
       { label: 'Settings', to: `/apps/${currentApp.id}/settings` },
     ]
   } else if (currentServer) {
@@ -25,6 +26,7 @@ export function ContextTabs() {
       { label: 'Overview', to: `/servers/${currentServer.id}`, end: true },
       { label: 'Software', to: `/servers/${currentServer.id}/software` },
       { label: 'Databases', to: `/servers/${currentServer.id}/databases` },
+      { label: 'Scheduler', to: `/servers/${currentServer.id}/scheduler` },
       { label: 'Settings', to: `/servers/${currentServer.id}/settings` },
     ]
   } else {

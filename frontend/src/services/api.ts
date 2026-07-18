@@ -68,6 +68,7 @@ export interface Server {
   username: string
   status: 'active' | 'inactive'
   is_local: boolean
+  php_version?: string | null
   applications_count?: number
   created_at: string
 }
@@ -79,6 +80,7 @@ export interface Application {
   name: string
   type: 'laravel' | 'nodejs' | 'static'
   node_version: string | null
+  php_version?: string | null
   domain: string
   repository_url: string | null
   branch: string
@@ -96,6 +98,24 @@ export interface Application {
   git_provider?: GitProvider
   domains?: Domain[]
   tags?: Tag[]
+  created_at: string
+}
+
+export interface ScheduledTask {
+  id: number
+  server_id: number
+  application_id: number | null
+  command: string
+  user: string
+  frequency: 'minutely' | 'hourly' | 'nightly' | 'weekly' | 'monthly' | 'reboot' | 'custom'
+  minute: string | null
+  hour: string | null
+  day: string | null
+  month: string | null
+  weekday: string | null
+  cron_expression: string
+  status: 'installing' | 'installed' | 'removing' | 'failed'
+  log: string | null
   created_at: string
 }
 
@@ -349,6 +369,34 @@ export const tagsApi = {
     api.put<Tag>('/servers/' + serverId + '/tags/' + tagId, data),
   delete: (serverId: number, tagId: number) =>
     api.delete('/servers/' + serverId + '/tags/' + tagId),
+}
+
+// Scheduled tasks (server-scoped)
+export const scheduledTasksApi = {
+  list: (serverId: number, applicationId?: number) =>
+    api.get<ScheduledTask[]>('/servers/' + serverId + '/scheduled-tasks', {
+      params: applicationId ? { application_id: applicationId } : undefined,
+    }),
+  get: (serverId: number, taskId: number) =>
+    api.get<ScheduledTask>('/servers/' + serverId + '/scheduled-tasks/' + taskId),
+  create: (serverId: number, data: {
+    command: string
+    user: string
+    frequency: ScheduledTask['frequency']
+    application_id?: number
+    minute?: string
+    hour?: string
+    day?: string
+    month?: string
+    weekday?: string
+  }) => api.post<ScheduledTask>('/servers/' + serverId + '/scheduled-tasks', data),
+  delete: (serverId: number, taskId: number) =>
+    api.delete('/servers/' + serverId + '/scheduled-tasks/' + taskId),
+  output: (serverId: number, taskId: number, lines?: number) =>
+    api.get<{ output: string; exists: boolean }>(
+      '/servers/' + serverId + '/scheduled-tasks/' + taskId + '/output',
+      { params: lines ? { lines } : undefined }
+    ),
 }
 
 // Databases (server-scoped)
