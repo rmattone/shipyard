@@ -19,3 +19,6 @@ node_modules/
 
 # PHP vendor (backend has its own .gitignore but just in case)
 vendor/
+
+# Git worktrees
+.worktrees/
