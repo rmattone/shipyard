@@ -20,6 +20,11 @@ use RuntimeException;
  *  - is re-read from the server afterwards and compared against what was
  *    requested, so a silent partial apply is reported as a failure rather
  *    than a success.
+ *
+ * `sshd -T` (without `-C`) reports only the global configuration; a `Match`
+ * block that re-enables PasswordAuthentication for specific users/groups is
+ * neither reflected in what this service reads back nor controlled by what
+ * it writes.
  */
 class SshdConfigService
 {
@@ -113,10 +118,19 @@ class SshdConfigService
             // Refuse to touch sshd_config itself, ever. If this distro has
             // no Include pointed at sshd_config.d, a drop-in here would
             // simply never be read by sshd, so bail out instead of quietly
-            // doing nothing (or worse, editing sshd_config in place).
-            'if ! $SUDO grep -qiE \'^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d\' /etc/ssh/sshd_config; then',
+            // doing nothing (or worse, editing sshd_config in place). The
+            // exit code is captured rather than just negated: grep exits 1
+            // for "no match" (genuinely no Include directive) but exits >1
+            // on its own errors (e.g. sudo denied, file unreadable), which
+            // must NOT be reported to the admin as "add an Include
+            // directive" when the real problem is something else entirely.
+            'INCLUDE_RC=0',
+            '$SUDO grep -qiE \'^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d\' /etc/ssh/sshd_config || INCLUDE_RC=$?',
+            'if [ "$INCLUDE_RC" -eq 1 ]; then',
             '    echo '.self::NO_INCLUDE_MARKER,
             '    exit 2',
+            'elif [ "$INCLUDE_RC" -ne 0 ]; then',
+            '    exit "$INCLUDE_RC"',
             'fi',
             '',
             'HAD_FILE=0',
@@ -147,7 +161,12 @@ class SshdConfigService
             '',
             // reload, never restart: restart would drop the session we're
             // running this over if sshd doesn't come back up cleanly.
-            '$SUDO systemctl reload ssh 2>/dev/null || $SUDO systemctl reload sshd',
+            // Stderr is deliberately left unsuppressed on both attempts: a
+            // real failure on the primary unit name must not be hidden
+            // behind the (usually benign) "unit not found" from the
+            // fallback name. Neither can collide with parseEffectiveValues'
+            // regex, which only matches exact "directive value" lines.
+            '$SUDO systemctl reload ssh || $SUDO systemctl reload sshd',
             '',
             '$SUDO "$SSHD" -T 2>/dev/null | grep -Ei \'^(passwordauthentication|permitrootlogin) \' || true',
         ]);
@@ -171,7 +190,17 @@ class SshdConfigService
         }
 
         if (! $result['success']) {
-            throw new RuntimeException('Failed to apply sshd settings: '.$result['output']);
+            // By this point the new drop-in has already passed `sshd -t`,
+            // so the most likely remaining cause is the reload step itself
+            // failing; the drop-in is left in place either way (it is only
+            // ever removed/restored by the validation-failure branch above),
+            // so it will still take effect on the next sshd restart or
+            // server reboot even if this reload did not succeed.
+            throw new RuntimeException(
+                'Failed to apply sshd settings: '.$result['output']
+                .' The validated configuration remains at '.self::DROP_IN_PATH
+                .' and will take effect on the next sshd restart or server reboot even if this attempt failed to reload sshd.'
+            );
         }
 
         $values = $this->parseEffectiveValues($result['output']);
@@ -237,7 +266,22 @@ class SshdConfigService
             $line = trim($line);
 
             if (preg_match('/^(passwordauthentication|permitrootlogin)\s+(\S+)$/i', $line, $matches)) {
-                $values[strtolower($matches[1])] = strtolower($matches[2]);
+                $directive = strtolower($matches[1]);
+                $value = strtolower($matches[2]);
+
+                if ($directive === 'permitrootlogin' && $value === 'without-password') {
+                    // sshd -T always echoes the legacy alias
+                    // "without-password" for what sshd_config accepts (and
+                    // this service writes) as "prohibit-password"; real
+                    // OpenSSH never prints "prohibit-password" back, even
+                    // when that's exactly what was configured. The two are
+                    // synonyms, so canonicalize to the modern spelling this
+                    // API accepts, or every apply of prohibit-password would
+                    // fail its own effective-value verification below.
+                    $value = 'prohibit-password';
+                }
+
+                $values[$directive] = $value;
             }
         }
 
