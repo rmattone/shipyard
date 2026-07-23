@@ -92,13 +92,22 @@ class ServerUserService
             );
         }
 
-        $sshKey = $server->sshKeys()->create([
-            'name' => 'ShipYard',
-            'username' => $validated,
-            'public_key' => $normalized['key'],
-            'fingerprint' => $normalized['fingerprint'],
-            'status' => 'installing',
-        ]);
+        // updateOrCreate: a retried request (e.g. after the OS user was
+        // created but the response was lost) must absorb a stale row instead
+        // of tripping the (server_id, username, fingerprint) unique index and
+        // surfacing a raw 500 after the account already exists.
+        $sshKey = $server->sshKeys()->updateOrCreate(
+            [
+                'server_id' => $server->id,
+                'username' => $validated,
+                'fingerprint' => $normalized['fingerprint'],
+            ],
+            [
+                'name' => 'ShipYard',
+                'public_key' => $normalized['key'],
+                'status' => 'installing',
+            ]
+        );
 
         ProcessServerSshKeyInstall::dispatch($sshKey);
     }
@@ -106,6 +115,14 @@ class ServerUserService
     public function switchConnectionUser(Server $server, string $username, bool $fixOwnership): Server
     {
         $validated = $this->assertValidUsername($username);
+
+        // Local execution runs shell commands directly as the process' own
+        // user (see SSHService::executeLocal); testConnection() never
+        // actually logs in as $username, so "verifying" a switch here would
+        // be vacuous and the persisted username would be a lie.
+        if ($server->is_local) {
+            throw new InvalidArgumentException('Connection-user switching is not supported for local servers.');
+        }
 
         // 1. The user must actually exist on the box before anything else.
         $exists = false;
@@ -144,6 +161,23 @@ class ServerUserService
             );
         }
 
+        // 2b. Reachability alone is not enough: every later deploy/hardening
+        // operation runs privileged commands wrapped in `sudo -n` (see
+        // RemoteSudo), so a non-root connection user that cannot sudo
+        // without a password would break the very next operation. Root
+        // needs no sudo, so it skips this check.
+        if ($validated !== 'root') {
+            $this->sshService->connect($transient);
+            $sudoCheck = $this->sshService->execute('sudo -n true 2>/dev/null');
+            $this->sshService->disconnect();
+
+            if (! $sudoCheck['success']) {
+                throw new ConnectionVerificationException(
+                    "User '{$validated}' cannot use passwordless sudo, which ShipYard requires for a non-root connection user."
+                );
+            }
+        }
+
         // 3. Fix up file ownership for existing applications WHILE still
         // connected as the current (old) user, since that is the user that
         // actually holds sudo/root on the box right now. This must happen
@@ -159,9 +193,10 @@ class ServerUserService
         // 4. Only now persist the switch.
         $server->update(['username' => $validated]);
 
-        // 5. The SSHService singleton may still hold a live session for this
-        // server id opened as the OLD user; drop it so the next operation
-        // against this server reconnects fresh as the new user.
+        // 5. SSHService is not a singleton, but this request-scoped instance
+        // may still hold a live session for this server id opened as the OLD
+        // user; drop it so the next operation against this server reconnects
+        // fresh as the new user.
         $this->sshService->disconnect();
 
         return $server->fresh();
@@ -180,15 +215,22 @@ class ServerUserService
             'export LC_ALL=C',
             '',
             // uid 0 (root) or uid >= 1000 (regular/service accounts); system
-            // accounts in between (1-999) are deliberately excluded.
-            '$SUDO getent passwd | awk -F: \'($3==0 || $3>=1000){print "USER:"$1":"$3":"$6":"$7}\'',
+            // accounts in between (1-999) are deliberately excluded. Reading
+            // passwd/group membership needs no privilege, so this runs
+            // WITHOUT $SUDO: listUsers must keep working even when the
+            // current connection user cannot sudo (it is what lets an admin
+            // discover and switch away from such a user in the first place).
+            'getent passwd | awk -F: \'($3==0 || $3>=1000){print "USER:"$1":"$3":"$6":"$7}\'',
             '',
             // Sudo membership check runs in the SAME script as the passwd
             // listing above so the two are always consistent with one
             // another. A candidate has sudo if they belong to the sudo/wheel
-            // group OR have a ShipYard-managed sudoers.d drop-in.
-            '$SUDO getent passwd | awk -F: \'($3==0 || $3>=1000){print $1}\' | while IFS= read -r uname; do',
-            '    if $SUDO id -nG "$uname" 2>/dev/null | tr \' \' \'\n\' | grep -qxE \'sudo|wheel\'; then',
+            // group OR have a ShipYard-managed sudoers.d drop-in. Only the
+            // sudoers.d probe itself needs $SUDO, and it is guarded by an
+            // if/elif so `set -e` does not abort when sudo is unavailable;
+            // it just yields has_sudo=false for that user.
+            'getent passwd | awk -F: \'($3==0 || $3>=1000){print $1}\' | while IFS= read -r uname; do',
+            '    if id -nG "$uname" 2>/dev/null | tr \' \' \'\n\' | grep -qxE \'sudo|wheel\'; then',
             '        echo "SUDO:$uname:yes"',
             '    elif $SUDO test -f "/etc/sudoers.d/shipyard-$uname"; then',
             '        echo "SUDO:$uname:yes"',
@@ -264,16 +306,20 @@ class ServerUserService
             $path = $application->deploy_path;
 
             // Defensive assertion: deploy_path is always set by the
-            // Application model, but a recursive chown of a relative or
-            // empty path resolved against the shell's cwd would be
-            // catastrophic, so refuse anything that isn't absolute.
-            if (! is_string($path) || $path === '' || $path[0] !== '/') {
-                throw new RuntimeException("Refusing to chown a non-absolute deploy path: '{$path}'.");
+            // Application model, but a recursive chown of a relative, empty,
+            // or too-shallow path (e.g. '/' or '/var') would be catastrophic.
+            // Mirrors ApplicationController::isSafeDeployPath's depth rule:
+            // at least three path segments, e.g. /var/www/app.
+            if (! is_string($path) || ! preg_match('#^(/[A-Za-z0-9._-]+){3,}$#', $path)) {
+                throw new RuntimeException("Refusing to chown an unsafe deploy path: '{$path}'.");
             }
 
             $quotedPath = escapeshellarg($path);
 
-            $lines[] = "\$SUDO chown -R {$quotedUser}:{$quotedUser} {$quotedPath}";
+            // Trailing colon (no group after it) sets the group to the
+            // user's login group instead of assuming a group literally named
+            // after the user, which does not hold for pre-existing accounts.
+            $lines[] = "\$SUDO chown -R {$quotedUser}: {$quotedPath}";
             // Restores web-writable directories back to www-data afterwards.
             // Covers both atomic (shared/) and in-place (storage/,
             // bootstrap/cache) layouts; `|| true` because not every app has
