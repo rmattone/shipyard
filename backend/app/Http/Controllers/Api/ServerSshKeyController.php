@@ -8,6 +8,7 @@ use App\Jobs\ProcessServerSshKeyRemoval;
 use App\Models\Server;
 use App\Models\ServerSshKey;
 use App\Services\AuthorizedKeysService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
@@ -43,13 +44,21 @@ class ServerSshKeyController extends Controller
             return response()->json(['message' => 'This key is already registered for this user on this server.'], 422);
         }
 
-        $sshKey = $server->sshKeys()->create([
-            'name' => $validated['name'],
-            'username' => $validated['username'],
-            'public_key' => $normalized['key'],
-            'fingerprint' => $normalized['fingerprint'],
-            'status' => 'installing',
-        ]);
+        try {
+            $sshKey = $server->sshKeys()->create([
+                'name' => $validated['name'],
+                'username' => $validated['username'],
+                'public_key' => $normalized['key'],
+                'fingerprint' => $normalized['fingerprint'],
+                'status' => 'installing',
+            ]);
+        } catch (UniqueConstraintViolationException) {
+            // A concurrent POST for the same server+username+fingerprint
+            // won the race between the exists() check above and this
+            // insert; the unique index is the actual guarantee, that
+            // check is just a fast path for the common case.
+            return response()->json(['message' => 'This key is already registered for this user on this server.'], 422);
+        }
 
         ProcessServerSshKeyInstall::dispatch($sshKey);
 

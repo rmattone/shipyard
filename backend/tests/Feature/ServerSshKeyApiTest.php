@@ -40,6 +40,25 @@ class ServerSshKeyApiTest extends TestCase
         return 'ssh-ed25519 '.base64_encode($blob).' '.$comment;
     }
 
+    /**
+     * Builds an sk-ssh-ed25519@openssh.com blob: an OpenSSH string field per
+     * component (uint32 length prefix + bytes), an inner type string, 32
+     * bytes of "key material", and an application string. $innerType is
+     * normally the same as the outer declared type; passing a different
+     * value produces a blob that lies about its own type.
+     */
+    private function generateSkKey(string $innerType = 'sk-ssh-ed25519@openssh.com', string $comment = 'yubikey'): string
+    {
+        $keyMaterial = random_bytes(32);
+        $application = 'ssh:';
+
+        $blob = pack('N', strlen($innerType)).$innerType
+            .pack('N', strlen($keyMaterial)).$keyMaterial
+            .pack('N', strlen($application)).$application;
+
+        return 'sk-ssh-ed25519@openssh.com '.base64_encode($blob).' '.$comment;
+    }
+
     public function test_endpoints_require_authentication(): void
     {
         $this->getJson("/api/servers/{$this->server->id}/ssh-keys")
@@ -122,6 +141,42 @@ class ServerSshKeyApiTest extends TestCase
                 'name' => 'Garbage',
                 'username' => 'deploy',
                 'public_key' => 'ssh-ed25519 !!!not-base64!!! comment',
+            ])
+            ->assertStatus(422);
+
+        Queue::assertNothingPushed();
+    }
+
+    public function test_store_accepts_a_valid_sk_key(): void
+    {
+        // phpseclib 3 cannot parse FIDO (sk-*) keys at all, so this must be
+        // validated by the blob's self-declared type, not PublicKeyLoader.
+        Queue::fake();
+        $key = $this->generateSkKey();
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/ssh-keys", [
+                'name' => 'Security key',
+                'username' => 'deploy',
+                'public_key' => $key,
+            ])
+            ->assertStatus(202);
+
+        Queue::assertPushed(ProcessServerSshKeyInstall::class);
+    }
+
+    public function test_store_rejects_an_sk_key_whose_blob_declares_a_different_inner_type(): void
+    {
+        Queue::fake();
+        // The line declares sk-ssh-ed25519@openssh.com, but the blob's own
+        // leading type string says ssh-ed25519.
+        $key = $this->generateSkKey(innerType: 'ssh-ed25519');
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/ssh-keys", [
+                'name' => 'Spoofed sk key',
+                'username' => 'deploy',
+                'public_key' => $key,
             ])
             ->assertStatus(422);
 
