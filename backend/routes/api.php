@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\ServerSshKeyController;
+use App\Http\Controllers\Api\SshdSettingsController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TagController;
@@ -79,6 +80,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/servers/{server}/ssh-keys', [ServerSshKeyController::class, 'index']);
     Route::post('/servers/{server}/ssh-keys', [ServerSshKeyController::class, 'store']);
     Route::delete('/servers/{server}/ssh-keys/{sshKey}', [ServerSshKeyController::class, 'destroy']);
+
+    // SSH settings (sshd)
+    Route::get('/servers/{server}/sshd-settings', [SshdSettingsController::class, 'show']);
+    Route::put('/servers/{server}/sshd-settings', [SshdSettingsController::class, 'update']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);
