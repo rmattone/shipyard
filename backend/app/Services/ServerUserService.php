@@ -308,9 +308,10 @@ class ServerUserService
             // Defensive assertion: deploy_path is always set by the
             // Application model, but a recursive chown of a relative, empty,
             // or too-shallow path (e.g. '/' or '/var') would be catastrophic.
-            // Mirrors ApplicationController::isSafeDeployPath's depth rule:
-            // at least three path segments, e.g. /var/www/app.
-            if (! is_string($path) || ! preg_match('#^(/[A-Za-z0-9._-]+){3,}$#', $path)) {
+            // Mirrors ApplicationController::isSafeDeployPath: at least three
+            // path segments (e.g. /var/www/app) and no '..' traversal, since
+            // '/var/www/..' passes the depth regex yet resolves to '/var'.
+            if (! is_string($path) || str_contains($path, '..') || ! preg_match('#^(/[A-Za-z0-9._-]+){3,}$#', $path)) {
                 throw new RuntimeException("Refusing to chown an unsafe deploy path: '{$path}'.");
             }
 
