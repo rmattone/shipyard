@@ -69,7 +69,7 @@ class Server extends Model
         return $this->hasMany(Daemon::class);
     }
 
-    public function serverSshKeys(): HasMany
+    public function sshKeys(): HasMany
     {
         return $this->hasMany(ServerSshKey::class);
     }

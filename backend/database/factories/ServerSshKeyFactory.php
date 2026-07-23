@@ -10,22 +10,21 @@ class ServerSshKeyFactory extends Factory
 {
     protected $model = ServerSshKey::class;
 
-    /**
-     * Real ed25519 keypair generated for fixture purposes only
-     * (`ssh-keygen -t ed25519 -C 'fixture@test'`); the private half was
-     * discarded, only the public key is embedded here.
-     */
-    private const PUBLIC_KEY = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJXbp/Y2XN4epry86K+ta2J0crTp0A+rhEf3Q8MdIbcj fixture@test';
-
     public function definition(): array
     {
-        $blob = explode(' ', self::PUBLIC_KEY)[1];
+        // Real ed25519 keypair generated per instance so factory-created
+        // keys don't collide on unique(server_id, username, fingerprint).
+        // The "blob" is the same wire format ssh-keygen produces: it's
+        // what fingerprint is hashed from and what's base64-encoded into
+        // the public key line's second field.
+        $publicKey = sodium_crypto_sign_publickey(sodium_crypto_sign_keypair());
+        $blob = pack('N', 11).'ssh-ed25519'.pack('N', 32).$publicKey;
 
         return [
             'server_id' => Server::factory(),
-            'name' => fake()->unique()->word().' key',
-            'public_key' => self::PUBLIC_KEY,
-            'fingerprint' => hash('sha256', base64_decode($blob)),
+            'name' => fake()->words(2, true),
+            'public_key' => 'ssh-ed25519 '.base64_encode($blob).' fixture@test',
+            'fingerprint' => hash('sha256', $blob),
             'username' => 'deploy',
             'status' => 'installed',
         ];
