@@ -57,15 +57,27 @@ class ServerUserApiTest extends TestCase
     TXT;
 
     /**
-     * @param  array{connectionSucceeds?: bool}  $options
+     * @param  array{connectionSucceeds?: bool, sudoCheckSucceeds?: bool, expectedTestConnectionUsername?: string}  $options
      */
     private function mockSsh(string $scriptOutput, bool $scriptSucceeds = true, array $options = []): void
     {
         $this->uploadedScripts = [];
         $connectionSucceeds = $options['connectionSucceeds'] ?? true;
+        $sudoCheckSucceeds = $options['sudoCheckSucceeds'] ?? true;
+        $expectedTestConnectionUsername = $options['expectedTestConnectionUsername'] ?? null;
 
-        $this->mock(SSHService::class, function ($mock) use ($scriptOutput, $scriptSucceeds, $connectionSucceeds) {
-            $mock->shouldReceive('testConnection')->andReturn([
+        $this->mock(SSHService::class, function ($mock) use ($scriptOutput, $scriptSucceeds, $connectionSucceeds, $sudoCheckSucceeds, $expectedTestConnectionUsername) {
+            $testConnectionExpectation = $mock->shouldReceive('testConnection');
+
+            if ($expectedTestConnectionUsername !== null) {
+                // Pins that verification runs AS THE NEW (not-yet-persisted)
+                // user, not the server's current connection user.
+                $testConnectionExpectation->withArgs(
+                    fn (Server $s) => $s->username === $expectedTestConnectionUsername && ! $s->exists
+                );
+            }
+
+            $testConnectionExpectation->andReturn([
                 'success' => $connectionSucceeds,
                 'message' => $connectionSucceeds ? 'Connection successful' : 'Connection failed',
                 'system_info' => null,
@@ -78,12 +90,20 @@ class ServerUserApiTest extends TestCase
 
                 return true;
             });
-            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use ($scriptOutput, $scriptSucceeds) {
+            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use ($scriptOutput, $scriptSucceeds, $sudoCheckSucceeds) {
                 if (str_starts_with($command, 'bash ')) {
                     return [
                         'output' => $scriptOutput,
                         'exit_code' => $scriptSucceeds ? 0 : 1,
                         'success' => $scriptSucceeds,
+                    ];
+                }
+
+                if (str_starts_with($command, 'sudo -n true')) {
+                    return [
+                        'output' => '',
+                        'exit_code' => $sudoCheckSucceeds ? 0 : 1,
+                        'success' => $sudoCheckSucceeds,
                     ];
                 }
 
@@ -273,6 +293,47 @@ class ServerUserApiTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_store_reuses_a_stale_ssh_key_row_instead_of_tripping_the_unique_index(): void
+    {
+        Queue::fake();
+        $this->mockSsh('');
+
+        // Simulates a retried request: the OS user create succeeded on a
+        // prior attempt and left a ServerSshKey row behind, but the fresh
+        // request must absorb it (same server_id/username/fingerprint)
+        // rather than raw-500 on the unique index.
+        $publicKey = \phpseclib3\Crypt\PublicKeyLoader::load($this->server->private_key)
+            ->getPublicKey()->toString('OpenSSH');
+        $normalized = app(\App\Services\AuthorizedKeysService::class)->validateAndNormalize($publicKey);
+
+        $existing = \App\Models\ServerSshKey::factory()->create([
+            'server_id' => $this->server->id,
+            'username' => 'deploy',
+            'fingerprint' => $normalized['fingerprint'],
+            'name' => 'stale-name',
+            'public_key' => $normalized['key'],
+            'status' => 'failed',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/users", [
+                'username' => 'deploy',
+                'sudo' => true,
+            ])
+            ->assertStatus(201);
+
+        $this->assertDatabaseCount('server_ssh_keys', 1);
+        $this->assertDatabaseHas('server_ssh_keys', [
+            'id' => $existing->id,
+            'server_id' => $this->server->id,
+            'username' => 'deploy',
+            'name' => 'ShipYard',
+            'status' => 'installing',
+        ]);
+
+        Queue::assertPushed(ProcessServerSshKeyInstall::class);
+    }
+
     public function test_store_rejects_a_malformed_username_before_any_ssh(): void
     {
         $this->mock(SSHService::class, function ($mock) {
@@ -308,7 +369,7 @@ class ServerUserApiTest extends TestCase
 
     public function test_switch_user_happy_path_updates_username_and_disconnects(): void
     {
-        $this->mockSsh(self::SWITCH_USERS_FIXTURE);
+        $this->mockSsh(self::SWITCH_USERS_FIXTURE, options: ['expectedTestConnectionUsername' => 'deploy']);
 
         $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/switch-user", [
@@ -349,7 +410,9 @@ class ServerUserApiTest extends TestCase
         }
 
         $this->assertNotNull($chownScript);
-        $this->assertStringContainsString("chown -R 'deploy':'deploy' '/var/www/shipyard/my-app'", $chownScript);
+        // Trailing colon (no group) sets the user's login group, rather than
+        // assuming a group literally named after the user.
+        $this->assertStringContainsString("chown -R 'deploy': '/var/www/shipyard/my-app'", $chownScript);
         $this->assertStringContainsString('www-data:www-data', $chownScript);
         $this->assertStringContainsString('storage', $chownScript);
         $this->assertStringContainsString('bootstrap/cache', $chownScript);
@@ -391,6 +454,73 @@ class ServerUserApiTest extends TestCase
 
         $this->assertDatabaseHas('servers', [
             'id' => $this->server->id,
+            'username' => 'root',
+        ]);
+    }
+
+    public function test_switch_user_returns_409_and_leaves_username_unchanged_when_target_user_lacks_passwordless_sudo(): void
+    {
+        $this->mockSsh(self::SWITCH_USERS_FIXTURE, options: [
+            'sudoCheckSucceeds' => false,
+            'expectedTestConnectionUsername' => 'deploy',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/switch-user", [
+                'username' => 'deploy',
+                'fix_ownership' => false,
+            ])
+            ->assertStatus(409);
+
+        $this->assertDatabaseHas('servers', [
+            'id' => $this->server->id,
+            'username' => 'root',
+        ]);
+    }
+
+    public function test_switch_user_to_root_skips_the_passwordless_sudo_check(): void
+    {
+        // sudoCheckSucceeds is false to prove root's success here is NOT
+        // because the sudo check happened to pass; root must skip it
+        // entirely, since root never needs sudo.
+        $this->mockSsh(self::SWITCH_USERS_FIXTURE, options: ['sudoCheckSucceeds' => false]);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/switch-user", [
+                'username' => 'root',
+                'fix_ownership' => false,
+            ])
+            ->assertOk()
+            ->assertJsonFragment(['username' => 'root']);
+
+        $this->assertDatabaseHas('servers', [
+            'id' => $this->server->id,
+            'username' => 'root',
+        ]);
+    }
+
+    public function test_switch_user_rejects_local_servers(): void
+    {
+        $localServer = Server::factory()->create([
+            'username' => 'root',
+            'is_local' => true,
+        ]);
+
+        $this->mock(SSHService::class, function ($mock) {
+            $mock->shouldNotReceive('testConnection');
+            $mock->shouldNotReceive('connect');
+            $mock->shouldNotReceive('execute');
+        });
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$localServer->id}/switch-user", [
+                'username' => 'deploy',
+                'fix_ownership' => false,
+            ])
+            ->assertStatus(422);
+
+        $this->assertDatabaseHas('servers', [
+            'id' => $localServer->id,
             'username' => 'root',
         ]);
     }
