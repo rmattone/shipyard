@@ -13,9 +13,10 @@ use RuntimeException;
  * the server via `ufw status numbered`, so what the panel shows can never
  * drift from what is actually enforced.
  *
- * The one safety-critical operation here is enable(): it always allows the
- * server's own SSH port FIRST, in the same script, before force-enabling
- * ufw, so ShipYard can never firewall itself out of a box it manages.
+ * The one safety-critical operation here is enable(): it always allows both
+ * the port ShipYard itself dials and every port sshd reports as effective
+ * FIRST, in the same script, before force-enabling ufw, so ShipYard can
+ * never firewall itself out of a box it manages.
  */
 class UfwService
 {
@@ -49,7 +50,12 @@ class UfwService
         $script = implode("\n", [
             ...$this->prologue(),
             '',
-            'command -v ufw >/dev/null 2>&1 || { echo '.self::MISSING_MARKER.'; exit 0; }',
+            // `command -v ufw` alone can miss a real install: ufw normally
+            // lives in /usr/sbin, which is often absent from a non-root
+            // user's PATH even though sudo's secure_path would still find
+            // it fine for the actual mutation commands below. Missing that
+            // would report an ACTIVE firewall as not-installed.
+            '{ command -v ufw >/dev/null 2>&1 || [ -x /usr/sbin/ufw ]; } || { echo '.self::MISSING_MARKER.'; exit 0; }',
             '$SUDO ufw status numbered',
         ]);
 
@@ -87,15 +93,26 @@ class UfwService
         $this->mutateRule($server, false, $port, $protocol, $source);
     }
 
+    /**
+     * Deleting a rule that does not exist prints "Could not delete
+     * non-existent rule" but still exits 0 (ufw/Launchpad bug #1361872,
+     * never fixed since it's the documented, relied-upon behavior); this is
+     * treated as success, making repeated deletes idempotent.
+     */
     public function deleteRule(Server $server, string $port, string $protocol, ?string $source): void
     {
         $this->mutateRule($server, true, $port, $protocol, $source);
     }
 
     /**
-     * THE safeguard: allows the server's own SSH port before force-enabling
-     * ufw, both in the same script, so a freshly-enabled firewall can never
-     * cut off the very connection managing it.
+     * THE safeguard: before force-enabling ufw, allows both the port
+     * ShipYard itself dials ($server->port) and every port sshd reports as
+     * effective via `sshd -T` (multiple Port directives, or a dialed port
+     * that differs from what sshd actually listens on, e.g. behind a DNAT),
+     * all in the same script. This cannot see through a firewall/NAT that
+     * remaps to a port sshd itself never learns of; a pure network-level
+     * remap beyond what sshd is configured for is out of scope for what ufw
+     * itself can control.
      */
     public function enable(Server $server): void
     {
@@ -104,7 +121,19 @@ class UfwService
         $script = implode("\n", [
             ...$this->prologue(),
             '',
+            // sshd is not normally on a non-root user's PATH.
+            'SSHD=$(command -v sshd || echo /usr/sbin/sshd)',
+            '',
             "\$SUDO ufw allow {$port}/tcp",
+            // `|| true` on the inner pipeline is load-bearing: without it,
+            // a failure of `sshd -T` itself (not merely "no port lines")
+            // would abort the whole script under set -o pipefail before
+            // ufw is ever force-enabled, which is the one thing this
+            // safeguard must not allow to happen silently.
+            'for p in $($SUDO "$SSHD" -T 2>/dev/null | awk \'$1=="port"{print $2}\' || true); do',
+            '    $SUDO ufw allow "$p"/tcp',
+            'done',
+            '',
             '$SUDO ufw --force enable',
         ]);
 
@@ -135,9 +164,12 @@ class UfwService
         $script = implode("\n", [
             ...$this->prologue(),
             '',
-            'export DEBIAN_FRONTEND=noninteractive',
-            '$SUDO apt-get update -qq',
-            '$SUDO apt-get install -y ufw',
+            // sudo's default env_reset strips a plain `export` from the
+            // environment it hands to apt-get for non-root users; passing
+            // it as a VAR=val prefix to the sudo'd command itself survives
+            // that reset instead (see DatabaseInstallationService).
+            '$SUDO DEBIAN_FRONTEND=noninteractive apt-get update -qq',
+            '$SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y ufw',
         ]);
 
         $result = $this->runRemoteScript($server, $script, 180);
@@ -155,10 +187,18 @@ class UfwService
 
         $protocols = $protocol === 'both' ? ['tcp', 'udp'] : [$protocol];
 
-        $commands = array_map(
-            fn (string $proto) => $this->buildRuleCommand($delete, $port, $proto, $source),
-            $protocols,
-        );
+        // Each protocol's command is preceded by an echoed phase marker so
+        // that, under set -euo pipefail, a mid-script failure can still be
+        // attributed to the protocol that was running: the script aborts
+        // immediately after the failing command, so the LAST phase marker
+        // seen in the output is the one that failed (a later protocol's
+        // marker, if any, never gets the chance to print).
+        $commands = [];
+
+        foreach ($protocols as $proto) {
+            $commands[] = 'echo '.$this->phaseMarker($proto);
+            $commands[] = $this->buildRuleCommand($delete, $port, $proto, $source);
+        }
 
         $script = implode("\n", [
             ...$this->prologue(),
@@ -170,9 +210,37 @@ class UfwService
 
         if (! $result['success']) {
             $action = $delete ? 'delete' : 'add';
+            $failedProtocol = $this->lastPhaseProtocol($result['output'], $protocols);
 
-            throw new RuntimeException("Failed to {$action} firewall rule: ".$result['output']);
+            throw new RuntimeException("Failed to {$action} firewall rule (protocol {$failedProtocol}): ".$result['output']);
         }
+    }
+
+    private function phaseMarker(string $protocol): string
+    {
+        return 'SHIPYARD_UFW_PHASE_'.strtoupper($protocol);
+    }
+
+    /**
+     * @param  string[]  $protocols
+     */
+    private function lastPhaseProtocol(string $output, array $protocols): string
+    {
+        $lines = array_map('trim', preg_split('/\r?\n/', $output));
+        $failed = null;
+
+        foreach ($lines as $line) {
+            foreach ($protocols as $proto) {
+                if ($line === $this->phaseMarker($proto)) {
+                    $failed = $proto;
+                }
+            }
+        }
+
+        // No marker made it into the output at all (e.g. the connection
+        // dropped before the script could run); name every protocol that
+        // was attempted rather than guessing which one.
+        return $failed ?? implode('/', $protocols);
     }
 
     private function buildRuleCommand(bool $delete, string $port, string $protocol, ?string $source): string
@@ -195,6 +263,11 @@ class UfwService
             'set -euo pipefail',
             '',
             'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
+            '',
+            // ufw's "Status: active/inactive" and rule-action strings are
+            // gettext-translated; a non-English locale on the target server
+            // would otherwise silently break the parsing below.
+            'export LC_ALL=C',
         ];
     }
 
@@ -212,6 +285,12 @@ class UfwService
             }
 
             [, $number, $to, $action, $from] = $matches;
+
+            // ufw >= 0.35 appends a user-supplied rule comment to the From
+            // column (e.g. "Anywhere            # allow office VPN"); strip
+            // it before any v6 check below, since a commented v6 rule would
+            // otherwise no longer end in the literal " (v6)" suffix.
+            $from = preg_replace('/\s*#.*$/', '', $from) ?? $from;
 
             $v6 = false;
 
