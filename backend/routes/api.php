@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\DeploymentController;
 use App\Http\Controllers\Api\DeploymentStreamController;
 use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\EnvironmentVariableController;
+use App\Http\Controllers\Api\FirewallController;
 use App\Http\Controllers\Api\GitProviderController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\NginxController;
@@ -84,6 +85,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // SSH settings (sshd)
     Route::get('/servers/{server}/sshd-settings', [SshdSettingsController::class, 'show']);
     Route::put('/servers/{server}/sshd-settings', [SshdSettingsController::class, 'update']);
+
+    // Firewall (ufw)
+    Route::get('/servers/{server}/firewall', [FirewallController::class, 'show']);
+    Route::post('/servers/{server}/firewall/rules', [FirewallController::class, 'storeRule']);
+    Route::delete('/servers/{server}/firewall/rules', [FirewallController::class, 'destroyRule']);
+    Route::post('/servers/{server}/firewall/enable', [FirewallController::class, 'enable']);
+    Route::post('/servers/{server}/firewall/disable', [FirewallController::class, 'disable']);
+    Route::post('/servers/{server}/firewall/install', [FirewallController::class, 'install']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);
