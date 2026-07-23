@@ -69,6 +69,11 @@ class Server extends Model
         return $this->hasMany(Daemon::class);
     }
 
+    public function serverSshKeys(): HasMany
+    {
+        return $this->hasMany(ServerSshKey::class);
+    }
+
     public function isActive(): bool
     {
         return $this->status === 'active';
