@@ -18,6 +18,7 @@ use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
 use App\Http\Controllers\Api\ServerSshKeyController;
+use App\Http\Controllers\Api\ServerUserController;
 use App\Http\Controllers\Api\SshdSettingsController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
@@ -93,6 +94,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/servers/{server}/firewall/enable', [FirewallController::class, 'enable']);
     Route::post('/servers/{server}/firewall/disable', [FirewallController::class, 'disable']);
     Route::post('/servers/{server}/firewall/install', [FirewallController::class, 'install']);
+
+    // Server users
+    Route::get('/servers/{server}/users', [ServerUserController::class, 'index']);
+    Route::post('/servers/{server}/users', [ServerUserController::class, 'store']);
+    Route::post('/servers/{server}/switch-user', [ServerUserController::class, 'switchUser']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);
