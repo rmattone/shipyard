@@ -51,7 +51,7 @@ class SshdSettingsTest extends TestCase
     maxauthtries 6
     maxsessions 10
     passwordauthentication yes
-    permitrootlogin prohibit-password
+    permitrootlogin without-password
     permittunnel no
     TXT;
 
@@ -140,9 +140,12 @@ class SshdSettingsTest extends TestCase
 
     public function test_put_happy_path_applies_settings_and_returns_fresh_values(): void
     {
-        $this->mockSsh("passwordauthentication no\npermitrootlogin prohibit-password\n");
+        // Real sshd -T always echoes the legacy "without-password" alias for
+        // PermitRootLogin prohibit-password, never "prohibit-password"
+        // itself; the mocked output reflects that.
+        $this->mockSsh("passwordauthentication no\npermitrootlogin without-password\n");
 
-        $response = $this->actingAs($this->user)
+        $this->actingAs($this->user)
             ->putJson("/api/servers/{$this->server->id}/sshd-settings", [
                 'password_authentication' => 'no',
                 'permit_root_login' => 'prohibit-password',
@@ -167,8 +170,30 @@ class SshdSettingsTest extends TestCase
         $this->assertStringContainsString('PasswordAuthentication no', $script);
         $this->assertStringContainsString('PermitRootLogin prohibit-password', $script);
         $this->assertMatchesRegularExpression('/SHIPYARD_EOF_\w+/', $script);
+    }
 
-        unset($response);
+    /**
+     * Regression test: applySettings writes "PermitRootLogin
+     * prohibit-password", but the effective-value readback it verifies
+     * against always comes back from real sshd as "without-password" (the
+     * legacy alias for the same setting). Without canonicalizing that alias,
+     * this apply would pass sshd -t and reload successfully, then fail its
+     * own post-apply verification and report a 500 on every real server.
+     */
+    public function test_put_normalizes_the_without_password_alias_to_prohibit_password(): void
+    {
+        $this->mockSsh("passwordauthentication no\npermitrootlogin without-password\n");
+
+        $this->actingAs($this->user)
+            ->putJson("/api/servers/{$this->server->id}/sshd-settings", [
+                'password_authentication' => 'no',
+                'permit_root_login' => 'prohibit-password',
+            ])
+            ->assertOk()
+            ->assertJson([
+                'password_authentication' => 'no',
+                'permit_root_login' => 'prohibit-password',
+            ]);
     }
 
     public function test_put_root_lockout_guard_blocks_permit_root_login_no_for_a_root_server(): void
@@ -192,7 +217,7 @@ class SshdSettingsTest extends TestCase
     public function test_put_allows_prohibit_password_for_a_root_server(): void
     {
         $rootServer = Server::factory()->create(['username' => 'root']);
-        $this->mockSsh("passwordauthentication no\npermitrootlogin prohibit-password\n");
+        $this->mockSsh("passwordauthentication no\npermitrootlogin without-password\n");
 
         $this->actingAs($this->user)
             ->putJson("/api/servers/{$rootServer->id}/sshd-settings", [
@@ -226,6 +251,26 @@ class SshdSettingsTest extends TestCase
                 'permit_root_login' => 'prohibit-password',
             ])
             ->assertStatus(422);
+    }
+
+    /**
+     * Regression test: the Include-directive check must only report the
+     * "no Include support" 422 when grep genuinely found no match (exit 1).
+     * Any other failure while checking for it (sudo denied, unreadable
+     * file, etc.) has no SHIPYARD_NO_INCLUDE marker in the output and must
+     * fall through to the generic 500 path instead of misleadingly telling
+     * the admin their distro lacks Include support.
+     */
+    public function test_put_returns_500_for_a_generic_failure_without_the_no_include_marker(): void
+    {
+        $this->mockSsh('sudo: a password is required', scriptSucceeds: false);
+
+        $this->actingAs($this->user)
+            ->putJson("/api/servers/{$this->server->id}/sshd-settings", [
+                'password_authentication' => 'no',
+                'permit_root_login' => 'prohibit-password',
+            ])
+            ->assertStatus(500);
     }
 
     public function test_put_returns_500_when_sshd_validation_fails_and_changes_are_rolled_back(): void
