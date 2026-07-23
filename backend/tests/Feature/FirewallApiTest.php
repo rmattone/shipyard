@@ -45,6 +45,10 @@ class FirewallApiTest extends TestCase
     [ 3] 22/tcp (v6)                ALLOW IN    Anywhere (v6)
     this is not a rule line at all
     [ 4] 22/tcp                     ALLOW IN    Anywhere (v6)
+    [ 5] 3000:3005/tcp              ALLOW IN    Anywhere
+    [ 6] 22/tcp                     LIMIT IN    Anywhere
+    [ 7] 22/tcp                     ALLOW IN    Anywhere on eth0
+    [ 8] 22/tcp                     ALLOW IN    10.0.0.0/24               # office VPN
     TXT;
 
     private const INACTIVE_FIXTURE = <<<'TXT'
@@ -96,43 +100,30 @@ class FirewallApiTest extends TestCase
     {
         $this->mockSsh(self::ACTIVE_MIXED_FIXTURE);
 
-        $this->actingAs($this->user)
+        $response = $this->actingAs($this->user)
             ->getJson("/api/servers/{$this->server->id}/firewall")
             ->assertOk()
-            ->assertJson([
-                'installed' => true,
-                'active' => true,
-                'rules' => [
-                    [
-                        'number' => 1,
-                        'to' => '22/tcp',
-                        'action' => 'ALLOW IN',
-                        'from' => 'Anywhere',
-                        'v6' => false,
-                    ],
-                    [
-                        'number' => 2,
-                        'to' => '80,443/tcp',
-                        'action' => 'ALLOW IN',
-                        'from' => '10.0.0.0/24',
-                        'v6' => false,
-                    ],
-                    [
-                        'number' => 3,
-                        'to' => '22/tcp',
-                        'action' => 'ALLOW IN',
-                        'from' => 'Anywhere',
-                        'v6' => true,
-                    ],
-                    [
-                        'number' => 4,
-                        'to' => '22/tcp',
-                        'action' => 'ALLOW IN',
-                        'from' => 'Anywhere',
-                        'v6' => true,
-                    ],
-                ],
-            ]);
+            ->assertJson(['installed' => true, 'active' => true]);
+
+        // Exact-match the whole rules list (not just a subset): this pins
+        // both that every legitimate rule shape parses correctly AND that
+        // the one deliberately unparseable junk line contributes no entry,
+        // i.e. the list has exactly 8 items, not 9.
+        $this->assertEquals([
+            ['number' => 1, 'to' => '22/tcp', 'action' => 'ALLOW IN', 'from' => 'Anywhere', 'v6' => false],
+            ['number' => 2, 'to' => '80,443/tcp', 'action' => 'ALLOW IN', 'from' => '10.0.0.0/24', 'v6' => false],
+            ['number' => 3, 'to' => '22/tcp', 'action' => 'ALLOW IN', 'from' => 'Anywhere', 'v6' => true],
+            ['number' => 4, 'to' => '22/tcp', 'action' => 'ALLOW IN', 'from' => 'Anywhere', 'v6' => true],
+            // Port range: the "to" column keeps ufw's colon-range syntax verbatim.
+            ['number' => 5, 'to' => '3000:3005/tcp', 'action' => 'ALLOW IN', 'from' => 'Anywhere', 'v6' => false],
+            // LIMIT IN: the action column isn't restricted to ALLOW/DENY/REJECT.
+            ['number' => 6, 'to' => '22/tcp', 'action' => 'LIMIT IN', 'from' => 'Anywhere', 'v6' => false],
+            // Interface-scoped rule: "on eth0" is part of the From column's
+            // free text and must survive intact (single spaces inside it).
+            ['number' => 7, 'to' => '22/tcp', 'action' => 'ALLOW IN', 'from' => 'Anywhere on eth0', 'v6' => false],
+            // ufw >= 0.35 rule comment: stripped from the From column.
+            ['number' => 8, 'to' => '22/tcp', 'action' => 'ALLOW IN', 'from' => '10.0.0.0/24', 'v6' => false],
+        ], $response->json('rules'));
     }
 
     public function test_get_parses_inactive_status(): void
@@ -292,6 +283,40 @@ class FirewallApiTest extends TestCase
         );
     }
 
+    /**
+     * When protocol "both" fails partway through, set -euo pipefail aborts
+     * the script right after the failing command, so only the phase marker
+     * for the protocol that was actually running (udp here; tcp already
+     * succeeded and its marker rolled by) makes it into the output.
+     */
+    public function test_add_rule_failure_names_the_protocol_that_actually_failed(): void
+    {
+        $this->mockSsh("SHIPYARD_UFW_PHASE_TCP\nSHIPYARD_UFW_PHASE_UDP\nERROR", scriptSucceeds: false);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/firewall/rules", [
+                'port' => '8080',
+                'protocol' => 'both',
+            ])
+            ->assertStatus(500);
+
+        $this->assertStringContainsString('protocol udp', $response->json('message'));
+    }
+
+    public function test_delete_rule_failure_names_the_protocol_that_actually_failed_when_the_first_one_fails(): void
+    {
+        $this->mockSsh('SHIPYARD_UFW_PHASE_TCP', scriptSucceeds: false);
+
+        $response = $this->actingAs($this->user)
+            ->deleteJson("/api/servers/{$this->server->id}/firewall/rules", [
+                'port' => '8080',
+                'protocol' => 'both',
+            ])
+            ->assertStatus(500);
+
+        $this->assertStringContainsString('protocol tcp', $response->json('message'));
+    }
+
     public function test_enable_allows_the_ssh_port_before_force_enabling(): void
     {
         $this->mockSsh(self::ACTIVE_MIXED_FIXTURE);
@@ -302,13 +327,22 @@ class FirewallApiTest extends TestCase
 
         $script = $this->uploadedScripts[0];
 
-        $allowPos = strpos($script, 'ufw allow');
+        $dialedPortAllowPos = strpos($script, 'ufw allow 22/tcp');
+        $sshdEffectivePortsAllowPos = strpos($script, 'ufw allow "$p"/tcp');
         $enablePos = strpos($script, 'ufw --force enable');
 
-        $this->assertNotFalse($allowPos, 'Script must allow the SSH port.');
+        $this->assertNotFalse($dialedPortAllowPos, 'Script must allow the dialed SSH port.');
+        $this->assertNotFalse($sshdEffectivePortsAllowPos, 'Script must also allow every port sshd reports as effective.');
         $this->assertNotFalse($enablePos, 'Script must force-enable ufw.');
-        $this->assertLessThan($enablePos, $allowPos, 'The SSH port allow rule must be added BEFORE ufw is enabled.');
-        $this->assertMatchesRegularExpression('/ufw allow \'?22\'?\/tcp/', $script);
+
+        // BOTH allow commands - the dialed port and sshd's effective ports -
+        // must land before ufw is ever force-enabled, or ShipYard could
+        // firewall itself out the moment an admin turns ufw on.
+        $this->assertLessThan($enablePos, $dialedPortAllowPos, 'The dialed-port allow rule must be added BEFORE ufw is enabled.');
+        $this->assertLessThan($enablePos, $sshdEffectivePortsAllowPos, 'The sshd-effective-ports allow loop must run BEFORE ufw is enabled.');
+
+        $this->assertStringContainsString('SSHD=$(command -v sshd', $script);
+        $this->assertStringContainsString('$SUDO "$SSHD" -T', $script);
     }
 
     public function test_enable_uses_the_servers_configured_port(): void
