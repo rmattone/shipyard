@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\NginxController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
+use App\Http\Controllers\Api\ServerSshKeyController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TagController;
@@ -72,6 +73,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/servers/{server}/daemons/{daemon}/output', [DaemonController::class, 'output']);
     Route::post('/servers/{server}/daemons/{daemon}/restart', [DaemonController::class, 'restart']);
     Route::delete('/servers/{server}/daemons/{daemon}', [DaemonController::class, 'destroy']);
+
+    // SSH keys (server-scoped authorized_keys management)
+    Route::get('/servers/{server}/ssh-keys/authorized', [ServerSshKeyController::class, 'authorized']);
+    Route::get('/servers/{server}/ssh-keys', [ServerSshKeyController::class, 'index']);
+    Route::post('/servers/{server}/ssh-keys', [ServerSshKeyController::class, 'store']);
+    Route::delete('/servers/{server}/ssh-keys/{sshKey}', [ServerSshKeyController::class, 'destroy']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);
