@@ -111,7 +111,7 @@ class ServerSshKeyShellSafetyTest extends TestCase
         $this->assertStringContainsString('.ssh"', $script);
         $this->assertStringContainsString('chmod 0600', $script);
         $this->assertStringContainsString('grep -qxF', $script);
-        $this->assertStringContainsString('if [ -L "$AK" ]; then', $script);
+        $this->assertStringContainsString('if $SUDO test -L "$AK"; then', $script);
     }
 
     public function test_install_script_uses_a_randomized_heredoc_delimiter(): void

@@ -118,8 +118,10 @@ class AuthorizedKeysService
             "\$SUDO install -d -m 0700 -o {$quotedUser} -g \"\$GROUP\" \"\$USER_HOME/.ssh\"",
             '',
             // Refuse to follow a symlink into some other, possibly
-            // attacker-controlled, target file.
-            'if [ -L "$AK" ]; then',
+            // attacker-controlled, target file. Must run through $SUDO:
+            // a non-root SSH user with a 0700 home cannot lstat inside it
+            // otherwise, which would let this check silently no-op.
+            'if $SUDO test -L "$AK"; then',
             '    echo '.self::SYMLINK_MARKER,
             '    exit 1',
             'fi',
