@@ -39,6 +39,8 @@ class AuthorizedKeysService
 
     private const NO_FILE_MARKER = 'SHIPYARD_NO_AUTHORIZED_KEYS';
 
+    private const SYMLINK_MARKER = 'SHIPYARD_AK_IS_SYMLINK';
+
     public function __construct(
         protected SSHService $sshService,
     ) {}
@@ -68,14 +70,31 @@ class AuthorizedKeysService
         $blob = $matches[2];
         $comment = $matches[3] ?? '';
 
-        if (base64_decode($blob, true) === false) {
+        $decodedBlob = base64_decode($blob, true);
+
+        if ($decodedBlob === false) {
             throw new InvalidArgumentException('Public key blob is not valid base64.');
         }
 
-        try {
-            PublicKeyLoader::load("{$type} {$blob}");
-        } catch (Throwable $e) {
-            throw new InvalidArgumentException('Public key could not be parsed: '.$e->getMessage());
+        // The blob's own leading length-prefixed string must agree with the
+        // type declared on the line; this is what actually pins the type,
+        // since PublicKeyLoader can't parse FIDO (sk-*) keys at all (see
+        // below) and would otherwise be the only check for those.
+        if (! $this->blobDeclaresType($decodedBlob, $type)) {
+            throw new InvalidArgumentException('Public key blob does not match the declared key type.');
+        }
+
+        // phpseclib 3 has no FIDO/U2F (sk-*) support, so PublicKeyLoader
+        // throws on otherwise-valid sk-ssh-ed25519@openssh.com /
+        // sk-ecdsa-sha2-nistp256@openssh.com keys. The blob-type check
+        // above is the real validation for those; for every other type,
+        // PublicKeyLoader is kept as an extra parseability check.
+        if (! str_starts_with($type, 'sk-')) {
+            try {
+                PublicKeyLoader::load("{$type} {$blob}");
+            } catch (Throwable $e) {
+                throw new InvalidArgumentException('Public key could not be parsed: '.$e->getMessage());
+            }
         }
 
         $comment = trim(preg_replace('/[^A-Za-z0-9@._+ -]/', '', $comment) ?? '');
@@ -90,12 +109,20 @@ class AuthorizedKeysService
     public function installKey(ServerSshKey $key): void
     {
         $quotedUser = escapeshellarg($this->assertValidUsername($key->username));
+        $this->assertSingleLine($key->public_key);
         $delimiter = 'SHIPYARD_EOF_'.Str::random(32);
 
         $script = implode("\n", [
             ...$this->homePrologue($quotedUser),
             '',
             "\$SUDO install -d -m 0700 -o {$quotedUser} -g \"\$GROUP\" \"\$USER_HOME/.ssh\"",
+            '',
+            // Refuse to follow a symlink into some other, possibly
+            // attacker-controlled, target file.
+            'if [ -L "$AK" ]; then',
+            '    echo '.self::SYMLINK_MARKER,
+            '    exit 1',
+            'fi',
             '$SUDO touch "$AK"',
             "\$SUDO chown {$quotedUser} \"\$AK\"",
             '$SUDO chgrp "$GROUP" "$AK"',
@@ -119,6 +146,7 @@ class AuthorizedKeysService
     public function removeKey(ServerSshKey $key): void
     {
         $quotedUser = escapeshellarg($this->assertValidUsername($key->username));
+        $this->assertSingleLine($key->public_key);
         $delimiter = 'SHIPYARD_EOF_'.Str::random(32);
 
         $script = implode("\n", [
@@ -136,9 +164,11 @@ class AuthorizedKeysService
             ')',
             '',
             'TMP=$(mktemp)',
+            // Guarantees the scratch file is gone however the script
+            // exits, including a set -e abort partway through.
+            'trap \'rm -f "$TMP"\' EXIT',
             '$SUDO grep -vxF "$KEY" "$AK" > "$TMP" || true',
             "\$SUDO install -m 0600 -o {$quotedUser} -g \"\$GROUP\" \"\$TMP\" \"\$AK\"",
-            'rm -f "$TMP"',
         ]);
 
         $result = $this->runRemoteScript($key->server, $script, 60);
@@ -174,13 +204,15 @@ class AuthorizedKeysService
             throw new RuntimeException('Failed to list authorized keys: '.$result['output']);
         }
 
-        $output = $result['output'];
+        $lines = array_map('trim', preg_split('/\r?\n/', $result['output']));
 
-        if (str_contains($output, self::NO_USER_MARKER) || str_contains($output, self::NO_FILE_MARKER)) {
+        // Exact-line match: a key comment that happens to contain one of
+        // these marker strings must not be mistaken for the marker itself.
+        if (in_array(self::NO_USER_MARKER, $lines, true) || in_array(self::NO_FILE_MARKER, $lines, true)) {
             return [];
         }
 
-        return $this->parseAuthorizedKeys($server, $output);
+        return $this->parseAuthorizedKeys($server, $username, $result['output']);
     }
 
     private function assertValidUsername(string $username): string
@@ -193,6 +225,42 @@ class AuthorizedKeysService
     }
 
     /**
+     * Defense in depth for installKey/removeKey: the row's public_key is
+     * normalized by validateAndNormalize on the way in, but a future write
+     * path (a migration, a manual DB edit, another service) could store
+     * something else. A newline here would let extra authorized_keys lines
+     * ride along inside the heredoc.
+     */
+    private function assertSingleLine(string $value): string
+    {
+        if (preg_match('/[\r\n\x00]/', $value)) {
+            throw new InvalidArgumentException('Public key must be a single line.');
+        }
+
+        return $value;
+    }
+
+    /**
+     * True when the blob's own leading OpenSSH string field (a uint32
+     * length prefix followed by that many bytes) equals the declared key
+     * type verbatim.
+     */
+    private function blobDeclaresType(string $blob, string $type): bool
+    {
+        if (strlen($blob) < 4) {
+            return false;
+        }
+
+        $length = unpack('N', substr($blob, 0, 4))[1];
+
+        if ($length < 0 || strlen($blob) < 4 + $length) {
+            return false;
+        }
+
+        return substr($blob, 4, $length) === $type;
+    }
+
+    /**
      * @return string[]
      */
     private function homePrologue(string $quotedUser): array
@@ -202,7 +270,11 @@ class AuthorizedKeysService
             '',
             'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
             '',
-            "USER_HOME=\$(\$SUDO getent passwd {$quotedUser} | cut -d: -f6)",
+            // set -euo pipefail makes getent's exit 2 (no such user) abort
+            // the script before the -z check ever runs, so the || true is
+            // load-bearing: it lets the empty-USER_HOME branch below fire
+            // instead of the script dying silently on the pipeline.
+            "USER_HOME=\$(\$SUDO getent passwd {$quotedUser} | cut -d: -f6 || true)",
             'if [ -z "$USER_HOME" ]; then',
             '    echo '.self::NO_USER_MARKER,
             '    exit 1',
@@ -215,10 +287,17 @@ class AuthorizedKeysService
     /**
      * @return array<int, array{type: string, comment: ?string, fingerprint: ?string, tracked: bool}>
      */
-    private function parseAuthorizedKeys(Server $server, string $output): array
+    private function parseAuthorizedKeys(Server $server, string $username, string $output): array
     {
+        // Scoped to this username, and to rows that represent a key the
+        // panel still expects to be present: a failed row never made it
+        // onto the server (or was cleaned back off), so it must not read
+        // as tracked, and a key tracked for one user must not bleed into
+        // another user's listing just because the fingerprint matches.
         $trackedFingerprints = ServerSshKey::query()
             ->where('server_id', $server->id)
+            ->where('username', $username)
+            ->whereIn('status', ['installing', 'installed', 'removing'])
             ->pluck('fingerprint')
             ->all();
 
@@ -232,7 +311,7 @@ class AuthorizedKeysService
             }
 
             try {
-                $normalized = $this->validateAndNormalize($line);
+                $normalized = $this->validateAndNormalize($this->stripLeadingOptions($line));
             } catch (InvalidArgumentException) {
                 $keys[] = [
                     'type' => 'unknown',
@@ -255,5 +334,39 @@ class AuthorizedKeysService
         }
 
         return $keys;
+    }
+
+    /**
+     * OpenSSH authorized_keys lines may be preceded by a comma-separated
+     * options field (command="...",no-port-forwarding ssh-ed25519 ...).
+     * Strips it so the key itself can be classified; a quoted option value
+     * may itself contain whitespace, so only unquoted whitespace ends it.
+     */
+    private function stripLeadingOptions(string $line): string
+    {
+        $types = implode('|', array_map(fn ($type) => preg_quote($type, '/'), self::KEY_TYPES));
+
+        if (preg_match('/^(?:'.$types.')(?:\s|$)/', $line)) {
+            return $line;
+        }
+
+        $length = strlen($line);
+        $inQuotes = false;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $line[$i];
+
+            if ($char === '"' && ($i === 0 || $line[$i - 1] !== '\\')) {
+                $inQuotes = ! $inQuotes;
+
+                continue;
+            }
+
+            if (! $inQuotes && ($char === ' ' || $char === "\t")) {
+                return ltrim(substr($line, $i));
+            }
+        }
+
+        return $line;
     }
 }
