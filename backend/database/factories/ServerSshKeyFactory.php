@@ -19,12 +19,13 @@ class ServerSshKeyFactory extends Factory
         // the public key line's second field.
         $publicKey = sodium_crypto_sign_publickey(sodium_crypto_sign_keypair());
         $blob = pack('N', 11).'ssh-ed25519'.pack('N', 32).$publicKey;
+        $key = 'ssh-ed25519 '.base64_encode($blob).' fixture@test';
 
         return [
             'server_id' => Server::factory(),
             'name' => fake()->words(2, true),
-            'public_key' => 'ssh-ed25519 '.base64_encode($blob).' fixture@test',
-            'fingerprint' => hash('sha256', $blob),
+            'public_key' => $key,
+            'fingerprint' => ServerSshKey::fingerprintFor($key),
             'username' => 'deploy',
             'status' => 'installed',
         ];

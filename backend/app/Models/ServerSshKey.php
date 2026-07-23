@@ -59,4 +59,16 @@ class ServerSshKey extends Model
     {
         $this->update(['status' => 'failed', 'error' => $error]);
     }
+
+    /**
+     * Single source of truth for the fingerprint formula: sha256 hex digest
+     * of the decoded base64 key blob (the key line's second field).
+     */
+    public static function fingerprintFor(string $normalizedKey): string
+    {
+        $parts = preg_split('/\s+/', trim($normalizedKey), 3);
+        $blob = base64_decode($parts[1] ?? '', true);
+
+        return hash('sha256', (string) $blob);
+    }
 }
