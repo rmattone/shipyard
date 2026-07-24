@@ -710,6 +710,114 @@ export const logsApi = {
     }),
 }
 
+// Server SSH keys (server-scoped)
+export interface ServerSshKey {
+  id: number
+  server_id: number
+  name: string
+  public_key: string
+  fingerprint: string
+  username: string
+  status: 'installing' | 'installed' | 'removing' | 'failed'
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface AuthorizedKeyEntry {
+  type: string
+  comment: string
+  fingerprint: string | null
+  tracked: boolean
+}
+
+export const serverSshKeysApi = {
+  list: (serverId: number) =>
+    api.get<ServerSshKey[]>('/servers/' + serverId + '/ssh-keys'),
+  create: (serverId: number, data: { name: string; username: string; public_key: string }) =>
+    api.post<ServerSshKey>('/servers/' + serverId + '/ssh-keys', data),
+  delete: (serverId: number, sshKeyId: number) =>
+    api.delete<{ message: string }>('/servers/' + serverId + '/ssh-keys/' + sshKeyId),
+  authorized: (serverId: number, username?: string) =>
+    api.get<{ username: string; keys: AuthorizedKeyEntry[] }>(
+      '/servers/' + serverId + '/ssh-keys/authorized',
+      { params: username ? { username } : undefined }
+    ),
+}
+
+// sshd hardening settings (server-scoped)
+export interface SshdSettings {
+  password_authentication: 'yes' | 'no'
+  permit_root_login: 'yes' | 'no' | 'prohibit-password'
+  supports_include: boolean
+}
+
+export const sshdApi = {
+  get: (serverId: number) =>
+    api.get<SshdSettings>('/servers/' + serverId + '/sshd-settings'),
+  update: (serverId: number, data: {
+    password_authentication: 'yes' | 'no'
+    permit_root_login: 'yes' | 'no' | 'prohibit-password'
+  }) => api.put<SshdSettings>('/servers/' + serverId + '/sshd-settings', data),
+}
+
+// Firewall (UFW, server-scoped)
+export interface FirewallRule {
+  number: number
+  to: string
+  action: string
+  from: string
+  v6: boolean
+}
+
+export interface FirewallStatus {
+  installed: boolean
+  active: boolean
+  rules: FirewallRule[]
+}
+
+export interface FirewallRuleSpec {
+  port: string
+  protocol: 'tcp' | 'udp' | 'both'
+  source?: string | null
+}
+
+export const firewallApi = {
+  status: (serverId: number) =>
+    api.get<FirewallStatus>('/servers/' + serverId + '/firewall'),
+  addRule: (serverId: number, data: FirewallRuleSpec) =>
+    api.post<FirewallStatus>('/servers/' + serverId + '/firewall/rules', data),
+  deleteRule: (serverId: number, data: FirewallRuleSpec) =>
+    api.delete<FirewallStatus>('/servers/' + serverId + '/firewall/rules', { data }),
+  enable: (serverId: number) =>
+    api.post<FirewallStatus>('/servers/' + serverId + '/firewall/enable'),
+  disable: (serverId: number) =>
+    api.post<FirewallStatus>('/servers/' + serverId + '/firewall/disable'),
+  install: (serverId: number) =>
+    api.post<FirewallStatus>('/servers/' + serverId + '/firewall/install'),
+}
+
+// Server users (server-scoped)
+export interface ServerUser {
+  name: string
+  uid: number
+  home: string
+  shell: string
+  has_sudo: boolean
+  is_connection_user: boolean
+}
+
+export const serverUsersApi = {
+  list: (serverId: number) =>
+    api.get<{ users: ServerUser[] }>('/servers/' + serverId + '/users'),
+  create: (serverId: number, data: { username: string; sudo: boolean }) =>
+    api.post<{ message: string; username: string; sudo: boolean }>(
+      '/servers/' + serverId + '/users', data
+    ),
+  switchUser: (serverId: number, data: { username: string; fix_ownership: boolean }) =>
+    api.post<Server>('/servers/' + serverId + '/switch-user', data),
+}
+
 // System
 export interface SystemVersion {
   current_version: string
