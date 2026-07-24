@@ -4,6 +4,7 @@ import { formatDistanceToNow } from 'date-fns'
 import {
   serverSshKeysApi,
   sshdApi,
+  getErrorMessage,
   Server,
   ServerSshKey,
   AuthorizedKeyEntry,
@@ -62,11 +63,6 @@ interface SshSettingsSectionProps {
   server: Server
 }
 
-const errorMessage = (error: unknown, fallback: string) => {
-  const err = error as { response?: { data?: { message?: string } } }
-  return err.response?.data?.message || fallback
-}
-
 export default function SshSettingsSection({ server }: SshSettingsSectionProps) {
   // Tracked SSH keys
   const [sshKeys, setSshKeys] = useState<ServerSshKey[]>([])
@@ -99,7 +95,7 @@ export default function SshSettingsSection({ server }: SshSettingsSectionProps) 
 
   useEffect(() => {
     refreshKeys()
-      .catch((error: unknown) => toast.error(errorMessage(error, 'Failed to load SSH keys')))
+      .catch((error: unknown) => toast.error(getErrorMessage(error, 'Failed to load SSH keys')))
       .finally(() => setLoadingKeys(false))
   }, [refreshKeys])
 
@@ -131,7 +127,7 @@ export default function SshSettingsSection({ server }: SshSettingsSectionProps) 
     setSshdError(null)
     sshdApi.get(server.id)
       .then(response => setSshd(response.data))
-      .catch((error: unknown) => setSshdError(errorMessage(error, 'Could not read sshd settings')))
+      .catch((error: unknown) => setSshdError(getErrorMessage(error, 'Could not read sshd settings')))
       .finally(() => setLoadingSshd(false))
   }, [server.id])
 
@@ -152,7 +148,7 @@ export default function SshSettingsSection({ server }: SshSettingsSectionProps) 
       setShowAddKeyDialog(false)
       await refreshKeys()
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to add SSH key'))
+      toast.error(getErrorMessage(error, 'Failed to add SSH key'))
     } finally {
       setAddingKey(false)
     }
@@ -166,7 +162,7 @@ export default function SshSettingsSection({ server }: SshSettingsSectionProps) 
       toast.success('SSH key removal started')
       await refreshKeys()
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to remove SSH key'))
+      toast.error(getErrorMessage(error, 'Failed to remove SSH key'))
     } finally {
       setDeletingKey(false)
       setKeyToDelete(null)
@@ -186,7 +182,7 @@ export default function SshSettingsSection({ server }: SshSettingsSectionProps) 
       setSshd(response.data)
       toast.success('SSH hardening settings updated')
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to update sshd settings'))
+      toast.error(getErrorMessage(error, 'Failed to update sshd settings'))
     } finally {
       setSavingSshd(false)
       setPendingSshd(null)

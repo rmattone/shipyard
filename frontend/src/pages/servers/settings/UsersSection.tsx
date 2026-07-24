@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
-import { serverUsersApi, Server, ServerUser } from '@/services/api'
+import { serverUsersApi, getErrorMessage, Server, ServerUser } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -64,8 +64,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
       const response = await serverUsersApi.list(server.id)
       setUsers(response.data.users)
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Failed to load server users')
+      toast.error(getErrorMessage(error, 'Failed to load server users'))
     } finally {
       setLoading(false)
     }
@@ -88,8 +87,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
       setShowCreateDialog(false)
       await loadUsers()
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Failed to create user')
+      toast.error(getErrorMessage(error, 'Failed to create user'))
     } finally {
       setCreating(false)
     }
@@ -113,8 +111,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
       setUserToSwitch(null)
       await loadUsers()
     } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Failed to switch connection user')
+      toast.error(getErrorMessage(error, 'Failed to switch connection user'))
     } finally {
       setSwitching(false)
     }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import {
   firewallApi,
+  getErrorMessage,
   Server,
   FirewallStatus,
   FirewallRule,
@@ -60,11 +61,6 @@ interface NetworkSettingsSectionProps {
   server: Server
 }
 
-const errorMessage = (error: unknown, fallback: string) => {
-  const err = error as { response?: { data?: { message?: string } } }
-  return err.response?.data?.message || fallback
-}
-
 // Only rows shaped exactly like what this panel itself can produce
 // ("port[/proto]" with an IPv4/CIDR or absent source) are safe to turn back
 // into a delete spec. App profile names, interface-scoped sources (e.g.
@@ -111,7 +107,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
     setFirewallError(null)
     firewallApi.status(server.id)
       .then(response => setStatus(response.data))
-      .catch((error: unknown) => setFirewallError(errorMessage(error, 'Could not read firewall status')))
+      .catch((error: unknown) => setFirewallError(getErrorMessage(error, 'Could not read firewall status')))
       .finally(() => setLoading(false))
   }, [server.id])
 
@@ -122,7 +118,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       setStatus(response.data)
       toast.success('UFW installed')
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to install UFW'))
+      toast.error(getErrorMessage(error, 'Failed to install UFW'))
     } finally {
       setInstalling(false)
     }
@@ -135,7 +131,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       setStatus(response.data)
       toast.success('Firewall enabled')
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to enable firewall'))
+      toast.error(getErrorMessage(error, 'Failed to enable firewall'))
     } finally {
       setToggling(false)
       setShowEnableConfirm(false)
@@ -149,7 +145,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       setStatus(response.data)
       toast.success('Firewall disabled')
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to disable firewall'))
+      toast.error(getErrorMessage(error, 'Failed to disable firewall'))
     } finally {
       setToggling(false)
     }
@@ -176,7 +172,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       toast.success('Firewall rule added')
       setShowAddRuleDialog(false)
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to add firewall rule'))
+      toast.error(getErrorMessage(error, 'Failed to add firewall rule'))
     } finally {
       setAddingRule(false)
     }
@@ -195,7 +191,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       setStatus(response.data)
       toast.success('Firewall rule removed')
     } catch (error: unknown) {
-      toast.error(errorMessage(error, 'Failed to remove firewall rule'))
+      toast.error(getErrorMessage(error, 'Failed to remove firewall rule'))
     } finally {
       setDeletingRule(false)
       setRuleToDelete(null)
@@ -285,10 +281,10 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {status.rules.map((rule, idx) => {
+                    {status.rules.map((rule) => {
                       const spec = parseRuleSpec(rule)
                       return (
-                        <TableRow key={idx}>
+                        <TableRow key={rule.number}>
                           <TableCell className="font-mono text-xs">
                             {rule.to}{rule.v6 && <span className="text-muted-foreground"> (v6)</span>}
                           </TableCell>
@@ -313,7 +309,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
                                   </span>
                                 </TooltipTrigger>
                                 <TooltipContent side="left">
-                                  Delete this rule from the server's command line
+                                  This rule shape can't be safely removed from here; delete it with ufw on the server.
                                 </TooltipContent>
                               </Tooltip>
                             )}
