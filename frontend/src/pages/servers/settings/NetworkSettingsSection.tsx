@@ -182,6 +182,11 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
     setShowAddRuleDialog(true)
   }
 
+  const closeAddRuleDialog = () => {
+    setShowAddRuleDialog(false)
+    setActivePreset(null)
+  }
+
   const handlePresetClick = async (preset: ServicePreset) => {
     if (preset.requiresSource) {
       setActivePreset(preset)
@@ -223,8 +228,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       })
       setStatus(response.data)
       toast.success('Firewall rule added')
-      setShowAddRuleDialog(false)
-      setActivePreset(null)
+      closeAddRuleDialog()
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, 'Failed to add firewall rule'))
     } finally {
@@ -419,8 +423,11 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       <Dialog
         open={showAddRuleDialog}
         onOpenChange={(open) => {
-          setShowAddRuleDialog(open)
-          if (!open) setActivePreset(null)
+          if (open) {
+            setShowAddRuleDialog(true)
+          } else {
+            closeAddRuleDialog()
+          }
         }}
       >
         <DialogContent>
@@ -487,12 +494,12 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddRuleDialog(false)}>
+            <Button variant="outline" onClick={closeAddRuleDialog}>
               Cancel
             </Button>
             <Button
               onClick={handleAddRule}
-              disabled={addingRule || (!!activePreset && !ruleForm.source.trim())}
+              disabled={addingRule || (!!activePreset?.requiresSource && !ruleForm.source.trim())}
             >
               {addingRule && <LoadingSpinner size="sm" className="mr-2" />}
               Add Rule
