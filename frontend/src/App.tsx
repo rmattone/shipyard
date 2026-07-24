@@ -9,7 +9,7 @@ import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 
 // Organization level pages
-import OrganizationOverview from './pages/OrganizationOverview'
+import Servers from './pages/Servers'
 import ServerNew from './pages/servers/ServerNew'
 import Settings from './pages/settings/Settings'
 import GitProviderNew from './pages/git-providers/GitProviderNew'
@@ -68,7 +68,7 @@ function AppRoutes() {
         }
       >
         {/* Organization level */}
-        <Route index element={<OrganizationOverview />} />
+        <Route index element={<Servers />} />
         <Route path="servers/new" element={<ServerNew />} />
         <Route path="settings" element={<Settings />} />
         <Route path="settings/git-providers/new" element={<GitProviderNew />} />

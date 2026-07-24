@@ -267,17 +267,18 @@ export default function AppSettings() {
   ]
 
   return (
-    <div className="flex gap-8">
-      {/* Sidebar */}
-      <div className="w-48 flex-shrink-0">
-        <h1 className="text-2xl font-bold mb-6">Settings</h1>
+    <div className="relative flex gap-10 lg:gap-16">
+      {/* Sidebar; hangs in the left gutter on wide screens so the content
+          column matches the centered layout of the other tabs */}
+      <div className="w-56 flex-shrink-0 min-[1650px]:absolute min-[1650px]:top-0 min-[1650px]:right-full min-[1650px]:mr-12">
+        <h1 className="text-2xl font-bold mb-8">Settings</h1>
         <nav className="space-y-1">
           {sidebarItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
               className={cn(
-                'w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                'w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors',
                 activeSection === item.id
                   ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -290,7 +291,7 @@ export default function AppSettings() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 max-w-2xl">
+      <div className="flex-1 min-w-0">
         {activeSection === 'general' && (
           <Card>
             <CardHeader>
@@ -299,9 +300,9 @@ export default function AppSettings() {
                 Manage your application's basic configuration.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-6">
+            <CardContent>
               {/* Name */}
-              <div className="flex items-start justify-between py-4 border-b">
+              <div className="flex items-start justify-between py-6 border-b">
                 <div>
                   <p className="font-medium">Application name</p>
                   <p className="text-sm text-muted-foreground">
@@ -311,12 +312,12 @@ export default function AppSettings() {
                 <Input
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-64"
+                  className="w-80"
                 />
               </div>
 
               {/* Framework */}
-              <div className="flex items-start justify-between py-4 border-b">
+              <div className="flex items-start justify-between py-6 border-b">
                 <div>
                   <p className="font-medium">Framework</p>
                   <p className="text-sm text-muted-foreground">
@@ -327,7 +328,7 @@ export default function AppSettings() {
                   value={formData.type}
                   onValueChange={(value) => setFormData({ ...formData, type: value as 'laravel' | 'nodejs' | 'static', node_version: 'default' })}
                 >
-                  <SelectTrigger className="w-64">
+                  <SelectTrigger className="w-80">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -340,7 +341,7 @@ export default function AppSettings() {
 
               {/* Node.js Version */}
               {(formData.type === 'nodejs' || formData.type === 'static') && (
-                <div className="flex items-start justify-between py-4 border-b">
+                <div className="flex items-start justify-between py-6 border-b">
                   <div>
                     <p className="font-medium">Node.js Version</p>
                     <p className="text-sm text-muted-foreground">
@@ -354,7 +355,7 @@ export default function AppSettings() {
                     onValueChange={(value) => setFormData({ ...formData, node_version: value })}
                     disabled={loadingNodeVersions}
                   >
-                    <SelectTrigger className="w-64">
+                    <SelectTrigger className="w-80">
                       <SelectValue placeholder={loadingNodeVersions ? 'Loading versions...' : 'Server default'} />
                     </SelectTrigger>
                     <SelectContent>
@@ -370,7 +371,7 @@ export default function AppSettings() {
               )}
 
               {/* Root Directory */}
-              <div className="flex items-start justify-between py-4 border-b">
+              <div className="flex items-start justify-between py-6 border-b">
                 <div>
                   <p className="font-medium">Root directory</p>
                   <p className="text-sm text-muted-foreground">
@@ -385,7 +386,7 @@ export default function AppSettings() {
               </div>
 
               {/* Git Provider */}
-              <div className="flex items-start justify-between py-4 border-b">
+              <div className="flex items-start justify-between py-6 border-b">
                 <div>
                   <p className="font-medium">Git provider</p>
                   <p className="text-sm text-muted-foreground">
@@ -396,7 +397,7 @@ export default function AppSettings() {
                   value={formData.git_provider_id || 'none'}
                   onValueChange={(value) => setFormData({ ...formData, git_provider_id: value === 'none' ? '' : value })}
                 >
-                  <SelectTrigger className="w-64">
+                  <SelectTrigger className="w-80">
                     <SelectValue placeholder="None (SSH keys)" />
                   </SelectTrigger>
                   <SelectContent>
@@ -411,7 +412,7 @@ export default function AppSettings() {
               </div>
 
               {/* Repository URL */}
-              <div className="flex items-start justify-between py-4 border-b">
+              <div className="flex items-start justify-between py-6 border-b">
                 <div>
                   <p className="font-medium">Repository URL</p>
                   <p className="text-sm text-muted-foreground">
@@ -426,7 +427,7 @@ export default function AppSettings() {
               </div>
 
               {/* Branch */}
-              <div className="flex items-start justify-between py-4 border-b">
+              <div className="flex items-start justify-between py-6 border-b">
                 <div>
                   <p className="font-medium">Branch</p>
                   <p className="text-sm text-muted-foreground">
@@ -436,19 +437,19 @@ export default function AppSettings() {
                 <Input
                   value={formData.branch}
                   onChange={(e) => setFormData({ ...formData, branch: e.target.value })}
-                  className="w-64"
+                  className="w-80"
                 />
               </div>
 
               {/* Tags */}
-              <div className="flex items-start justify-between py-4">
+              <div className="flex items-start justify-between py-6">
                 <div>
                   <p className="font-medium">Tags</p>
                   <p className="text-sm text-muted-foreground">
                     Organize your application with tags.
                   </p>
                 </div>
-                <div className="w-64">
+                <div className="w-80">
                   <TagMultiSelect
                     tags={serverTags}
                     selectedIds={selectedTagIds}
@@ -682,7 +683,7 @@ export default function AppSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-start justify-between py-4">
+              <div className="flex items-start justify-between py-6">
                 <div>
                   <p className="font-medium">Delete application</p>
                   <p className="text-sm text-muted-foreground">

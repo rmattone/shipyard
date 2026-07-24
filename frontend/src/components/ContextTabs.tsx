@@ -33,13 +33,13 @@ export function ContextTabs() {
     ]
   } else {
     tabs = [
-      { label: 'Overview', to: '/', end: true },
+      { label: 'Servers', to: '/', end: true },
       { label: 'Settings', to: '/settings' },
     ]
   }
 
   return (
-    <nav className="flex items-center gap-6 px-4 lg:px-6 overflow-x-auto">
+    <nav className="flex items-center gap-8 px-6 lg:px-8 overflow-x-auto">
       {tabs.map((tab) => (
         <NavLink
           key={tab.to}
@@ -47,7 +47,7 @@ export function ContextTabs() {
           end={tab.end}
           className={({ isActive }) =>
             cn(
-              'whitespace-nowrap border-b-2 pb-2.5 text-sm transition-colors',
+              'whitespace-nowrap border-b-2 pt-1 pb-3.5 text-sm transition-colors',
               isActive
                 ? 'border-foreground text-foreground font-medium'
                 : 'border-transparent text-muted-foreground hover:text-foreground'
