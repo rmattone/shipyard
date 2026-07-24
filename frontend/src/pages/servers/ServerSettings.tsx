@@ -32,8 +32,11 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { Pencil, Trash2, Plus } from 'lucide-react'
+import UsersSection from './settings/UsersSection'
+import SshSettingsSection from './settings/SshSettingsSection'
+import NetworkSettingsSection from './settings/NetworkSettingsSection'
 
-type SettingsSection = 'general' | 'tags' | 'danger'
+type SettingsSection = 'general' | 'users' | 'ssh' | 'network' | 'tags' | 'danger'
 
 export default function ServerSettings() {
   const { id } = useParams<{ id: string }>()
@@ -219,6 +222,9 @@ export default function ServerSettings() {
 
   const sidebarItems = [
     { id: 'general' as const, label: 'General' },
+    { id: 'users' as const, label: 'Users' },
+    { id: 'ssh' as const, label: 'SSH' },
+    { id: 'network' as const, label: 'Network' },
     { id: 'tags' as const, label: 'Tags' },
     { id: 'danger' as const, label: 'Danger Zone' },
   ]
@@ -377,6 +383,18 @@ export default function ServerSettings() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {activeSection === 'users' && (
+          <UsersSection server={server} onServerChange={setServer} />
+        )}
+
+        {activeSection === 'ssh' && (
+          <SshSettingsSection server={server} />
+        )}
+
+        {activeSection === 'network' && (
+          <NetworkSettingsSection server={server} />
         )}
 
         {activeSection === 'tags' && (
