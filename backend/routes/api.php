@@ -13,6 +13,7 @@ use App\Http\Controllers\Api\EnvironmentVariableController;
 use App\Http\Controllers\Api\GitProviderController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\NginxController;
+use App\Http\Controllers\Api\NotificationChannelController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
@@ -93,6 +94,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/servers/{server}/databases/{database}/users/{user}/revoke', [DatabaseUserController::class, 'revokePrivileges']);
 
     // Git Providers
+    // Notification channels
+    Route::apiResource('notification-channels', NotificationChannelController::class);
+    Route::post('/notification-channels/{notification_channel}/test', [NotificationChannelController::class, 'test']);
+
     Route::apiResource('git-providers', GitProviderController::class);
     Route::post('/git-providers/{git_provider}/test', [GitProviderController::class, 'testConnection']);
     Route::get('/git-providers/{git_provider}/repositories', [GitProviderController::class, 'repositories']);
