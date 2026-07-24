@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { applicationsApi, domainsApi, Domain, Application } from '../../services/api'
 import { toast } from 'sonner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { LoadingSpinner } from '@/components/custom'
@@ -22,15 +23,14 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
-  GlobeAltIcon,
   LockClosedIcon,
   LockOpenIcon,
-  PlusIcon,
-  EllipsisVerticalIcon,
+  EllipsisHorizontalIcon,
   TrashIcon,
   StarIcon,
   ShieldCheckIcon,
-  Cog6ToothIcon,
+  PencilIcon,
+  CheckCircleIcon,
 } from '@heroicons/react/24/outline'
 
 export default function AppDomains() {
@@ -154,130 +154,116 @@ export default function AppDomains() {
 
   if (!app) return null
 
-  const primaryDomain = domains.find((d) => d.is_primary)
-  const aliasDomains = domains.filter((d) => !d.is_primary)
+  // Primary domain first, then aliases
+  const sortedDomains = [...domains].sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
   const sslEnabledDomains = domains.filter((d) => d.ssl_enabled)
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Domains</h1>
-          <p className="text-muted-foreground">Manage domains pointing to this application</p>
-        </div>
+        <h1 className="text-2xl font-bold">Domains</h1>
         <Button variant="outline" onClick={() => setNginxModalOpen(true)}>
-          <Cog6ToothIcon className="h-4 w-4 mr-2" />
-          Edit Nginx Configuration
+          <PencilIcon className="h-4 w-4 mr-2" />
+          Edit Nginx configuration
         </Button>
       </div>
 
-      {/* Primary Domain */}
+      {/* Domains */}
       <Card>
         <CardHeader>
-          <CardTitle>Primary Domain</CardTitle>
-          <CardDescription>The main domain for this application</CardDescription>
+          <CardTitle className="text-base">Domains</CardTitle>
+          <CardDescription>
+            Manage your application's domains and SSL certificates.
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {primaryDomain ? (
-            <DomainRow
-              domain={primaryDomain}
-              onDelete={handleDeleteDomain}
-              onSetPrimary={handleSetPrimary}
-              onRequestSsl={openSslModal}
-              showPrimaryAction={false}
-              canDelete={domains.length > 1}
-            />
-          ) : (
-            <p className="text-sm text-muted-foreground">No primary domain configured</p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* Custom Domains */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Custom Domains</CardTitle>
-          <CardDescription>Add additional domains that point to this application</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Add Domain Form */}
-          <form onSubmit={handleAddDomain} className="flex gap-2">
-            <Input
-              placeholder="your-domain.com"
-              value={newDomain}
-              onChange={(e) => setNewDomain(e.target.value)}
-              className="flex-1"
-            />
-            <Button type="submit" disabled={adding || !newDomain.trim()}>
-              {adding ? (
-                <LoadingSpinner size="sm" />
-              ) : (
-                <>
-                  <PlusIcon className="h-4 w-4 mr-2" />
-                  Add Domain
-                </>
-              )}
-            </Button>
-          </form>
-
-          {/* Alias Domains List */}
-          {aliasDomains.length > 0 ? (
-            <div className="space-y-2">
-              {aliasDomains.map((domain) => (
-                <DomainRow
-                  key={domain.id}
-                  domain={domain}
-                  onDelete={handleDeleteDomain}
-                  onSetPrimary={handleSetPrimary}
-                  onRequestSsl={openSslModal}
-                  showPrimaryAction={true}
-                  canDelete={true}
-                />
-              ))}
+          <div className="rounded-lg border p-6 space-y-5">
+            <div className="space-y-1">
+              <h3 className="text-sm font-medium">Custom domains</h3>
+              <p className="text-sm text-muted-foreground">
+                Add custom domains and aliases that you own.
+              </p>
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground py-4 text-center border rounded-lg">
-              No additional domains configured
-            </p>
-          )}
+
+            {/* Add Domain Form */}
+            <form onSubmit={handleAddDomain} className="flex">
+              <Input
+                placeholder="your-domain.com"
+                value={newDomain}
+                onChange={(e) => setNewDomain(e.target.value)}
+                className="flex-1 rounded-r-none"
+              />
+              <Button
+                type="submit"
+                variant="outline"
+                className="rounded-l-none border-l-0"
+                disabled={adding || !newDomain.trim()}
+              >
+                {adding ? <LoadingSpinner size="sm" /> : 'Add domain'}
+              </Button>
+            </form>
+
+            {/* Domains List */}
+            {sortedDomains.length > 0 ? (
+              <div className="space-y-3">
+                {sortedDomains.map((domain) => (
+                  <DomainRow
+                    key={domain.id}
+                    domain={domain}
+                    onDelete={handleDeleteDomain}
+                    onSetPrimary={handleSetPrimary}
+                    onRequestSsl={openSslModal}
+                    showPrimaryAction={!domain.is_primary}
+                    canDelete={!domain.is_primary || domains.length > 1}
+                  />
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground py-6 text-center border rounded-lg">
+                No domains configured
+              </p>
+            )}
+          </div>
         </CardContent>
       </Card>
 
       {/* SSL Certificates */}
       <Card>
         <CardHeader>
-          <CardTitle>Certificates</CardTitle>
-          <CardDescription>SSL certificates for your domains</CardDescription>
+          <CardTitle className="text-base">Certificates</CardTitle>
+          <CardDescription>Manage your application's SSL certificates.</CardDescription>
         </CardHeader>
         <CardContent>
           {sslEnabledDomains.length > 0 ? (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {sslEnabledDomains.map((domain) => (
                 <div
                   key={domain.id}
-                  className="flex items-center justify-between p-3 border rounded-lg"
+                  className="flex items-center justify-between rounded-lg border px-4 py-4"
                 >
-                  <div className="flex items-center gap-3">
-                    <ShieldCheckIcon className="h-5 w-5 text-green-500" />
-                    <div>
-                      <p className="font-medium">{domain.domain}</p>
-                      <p className="text-sm text-muted-foreground">
-                        {domain.ssl_issuer || "Let's Encrypt"}
-                      </p>
-                    </div>
+                  <div>
+                    <p className="text-sm font-medium">{domain.ssl_issuer || "Let's Encrypt"}</p>
+                    <p className="text-sm text-muted-foreground">{domain.domain}</p>
                   </div>
-                  <div className="text-sm text-muted-foreground">
-                    {domain.ssl_expires_at ? (
-                      <span>Expires in {formatExpiryDate(domain.ssl_expires_at)}</span>
-                    ) : (
-                      <span>Active</span>
+                  <div className="flex items-center gap-3">
+                    {domain.ssl_expires_at && (
+                      <span className="text-sm text-muted-foreground">
+                        Expires in {formatExpiryDate(domain.ssl_expires_at)}
+                      </span>
                     )}
+                    <Badge
+                      variant="outline"
+                      className="gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
+                    >
+                      <CheckCircleIcon className="h-3.5 w-3.5" />
+                      Active
+                    </Badge>
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground py-4 text-center border rounded-lg">
+            <p className="text-sm text-muted-foreground py-6 text-center border rounded-lg">
               No SSL certificates configured
             </p>
           )}
@@ -364,66 +350,57 @@ function DomainRow({
   canDelete,
 }: DomainRowProps) {
   return (
-    <div className="flex items-center justify-between p-4 border rounded-lg">
-      <div className="flex items-center gap-3">
-        {domain.ssl_enabled ? (
-          <LockClosedIcon className="h-5 w-5 text-green-500" />
-        ) : (
-          <GlobeAltIcon className="h-5 w-5 text-muted-foreground" />
-        )}
-        <div>
-          <div className="flex items-center gap-2">
-            <p className="font-medium">{domain.domain}</p>
-            {domain.is_primary && (
-              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">Primary</span>
-            )}
-          </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            {domain.ssl_enabled ? (
-              <>
-                <LockClosedIcon className="h-3 w-3 text-green-500" />
-                <span>SSL Enabled</span>
-              </>
-            ) : (
-              <>
-                <LockOpenIcon className="h-3 w-3" />
-                <span>No SSL</span>
-              </>
-            )}
-          </div>
-        </div>
+    <div className="flex items-center justify-between rounded-lg border px-4 py-4">
+      <div className="flex items-center gap-2.5">
+        <p className="text-sm font-medium">{domain.domain}</p>
+        {domain.is_primary && <Badge variant="outline">Primary</Badge>}
       </div>
 
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="sm">
-            <EllipsisVerticalIcon className="h-5 w-5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          {!domain.ssl_enabled && (
-            <DropdownMenuItem onClick={() => onRequestSsl(domain)}>
-              <ShieldCheckIcon className="h-4 w-4 mr-2" />
-              Enable SSL
-            </DropdownMenuItem>
+      <div className="flex items-center gap-3">
+        <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
+          {domain.ssl_enabled ? (
+            <>
+              <LockClosedIcon className="h-3.5 w-3.5 text-emerald-500" />
+              SSL enabled
+            </>
+          ) : (
+            <>
+              <LockOpenIcon className="h-3.5 w-3.5" />
+              No SSL
+            </>
           )}
-          {showPrimaryAction && (
-            <DropdownMenuItem onClick={() => onSetPrimary(domain)}>
-              <StarIcon className="h-4 w-4 mr-2" />
-              Set as Primary
-            </DropdownMenuItem>
-          )}
-          {canDelete && (
-            <DropdownMenuItem
-              onClick={() => onDelete(domain)}
-              className="text-destructive focus:text-destructive"
-            >
-              <TrashIcon className="h-4 w-4 mr-2" />
-              Remove
-            </DropdownMenuItem>
-          )}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        </span>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+              <EllipsisHorizontalIcon className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            {!domain.ssl_enabled && (
+              <DropdownMenuItem onClick={() => onRequestSsl(domain)}>
+                <ShieldCheckIcon className="h-4 w-4 mr-2" />
+                Enable SSL
+              </DropdownMenuItem>
+            )}
+            {showPrimaryAction && (
+              <DropdownMenuItem onClick={() => onSetPrimary(domain)}>
+                <StarIcon className="h-4 w-4 mr-2" />
+                Set as Primary
+              </DropdownMenuItem>
+            )}
+            {canDelete && (
+              <DropdownMenuItem
+                onClick={() => onDelete(domain)}
+                className="text-destructive focus:text-destructive"
+              >
+                <TrashIcon className="h-4 w-4 mr-2" />
+                Remove
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </div>
   )
 }

@@ -49,6 +49,12 @@ class ApplicationImportService
                         $this->importEnvironmentVariables($existing, $dir, $existingRoot, $existing->deployment_strategy);
                     }
 
+                    // Same for domain records: apps imported before domains
+                    // were synced get them from the current nginx config
+                    if (! $existing->domains()->exists()) {
+                        $this->importDomains($existing, $this->matchSite($sites, $dir)['domains'] ?? []);
+                    }
+
                     $skipped[] = ['path' => $dir, 'reason' => 'already managed'];
 
                     continue;
@@ -65,6 +71,8 @@ class ApplicationImportService
                 }
 
                 $site = $this->matchSite($sites, $dir);
+                $domains = $site['domains'] ?? [];
+                $primary = array_key_first($domains);
 
                 $application = Application::create([
                     'server_id' => $server->id,
@@ -75,13 +83,14 @@ class ApplicationImportService
                     'deployment_strategy' => $strategy,
                     'repository_url' => $this->gitRemote($root),
                     'branch' => $this->gitBranch($root),
-                    'domain' => $site['domain'] ?? null,
-                    'ssl_enabled' => $site['ssl'] ?? false,
+                    'domain' => $primary,
+                    'ssl_enabled' => $primary !== null && $domains[$primary],
                     'port' => $type === 'nodejs' ? ($site['proxy_port'] ?? null) : null,
                     'php_version' => $type === 'laravel' ? $server->php_version : null,
                     'status' => 'active',
                 ]);
 
+                $this->importDomains($application, $domains);
                 $this->importEnvironmentVariables($application, $dir, $root, $strategy);
 
                 $imported[] = $application;
@@ -178,7 +187,28 @@ class ApplicationImportService
     }
 
     /**
-     * @return array<int, array{domain: ?string, root: ?string, ssl: bool, proxy_port: ?int}>
+     * Create Domain records from an nginx domain map (name => has ssl).
+     * The first name is the primary domain, the rest are aliases.
+     *
+     * @param  array<string, bool>  $domains
+     */
+    private function importDomains(Application $application, array $domains): void
+    {
+        $isPrimary = true;
+
+        foreach ($domains as $name => $ssl) {
+            $application->domains()->create([
+                'domain' => $name,
+                'is_primary' => $isPrimary,
+                'ssl_enabled' => $ssl,
+            ]);
+
+            $isPrimary = false;
+        }
+    }
+
+    /**
+     * @return array<int, array{domains: array<int, string>, root: ?string, ssl: bool, proxy_port: ?int}>
      */
     private function parseNginxSites(): array
     {
@@ -203,14 +233,13 @@ class ApplicationImportService
             }
             $body = substr($config, $start, $i - $start - 1);
 
-            $domain = null;
+            $names = [];
             if (preg_match('/^\s*server_name\s+([^;]+);/m', $body, $mm)) {
-                $names = array_filter(preg_split('/\s+/', trim($mm[1])), fn ($n) => $n !== '_');
-                $domain = $names !== [] ? reset($names) : null;
+                $names = array_values(array_filter(preg_split('/\s+/', trim($mm[1])), fn ($n) => $n !== '_'));
             }
 
             $blocks[] = [
-                'domain' => $domain,
+                'domains' => $names,
                 'root' => preg_match('/^\s*root\s+([^;]+);/m', $body, $mm) ? trim($mm[1]) : null,
                 'ssl' => (bool) preg_match('/^\s*listen\s+[^;]*443/m', $body),
                 'proxy_port' => preg_match('#proxy_pass\s+http://(?:127\.0\.0\.1|localhost):(\d+)#', $body, $mm) ? (int) $mm[1] : null,
@@ -223,18 +252,36 @@ class ApplicationImportService
     }
 
     /**
-     * @param  array<int, array{domain: ?string, root: ?string, ssl: bool, proxy_port: ?int}>  $sites
-     * @return array{domain: ?string, root: ?string, ssl: bool, proxy_port: ?int}|null
+     * Merge every server block whose root lives under the project dir
+     * (sites usually split into separate 80 and 443 blocks) into a single
+     * ordered domain map (name => appears in an ssl block) plus the first
+     * proxy_pass port found.
+     *
+     * @param  array<int, array{domains: array<int, string>, root: ?string, ssl: bool, proxy_port: ?int}>  $sites
+     * @return array{domains: array<string, bool>, proxy_port: ?int}|null
      */
     private function matchSite(array $sites, string $dir): ?array
     {
+        $domains = [];
+        $proxyPort = null;
+
         foreach ($sites as $site) {
             $root = $site['root'];
-            if ($root !== null && ($root === $dir || str_starts_with($root, $dir.'/'))) {
-                return $site;
+            if ($root === null || ($root !== $dir && ! str_starts_with($root, $dir.'/'))) {
+                continue;
             }
+
+            foreach ($site['domains'] as $name) {
+                $domains[$name] = ($domains[$name] ?? false) || $site['ssl'];
+            }
+
+            $proxyPort ??= $site['proxy_port'];
         }
 
-        return null;
+        if ($domains === [] && $proxyPort === null) {
+            return null;
+        }
+
+        return ['domains' => $domains, 'proxy_port' => $proxyPort];
     }
 }
