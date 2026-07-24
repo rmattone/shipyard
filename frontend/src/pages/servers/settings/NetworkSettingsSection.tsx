@@ -98,6 +98,9 @@ const SERVICE_PRESETS: ServicePreset[] = [
   { name: 'Redis', port: '6379', requiresSource: true },
 ]
 
+// Exact-shape match only ("<port>/tcp" IPv4 ALLOW IN). Manually created
+// overlapping rules (protocol-less or interface-scoped) will show as not
+// allowed; clicking the preset then just adds a redundant exact rule.
 function isPortAllowed(rules: FirewallRule[], port: string): boolean {
   return rules.some(
     (rule) => !rule.v6 && rule.to === `${port}/tcp` && rule.action === 'ALLOW IN'
@@ -306,6 +309,42 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
                     }
                   }}
                 />
+              </div>
+
+              <div className="space-y-3 pb-4 border-b">
+                <div>
+                  <p className="font-medium">Common services</p>
+                  <p className="text-sm text-muted-foreground">
+                    Websites served from this server need HTTP (80) and HTTPS (443) open to
+                    anywhere. Port 80 is also required for Let&apos;s Encrypt certificate
+                    challenges. Database ports should only be opened to specific trusted IPs,
+                    since applications running on this server connect over localhost.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {SERVICE_PRESETS.map((preset) => {
+                    const allowed = isPortAllowed(status.rules, preset.port)
+                    return (
+                      <Button
+                        key={preset.port}
+                        variant="outline"
+                        size="sm"
+                        disabled={allowed || addingPresetPort === preset.port}
+                        onClick={() => handlePresetClick(preset)}
+                      >
+                        {addingPresetPort === preset.port ? (
+                          <LoadingSpinner size="sm" className="mr-2" />
+                        ) : allowed ? (
+                          <Check className="h-4 w-4 mr-2" />
+                        ) : (
+                          <Plus className="h-4 w-4 mr-2" />
+                        )}
+                        {preset.name} {preset.port}
+                        {allowed && <span className="ml-1 text-muted-foreground">allowed</span>}
+                      </Button>
+                    )
+                  })}
+                </div>
               </div>
 
               <div className="flex items-center justify-between">
