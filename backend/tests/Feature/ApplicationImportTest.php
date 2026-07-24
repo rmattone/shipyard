@@ -21,11 +21,15 @@ class ApplicationImportTest extends TestCase
 
     private const NGINX_SITES = <<<'NGINX'
 server {
-    listen 80;
     listen 443 ssl;
-    server_name blog.example.com;
+    server_name blog.example.com www.blog.example.com;
     root /var/www/shipyard/blog/current/public;
     location / { try_files $uri /index.php?$query_string; }
+}
+server {
+    listen 80;
+    server_name blog.example.com www.blog.example.com staging.blog.example.com;
+    root /var/www/shipyard/blog/current/public;
 }
 server {
     listen 80;
@@ -107,6 +111,26 @@ NGINX;
         $legacy = Application::where('deploy_path', '/var/www/legacy-site')->first();
         $this->assertSame('static', $legacy->type);
 
+        // Every server_name in the matching nginx blocks becomes a Domain
+        // record; SSL is tracked per domain (443 vs 80-only blocks)
+        $blogDomains = $blog->domains()->orderByDesc('is_primary')->orderBy('domain')->get();
+        $this->assertSame(
+            [
+                ['blog.example.com', true, true],
+                ['staging.blog.example.com', false, false],
+                ['www.blog.example.com', false, true],
+            ],
+            $blogDomains->map(fn ($d) => [$d->domain, $d->is_primary, $d->ssl_enabled])->all()
+        );
+
+        $apiDomains = $api->domains()->get();
+        $this->assertCount(1, $apiDomains);
+        $this->assertSame('api.example.com', $apiDomains[0]->domain);
+        $this->assertTrue($apiDomains[0]->is_primary);
+        $this->assertFalse($apiDomains[0]->ssl_enabled);
+
+        $this->assertSame(0, $legacy->domains()->count());
+
         // Container/base dirs must never import as apps
         $this->assertNull(Application::where('deploy_path', '/var/www/html')->first());
         $this->assertNull(Application::where('deploy_path', '/var/www/shipyard')->first());
@@ -165,6 +189,60 @@ NGINX;
         $response->assertOk();
         $this->assertSame([], $response->json('imported'));
         $this->assertSame('abc123', $existing->environmentVariables()->first()?->value);
+    }
+
+    // Apps imported before domain records existed get their domains
+    // backfilled from the nginx config on the next import run.
+    public function test_rerunning_import_backfills_domains_for_managed_apps_without_domains(): void
+    {
+        $server = Server::factory()->create();
+        $existing = Application::factory()->create([
+            'server_id' => $server->id,
+            'deploy_path' => '/var/www/shipyard/blog',
+            'deployment_strategy' => 'atomic',
+        ]);
+
+        $this->mockSsh([
+            'find /var/www' => '/var/www/shipyard/blog',
+            'sites-enabled' => self::NGINX_SITES,
+        ]);
+
+        $response = $this->actingAs(User::factory()->create())
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('imported'));
+
+        $domains = $existing->domains()->orderByDesc('is_primary')->orderBy('domain')->get();
+        $this->assertSame(
+            ['blog.example.com', 'staging.blog.example.com', 'www.blog.example.com'],
+            $domains->pluck('domain')->all()
+        );
+        $this->assertTrue($domains[0]->is_primary);
+    }
+
+    // An app that already has domain records is never touched by the
+    // backfill, even when nginx knows about more names.
+    public function test_backfill_never_touches_apps_that_already_have_domains(): void
+    {
+        $server = Server::factory()->create();
+        $existing = Application::factory()->create([
+            'server_id' => $server->id,
+            'deploy_path' => '/var/www/shipyard/blog',
+            'deployment_strategy' => 'atomic',
+        ]);
+        $existing->domains()->create(['domain' => 'kept.example.com', 'is_primary' => true]);
+
+        $this->mockSsh([
+            'find /var/www' => '/var/www/shipyard/blog',
+            'sites-enabled' => self::NGINX_SITES,
+        ]);
+
+        $this->actingAs(User::factory()->create())
+            ->postJson("/api/servers/{$server->id}/applications/import")
+            ->assertOk();
+
+        $this->assertSame(['kept.example.com'], $existing->domains()->pluck('domain')->all());
     }
 
     public function test_managed_paths_and_unclassifiable_dirs_are_skipped(): void
