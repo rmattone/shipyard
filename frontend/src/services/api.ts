@@ -28,6 +28,14 @@ api.interceptors.request.use((config) => {
 // Function to get CSRF cookie
 export const getCsrfCookie = () => axios.get('/sanctum/csrf-cookie', { withCredentials: true })
 
+// Pulls the backend's `{ message }` out of a failed request, falling back to
+// a caller-supplied message when the response is missing or unshaped (e.g. a
+// network error, or a non-JSON 5xx from something in front of the app).
+export const getErrorMessage = (error: unknown, fallback: string): string => {
+  const err = error as { response?: { data?: { message?: string } } }
+  return err.response?.data?.message || fallback
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
