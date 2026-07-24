@@ -55,7 +55,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { LoadingSpinner } from '@/components/custom'
-import { Plus, Trash2 } from 'lucide-react'
+import { Check, Plus, Trash2 } from 'lucide-react'
 
 interface NetworkSettingsSectionProps {
   server: Server
@@ -84,6 +84,26 @@ function parseRuleSpec(rule: FirewallRule): FirewallRuleSpec | null {
   return null
 }
 
+interface ServicePreset {
+  name: string
+  port: string
+  requiresSource: boolean
+}
+
+const SERVICE_PRESETS: ServicePreset[] = [
+  { name: 'HTTP', port: '80', requiresSource: false },
+  { name: 'HTTPS', port: '443', requiresSource: false },
+  { name: 'MySQL', port: '3306', requiresSource: true },
+  { name: 'PostgreSQL', port: '5432', requiresSource: true },
+  { name: 'Redis', port: '6379', requiresSource: true },
+]
+
+function isPortAllowed(rules: FirewallRule[], port: string): boolean {
+  return rules.some(
+    (rule) => !rule.v6 && rule.to === `${port}/tcp` && rule.action === 'ALLOW IN'
+  )
+}
+
 export default function NetworkSettingsSection({ server }: NetworkSettingsSectionProps) {
   const [status, setStatus] = useState<FirewallStatus | null>(null)
   const [loading, setLoading] = useState(true)
@@ -101,6 +121,8 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
   const [addingRule, setAddingRule] = useState(false)
   const [ruleToDelete, setRuleToDelete] = useState<FirewallRule | null>(null)
   const [deletingRule, setDeletingRule] = useState(false)
+  const [addingPresetPort, setAddingPresetPort] = useState<string | null>(null)
+  const [activePreset, setActivePreset] = useState<ServicePreset | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -152,13 +174,41 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
   }
 
   const openAddRuleDialog = () => {
+    setActivePreset(null)
     setRuleForm({ port: '', protocol: 'tcp', source: '' })
     setShowAddRuleDialog(true)
+  }
+
+  const handlePresetClick = async (preset: ServicePreset) => {
+    if (preset.requiresSource) {
+      setActivePreset(preset)
+      setRuleForm({ port: preset.port, protocol: 'tcp', source: '' })
+      setShowAddRuleDialog(true)
+      return
+    }
+    setAddingPresetPort(preset.port)
+    try {
+      const response = await firewallApi.addRule(server.id, {
+        port: preset.port,
+        protocol: 'tcp',
+        source: null,
+      })
+      setStatus(response.data)
+      toast.success(`${preset.name} (${preset.port}/tcp) allowed`)
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Failed to add firewall rule'))
+    } finally {
+      setAddingPresetPort(null)
+    }
   }
 
   const handleAddRule = async () => {
     if (!ruleForm.port.trim()) {
       toast.error('Please enter a port')
+      return
+    }
+    if (activePreset?.requiresSource && !ruleForm.source.trim()) {
+      toast.error('Enter a source IP to restrict database access')
       return
     }
     setAddingRule(true)
