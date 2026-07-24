@@ -9,6 +9,10 @@ export default {
   ],
   theme: {
     extend: {
+        fontSize: {
+            xs: ['0.8125rem', { lineHeight: '1.25rem' }],
+            sm: ['0.9375rem', { lineHeight: '1.5rem' }],
+        },
         colors: {
             border: 'hsl(var(--border))',
             input: 'hsl(var(--input))',
