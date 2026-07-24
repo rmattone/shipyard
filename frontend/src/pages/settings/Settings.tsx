@@ -26,8 +26,9 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { NotificationChannels } from './NotificationChannels'
 
-type SettingsSection = 'source-control' | 'general' | 'system'
+type SettingsSection = 'source-control' | 'notifications' | 'general' | 'system'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -157,6 +158,7 @@ export default function Settings() {
 
   const sidebarItems = [
     { id: 'source-control' as const, label: 'Source Control' },
+    { id: 'notifications' as const, label: 'Notifications' },
     { id: 'general' as const, label: 'General' },
     { id: 'system' as const, label: 'System' },
   ]
@@ -170,17 +172,18 @@ export default function Settings() {
   }
 
   return (
-    <div className="flex gap-8">
-      {/* Sidebar */}
-      <div className="w-48 flex-shrink-0">
-        <h1 className="text-2xl font-bold mb-6">Settings</h1>
+    <div className="relative flex gap-10 lg:gap-16">
+      {/* Sidebar; hangs in the left gutter on wide screens so the content
+          column matches the centered layout of the other tabs */}
+      <div className="w-56 flex-shrink-0 min-[1650px]:absolute min-[1650px]:top-0 min-[1650px]:right-full min-[1650px]:mr-12">
+        <h1 className="text-2xl font-bold mb-8">Settings</h1>
         <nav className="space-y-1">
           {sidebarItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
               className={cn(
-                'w-full text-left px-3 py-2 rounded-md text-sm font-medium transition-colors',
+                'w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors',
                 activeSection === item.id
                   ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -193,7 +196,7 @@ export default function Settings() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 max-w-3xl">
+      <div className="flex-1 min-w-0">
         {activeSection === 'source-control' && (
           <Card>
             <CardHeader>
@@ -272,6 +275,8 @@ export default function Settings() {
           </Card>
         )}
 
+        {activeSection === 'notifications' && <NotificationChannels />}
+
         {activeSection === 'general' && (
           <Card>
             <CardHeader>
@@ -281,8 +286,8 @@ export default function Settings() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="space-y-6">
-                <div className="flex items-start justify-between py-4 border-b">
+              <div>
+                <div className="flex items-start justify-between py-6 border-b">
                   <div>
                     <p className="font-medium">Organization name</p>
                     <p className="text-sm text-muted-foreground">
@@ -294,7 +299,7 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <div className="flex items-start justify-between py-4">
+                <div className="flex items-start justify-between py-6">
                   <div>
                     <p className="font-medium">Organization avatar</p>
                     <p className="text-sm text-muted-foreground">
@@ -320,9 +325,9 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="space-y-6">
+                <div>
                   {/* Version Info */}
-                  <div className="flex items-start justify-between py-4 border-b">
+                  <div className="flex items-start justify-between py-6 border-b">
                     <div>
                       <p className="font-medium">Current Version</p>
                       <p className="text-sm text-muted-foreground">
@@ -346,7 +351,7 @@ export default function Settings() {
                   </div>
 
                   {/* Update Status */}
-                  <div className="flex items-start justify-between py-4">
+                  <div className="flex items-start justify-between py-6">
                     <div>
                       <p className="font-medium">Updates</p>
                       {versionInfo?.update_available ? (

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Jobs\SendDeploymentNotification;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -115,6 +116,7 @@ class Deployment extends Model
         ]);
 
         $this->publishCompletion('success');
+        $this->dispatchNotification(NotificationChannel::EVENT_SUCCEEDED);
     }
 
     public function markAsFailed(): void
@@ -125,6 +127,17 @@ class Deployment extends Model
         ]);
 
         $this->publishCompletion('failed');
+        $this->dispatchNotification(NotificationChannel::EVENT_FAILED);
+    }
+
+    private function dispatchNotification(string $event): void
+    {
+        try {
+            SendDeploymentNotification::dispatch($this, $event);
+        } catch (\Exception $e) {
+            // The queue backend being unavailable must never break
+            // deployment completion (same stance as publishCompletion).
+        }
     }
 
     public function getDuration(): ?int

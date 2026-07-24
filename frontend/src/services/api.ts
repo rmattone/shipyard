@@ -119,6 +119,26 @@ export interface ScheduledTask {
   created_at: string
 }
 
+export type NotificationEvent = 'deployment_succeeded' | 'deployment_failed'
+
+export interface NotificationChannel {
+  id: number
+  type: 'discord' | 'telegram' | 'email'
+  name: string
+  events: NotificationEvent[]
+  is_enabled: boolean
+  config_display: {
+    has_webhook_url?: boolean
+    has_bot_token?: boolean
+    chat_id?: string | null
+    has_api_key?: boolean
+    from_email?: string | null
+    to_email?: string | null
+  }
+  created_at: string
+  updated_at: string
+}
+
 export interface Daemon {
   id: number
   server_id: number
@@ -415,6 +435,27 @@ export const scheduledTasksApi = {
       '/servers/' + serverId + '/scheduled-tasks/' + taskId + '/output',
       { params: lines ? { lines } : undefined }
     ),
+}
+
+// Notification channels
+export const notificationChannelsApi = {
+  list: () => api.get<NotificationChannel[]>('/notification-channels'),
+  create: (data: {
+    name: string
+    type: NotificationChannel['type']
+    events: NotificationEvent[]
+    is_enabled?: boolean
+    config: Record<string, string>
+  }) => api.post<NotificationChannel>('/notification-channels', data),
+  update: (id: number, data: {
+    name?: string
+    events?: NotificationEvent[]
+    is_enabled?: boolean
+    config?: Record<string, string>
+  }) => api.put<NotificationChannel>('/notification-channels/' + id, data),
+  delete: (id: number) => api.delete('/notification-channels/' + id),
+  test: (id: number) =>
+    api.post<{ success: boolean; message: string }>('/notification-channels/' + id + '/test'),
 }
 
 // Daemons (server-scoped)
