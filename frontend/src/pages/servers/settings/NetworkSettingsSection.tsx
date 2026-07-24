@@ -224,6 +224,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       setStatus(response.data)
       toast.success('Firewall rule added')
       setShowAddRuleDialog(false)
+      setActivePreset(null)
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, 'Failed to add firewall rule'))
     } finally {
@@ -329,7 +330,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
                         key={preset.port}
                         variant="outline"
                         size="sm"
-                        disabled={allowed || addingPresetPort === preset.port}
+                        disabled={allowed || addingPresetPort !== null}
                         onClick={() => handlePresetClick(preset)}
                       >
                         {addingPresetPort === preset.port ? (
@@ -415,12 +416,24 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
       </Card>
 
       {/* Add rule dialog */}
-      <Dialog open={showAddRuleDialog} onOpenChange={setShowAddRuleDialog}>
+      <Dialog
+        open={showAddRuleDialog}
+        onOpenChange={(open) => {
+          setShowAddRuleDialog(open)
+          if (!open) setActivePreset(null)
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add firewall rule</DialogTitle>
+            <DialogTitle>
+              {activePreset
+                ? `Allow ${activePreset.name} (${activePreset.port}/tcp)`
+                : 'Add firewall rule'}
+            </DialogTitle>
             <DialogDescription>
-              Allow traffic to a port, optionally restricted to a single source.
+              {activePreset
+                ? 'Database ports must be restricted to a trusted source IP.'
+                : 'Allow traffic to a port, optionally restricted to a single source.'}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -431,6 +444,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
                 value={ruleForm.port}
                 onChange={(e) => setRuleForm({ ...ruleForm, port: e.target.value })}
                 placeholder="8080 or 3000:3005"
+                disabled={!!activePreset}
               />
             </div>
             <div className="space-y-2">
@@ -438,6 +452,7 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
               <Select
                 value={ruleForm.protocol}
                 onValueChange={(value) => setRuleForm({ ...ruleForm, protocol: value as 'tcp' | 'udp' | 'both' })}
+                disabled={!!activePreset}
               >
                 <SelectTrigger>
                   <SelectValue />
@@ -450,20 +465,35 @@ export default function NetworkSettingsSection({ server }: NetworkSettingsSectio
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rule-source">Source (optional)</Label>
+              <Label htmlFor="rule-source">
+                {activePreset ? 'Source' : 'Source (optional)'}
+              </Label>
               <Input
                 id="rule-source"
                 value={ruleForm.source}
                 onChange={(e) => setRuleForm({ ...ruleForm, source: e.target.value })}
-                placeholder="leave blank for anywhere, or 10.0.0.0/24"
+                placeholder={
+                  activePreset
+                    ? '203.0.113.10 or 10.0.0.0/24'
+                    : 'leave blank for anywhere, or 10.0.0.0/24'
+                }
               />
+              {activePreset && (
+                <p className="text-sm text-muted-foreground">
+                  Restrict database access to a trusted IP. Never open database ports to
+                  the whole internet.
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowAddRuleDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAddRule} disabled={addingRule}>
+            <Button
+              onClick={handleAddRule}
+              disabled={addingRule || (!!activePreset && !ruleForm.source.trim())}
+            >
               {addingRule && <LoadingSpinner size="sm" className="mr-2" />}
               Add Rule
             </Button>
