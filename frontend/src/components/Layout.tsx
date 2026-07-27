@@ -1,10 +1,14 @@
+import { useState } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigation } from '@/contexts/NavigationContext'
 import { useTheme } from '@/contexts/ThemeContext'
+import { getErrorMessage } from '@/services/api'
 import { Button } from '@/components/ui/button'
 import shipyardLogo from '@/assets/shipyard.svg'
 import { ContextTabs } from '@/components/ContextTabs'
+import { CreateOrganizationDialog } from '@/components/CreateOrganizationDialog'
 import {
   ServerIcon,
   ArrowRightStartOnRectangleIcon,
@@ -24,14 +28,47 @@ import { ChevronDown, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 export default function Layout() {
-  const { user, logout } = useAuth()
+  const { user, logout, organizations, currentOrganization, switchOrganization, loading } = useAuth()
   const navigate = useNavigate()
   const { currentServer, currentApp, servers, apps, loadingServers, loadingApps } = useNavigation()
   const { theme, setTheme } = useTheme()
+  const [createOrgOpen, setCreateOrgOpen] = useState(false)
+  const [switchingOrg, setSwitchingOrg] = useState(false)
 
   const handleLogout = async () => {
     await logout()
     navigate('/login')
+  }
+
+  const handleSwitchOrganization = async (id: number) => {
+    if (id === currentOrganization?.id) return
+    setSwitchingOrg(true)
+    try {
+      await switchOrganization(id)
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Failed to switch organization'))
+      setSwitchingOrg(false)
+    }
+  }
+
+  // Zero organizations (removed from the last one): everything org-scoped
+  // would 403, so force creating an organization before showing the app.
+  if (!loading && user && organizations.length === 0) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center gap-4 px-6 text-center">
+        <div className="h-12 w-12 rounded-md bg-slate-800 dark:bg-white p-2.5">
+          <img src={shipyardLogo} alt="ShipYard" className="h-full w-full object-contain invert dark:invert-0" />
+        </div>
+        <h1 className="text-xl font-semibold">Create your first organization</h1>
+        <p className="max-w-md text-sm text-muted-foreground">
+          You don't belong to any organization yet. Create one to start managing
+          servers and applications, or ask a teammate for an invitation.
+        </p>
+        <Button onClick={() => setCreateOrgOpen(true)}>Create organization</Button>
+        <Button variant="ghost" onClick={handleLogout}>Sign out</Button>
+        <CreateOrganizationDialog open={createOrgOpen} onOpenChange={setCreateOrgOpen} />
+      </div>
+    )
   }
 
   // Filter apps by current server if selected
@@ -54,7 +91,7 @@ export default function Layout() {
               <span className="font-semibold hidden sm:inline">ShipYard</span>
             </NavLink>
 
-            {/* Organization (hardcoded for now) */}
+            {/* Organization switcher */}
             <div className="flex items-center">
               <Button
                 variant="ghost"
@@ -62,9 +99,9 @@ export default function Layout() {
                 onClick={() => navigate('/')}
               >
                 <div className="h-5 w-5 rounded bg-orange-500 flex items-center justify-center text-xs font-bold text-white">
-                  O
+                  {(currentOrganization?.name ?? 'O').charAt(0).toUpperCase()}
                 </div>
-                <span className="hidden sm:inline ml-1">Organization</span>
+                <span className="hidden sm:inline ml-1">{currentOrganization?.name ?? 'Organization'}</span>
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -72,21 +109,31 @@ export default function Layout() {
                     <ChevronDown className="h-3 w-3 opacity-50" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-48">
-                  <DropdownMenuItem className="gap-2">
-                    <div className="h-5 w-5 rounded bg-orange-500 flex items-center justify-center text-xs font-bold text-white">
-                      O
-                    </div>
-                    Organization
-                    <span className="text-emerald-500 ml-auto">✓</span>
-                  </DropdownMenuItem>
+                <DropdownMenuContent align="start" className="w-56">
+                  {organizations.map((organization) => (
+                    <DropdownMenuItem
+                      key={organization.id}
+                      className="gap-2"
+                      disabled={switchingOrg}
+                      onClick={() => handleSwitchOrganization(organization.id)}
+                    >
+                      <div className="h-5 w-5 rounded bg-orange-500 flex items-center justify-center text-xs font-bold text-white">
+                        {organization.name.charAt(0).toUpperCase()}
+                      </div>
+                      <span className="flex-1 truncate">{organization.name}</span>
+                      {organization.id === currentOrganization?.id && (
+                        <span className="text-emerald-500 ml-auto">✓</span>
+                      )}
+                    </DropdownMenuItem>
+                  ))}
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem className="gap-2" disabled>
+                  <DropdownMenuItem className="gap-2" onClick={() => setCreateOrgOpen(true)}>
                     <Plus className="h-4 w-4" />
                     Add Organization
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              <CreateOrganizationDialog open={createOrgOpen} onOpenChange={setCreateOrgOpen} />
             </div>
 
             {/* Server selector (only show if on a server or app page) */}

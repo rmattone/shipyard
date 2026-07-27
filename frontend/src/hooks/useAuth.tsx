@@ -1,15 +1,29 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import { authApi, User } from '../services/api'
+import { authApi, organizationsApi, invitationsApi, User, Organization, OrganizationRole } from '../services/api'
 
 interface AuthContextType {
   user: User | null
+  organizations: Organization[]
+  currentOrganization: Organization | null
+  currentRole: OrganizationRole | null
   isAuthenticated: boolean
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
+  refreshUser: () => Promise<void>
+  switchOrganization: (id: number) => Promise<void>
+  acceptInvitation: (
+    token: string,
+    data?: { name: string; password: string; password_confirmation: string }
+  ) => Promise<void>
+  hasRole: (...roles: OrganizationRole[]) => boolean
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+function persistUser(user: User) {
+  localStorage.setItem('user', JSON.stringify(user))
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -25,7 +39,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       authApi.getUser()
         .then((res) => {
           setUser(res.data)
-          localStorage.setItem('user', JSON.stringify(res.data))
+          persistUser(res.data)
         })
         .catch(() => {
           localStorage.removeItem('token')
@@ -42,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const response = await authApi.login(email, password)
     const { user, token } = response.data
     localStorage.setItem('token', token)
-    localStorage.setItem('user', JSON.stringify(user))
+    persistUser(user)
     setUser(user)
   }
 
@@ -56,14 +70,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const refreshUser = async () => {
+    const res = await authApi.getUser()
+    setUser(res.data)
+    persistUser(res.data)
+  }
+
+  // Hard reload after switching: NavigationContext and every page fetch
+  // org-scoped data on mount, so a full reset is correct by construction.
+  const switchOrganization = async (id: number) => {
+    await organizationsApi.switch(id)
+    window.location.assign('/app/')
+  }
+
+  const acceptInvitation = async (
+    token: string,
+    data?: { name: string; password: string; password_confirmation: string }
+  ) => {
+    const response = await invitationsApi.accept(token, data)
+
+    // The registration path returns credentials, mirroring login.
+    if (response.data.token && response.data.user) {
+      localStorage.setItem('token', response.data.token)
+      persistUser(response.data.user)
+      setUser(response.data.user)
+    } else {
+      await refreshUser()
+    }
+  }
+
+  const organizations = user?.organizations ?? []
+  const currentOrganization = user?.current_organization ?? null
+  const currentRole = currentOrganization?.role ?? null
+
+  const hasRole = (...roles: OrganizationRole[]) =>
+    currentRole !== null && roles.includes(currentRole)
+
   return (
     <AuthContext.Provider
       value={{
         user,
+        organizations,
+        currentOrganization,
+        currentRole,
         isAuthenticated: !!user,
         loading,
         login,
         logout,
+        refreshUser,
+        switchOrganization,
+        acceptInvitation,
+        hasRole,
       }}
     >
       {children}

@@ -6,6 +6,7 @@ import { ThemeProvider } from '@/contexts/ThemeContext'
 import { LoadingSpinner } from '@/components/custom'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import AcceptInvitation from './pages/invitations/AcceptInvitation'
 import NotFound from './pages/NotFound'
 
 // Organization level pages
@@ -57,6 +58,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Public: invited users may not have an account yet */}
+      <Route path="/invitations/accept" element={<AcceptInvitation />} />
       <Route
         path="/"
         element={
