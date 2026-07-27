@@ -12,9 +12,13 @@ use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\EnvironmentVariableController;
 use App\Http\Controllers\Api\FirewallController;
 use App\Http\Controllers\Api\GitProviderController;
+use App\Http\Controllers\Api\InvitationController;
 use App\Http\Controllers\Api\LogController;
 use App\Http\Controllers\Api\NginxController;
 use App\Http\Controllers\Api\NotificationChannelController;
+use App\Http\Controllers\Api\OrganizationController;
+use App\Http\Controllers\Api\OrganizationInvitationController;
+use App\Http\Controllers\Api\OrganizationMemberController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
@@ -37,14 +41,39 @@ Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
 Route::get('/deployments/{deployment}/stream', [DeploymentStreamController::class, 'stream']);
 Route::get('/database-installations/{installation}/stream', [DatabaseInstallationStreamController::class, 'stream']);
 
+// Invitation accept flow (public: the token is the shared secret)
+Route::middleware('throttle:login')->group(function () {
+    Route::get('/invitations/{token}', [InvitationController::class, 'show']);
+    Route::post('/invitations/{token}/accept', [InvitationController::class, 'accept']);
+});
+
 // Protected routes
-// Auth routes that must keep working for a user with zero organizations
+// Auth + org bootstrap routes that must keep working for a user with
+// zero organizations (org.context would 403 them)
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/user', [AuthController::class, 'user']);
+    Route::post('/organizations', [OrganizationController::class, 'store'])
+        ->name('organizations.store');
 });
 
 Route::middleware(['auth:sanctum', 'org.context'])->group(function () {
+    // Organizations (owner checks live in the controllers, since the
+    // {organization} in the URL is not necessarily the current one)
+    Route::get('/organizations', [OrganizationController::class, 'index']);
+    Route::get('/organizations/current', [OrganizationController::class, 'current']);
+    Route::put('/organizations/{organization}', [OrganizationController::class, 'update']);
+    Route::delete('/organizations/{organization}', [OrganizationController::class, 'destroy']);
+    Route::post('/organizations/{organization}/switch', [OrganizationController::class, 'switch'])
+        ->name('organizations.switch');
+    Route::get('/organizations/{organization}/members', [OrganizationMemberController::class, 'index']);
+    Route::put('/organizations/{organization}/members/{user}', [OrganizationMemberController::class, 'update']);
+    Route::delete('/organizations/{organization}/members/{user}', [OrganizationMemberController::class, 'destroy'])
+        ->name('organizations.members.destroy');
+    Route::get('/organizations/{organization}/invitations', [OrganizationInvitationController::class, 'index']);
+    Route::post('/organizations/{organization}/invitations', [OrganizationInvitationController::class, 'store']);
+    Route::delete('/organizations/{organization}/invitations/{invitation}', [OrganizationInvitationController::class, 'destroy']);
+
     // SSH Keys
     Route::post('/ssh-keys/generate', [SSHKeyController::class, 'generate']);
 
