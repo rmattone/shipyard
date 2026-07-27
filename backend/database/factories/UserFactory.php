@@ -12,8 +12,6 @@ class UserFactory extends Factory
 {
     protected static ?string $password = null;
 
-    protected bool $withOrganization = true;
-
     public function definition(): array
     {
         return [
@@ -39,7 +37,7 @@ class UserFactory extends Factory
     public function configure(): static
     {
         return $this->afterCreating(function (User $user) {
-            if (! $this->withOrganization || $user->organizations()->exists()) {
+            if ($user->organizations()->exists()) {
                 return;
             }
 
@@ -51,14 +49,22 @@ class UserFactory extends Factory
     }
 
     /**
-     * Call last in the chain: later state() calls produce a fresh
-     * factory instance and would drop this flag.
+     * Undoes the personal organization from configure() (callbacks run
+     * in registration order), leaving a user with zero memberships.
      */
     public function withoutOrganization(): static
     {
-        $factory = clone $this;
-        $factory->withOrganization = false;
+        return $this->afterCreating(function (User $user) {
+            $organizations = $user->organizations()->get();
 
-        return $factory;
+            $user->forceFill(['current_organization_id' => null])->save();
+            $user->organizations()->detach();
+
+            foreach ($organizations as $organization) {
+                if ($organization->users()->doesntExist()) {
+                    $organization->delete();
+                }
+            }
+        });
     }
 }
