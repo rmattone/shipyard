@@ -6,7 +6,6 @@ use App\Jobs\ProcessScheduledTaskRemoval;
 use App\Models\Application;
 use App\Models\ScheduledTask;
 use App\Models\Server;
-use App\Models\User;
 use App\Services\NginxService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -28,7 +27,7 @@ class ScheduledTaskAppCleanupTest extends TestCase
             $mock->shouldReceive('remove');
         });
 
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
         $app = Application::factory()->create(['server_id' => $server->id]);
         $linked = ScheduledTask::factory()->create(['server_id' => $server->id, 'application_id' => $app->id]);

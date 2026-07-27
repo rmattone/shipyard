@@ -14,6 +14,8 @@ class RenewCertificates extends Command
 
     public function handle(CertbotService $certbotService): int
     {
+        // Intentionally cross-organization: certificates renew for every
+        // tenant (artisan runs without an organization context).
         $domains = Domain::where('ssl_enabled', true)
             ->with('application.server')
             ->get()

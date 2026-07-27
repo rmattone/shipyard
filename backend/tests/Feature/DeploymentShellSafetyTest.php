@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Application;
 use App\Models\Deployment;
 use App\Models\GitProvider;
-use App\Models\User;
 use App\Services\DeploymentService;
 use App\Services\GitProviderService;
 use App\Services\SSHService;
@@ -205,7 +204,7 @@ class DeploymentShellSafetyTest extends TestCase
     public function test_api_rejects_unsafe_shared_and_writable_paths(): void
     {
         $this->mockSsh();
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         [$app] = $this->makeAtomicApp();
 
         foreach ([['..'], ['../../etc'], ['/etc'], ['']] as $paths) {
@@ -226,7 +225,7 @@ class DeploymentShellSafetyTest extends TestCase
     public function test_api_rejects_node_versions_with_shell_metacharacters(): void
     {
         $this->mockSsh();
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         [$app] = $this->makeAtomicApp();
 
         $this->actingAs($user)

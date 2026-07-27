@@ -3,6 +3,9 @@
 namespace Tests\Feature;
 
 use App\Models\Database;
+use App\Models\DatabaseInstallation;
+use App\Models\DatabaseUser;
+use App\Services\DatabaseInstallationService;
 use App\Services\DatabaseService;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -139,9 +142,9 @@ class DatabaseDriverSafetyTest extends TestCase
             'output' => 'appdb|{CONNECT,CREATE}', 'exit_code' => 0, 'success' => true,
         ];
 
-        $user = \App\Models\User::factory()->create();
+        $user = $this->createOrgUser();
         $database = Database::factory()->postgresql()->create();
-        $dbUser = \App\Models\DatabaseUser::factory()->create([
+        $dbUser = DatabaseUser::factory()->create([
             'database_id' => $database->id,
             'username' => 'appuser',
             'privileges' => null,
@@ -168,9 +171,9 @@ class DatabaseDriverSafetyTest extends TestCase
     public function test_api_rejects_unknown_privilege_names(): void
     {
         $this->mockSsh();
-        $user = \App\Models\User::factory()->create();
+        $user = $this->createOrgUser();
         $database = Database::factory()->create();
-        $dbUser = \App\Models\DatabaseUser::factory()->create(['database_id' => $database->id]);
+        $dbUser = DatabaseUser::factory()->create(['database_id' => $database->id]);
 
         $url = "/api/servers/{$database->server_id}/databases/{$database->id}/users/{$dbUser->id}/grant";
 
@@ -186,7 +189,7 @@ class DatabaseDriverSafetyTest extends TestCase
     public function test_api_rejects_malformed_charset_and_collation(): void
     {
         $this->mockSsh();
-        $user = \App\Models\User::factory()->create();
+        $user = $this->createOrgUser();
         $database = Database::factory()->create();
 
         $url = "/api/servers/{$database->server_id}/databases/{$database->id}/remote-databases";
@@ -236,9 +239,9 @@ class DatabaseDriverSafetyTest extends TestCase
     {
         $this->mockSsh();
         $this->installFakes();
-        $installation = \App\Models\DatabaseInstallation::factory()->create(['engine' => 'mysql']);
+        $installation = DatabaseInstallation::factory()->create(['engine' => 'mysql']);
 
-        app(\App\Services\DatabaseInstallationService::class)->install($installation);
+        app(DatabaseInstallationService::class)->install($installation);
 
         $sql = $this->decodedInstallerSql();
         $this->assertStringContainsString("ALTER USER 'root'@'localhost'", $sql);
@@ -253,9 +256,9 @@ class DatabaseDriverSafetyTest extends TestCase
     {
         $this->mockSsh();
         $this->installFakes();
-        $installation = \App\Models\DatabaseInstallation::factory()->create(['engine' => 'mysql']);
+        $installation = DatabaseInstallation::factory()->create(['engine' => 'mysql']);
 
-        app(\App\Services\DatabaseInstallationService::class)->install($installation);
+        app(DatabaseInstallationService::class)->install($installation);
 
         $sql = $this->decodedInstallerSql();
         $this->assertStringContainsString('IDENTIFIED WITH caching_sha2_password', $sql);
@@ -266,9 +269,9 @@ class DatabaseDriverSafetyTest extends TestCase
     {
         $this->mockSsh();
         $this->installFakes();
-        $installation = \App\Models\DatabaseInstallation::factory()->create(['engine' => 'postgresql']);
+        $installation = DatabaseInstallation::factory()->create(['engine' => 'postgresql']);
 
-        app(\App\Services\DatabaseInstallationService::class)->install($installation);
+        app(DatabaseInstallationService::class)->install($installation);
 
         $sql = $this->decodedInstallerSql();
         $this->assertStringContainsString('ALTER USER postgres WITH PASSWORD', $sql);
@@ -303,7 +306,7 @@ class DatabaseDriverSafetyTest extends TestCase
     public function test_drop_database_validates_the_name_like_create_does(): void
     {
         $this->mockSsh();
-        $user = \App\Models\User::factory()->create();
+        $user = $this->createOrgUser();
         $database = Database::factory()->create();
 
         $url = "/api/servers/{$database->server_id}/databases/{$database->id}/remote-databases";

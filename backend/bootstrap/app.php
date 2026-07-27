@@ -1,8 +1,12 @@
 <?php
 
+use App\Http\Middleware\SetOrganizationContext;
+use Illuminate\Auth\Middleware\EnsureEmailIsVerified;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Routing\Middleware\SubstituteBindings;
+use Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -13,7 +17,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->api(prepend: [
-            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+            EnsureFrontendRequestsAreStateful::class,
         ]);
 
         // Applies the 'api' rate limiter (defined in AppServiceProvider) to
@@ -21,8 +25,17 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->throttleApi();
 
         $middleware->alias([
-            'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+            'verified' => EnsureEmailIsVerified::class,
+            'org.context' => SetOrganizationContext::class,
         ]);
+
+        // The organization context must be bound BEFORE route model
+        // binding runs, otherwise {server}/{application}/... bindings
+        // resolve without tenant scoping and leak across organizations.
+        $middleware->prependToPriorityList(
+            SubstituteBindings::class,
+            SetOrganizationContext::class,
+        );
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

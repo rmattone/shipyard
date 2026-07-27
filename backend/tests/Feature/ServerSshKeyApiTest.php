@@ -7,6 +7,7 @@ use App\Jobs\ProcessServerSshKeyRemoval;
 use App\Models\Server;
 use App\Models\ServerSshKey;
 use App\Models\User;
+use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -23,7 +24,7 @@ class ServerSshKeyApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
         $this->server = Server::factory()->create(['username' => 'root']);
     }
 
@@ -296,7 +297,7 @@ class ServerSshKeyApiTest extends TestCase
             'this-is-not-a-valid-key-line',
         ]);
 
-        $this->mock(\App\Services\SSHService::class, function ($mock) use ($fixture) {
+        $this->mock(SSHService::class, function ($mock) use ($fixture) {
             $mock->shouldReceive('connect')->andReturnSelf();
             $mock->shouldReceive('disconnect');
             $mock->shouldReceive('execute')->andReturn([
@@ -336,7 +337,7 @@ class ServerSshKeyApiTest extends TestCase
 
     public function test_authorized_endpoint_maps_ssh_failures_to_500(): void
     {
-        $this->mock(\App\Services\SSHService::class, function ($mock) {
+        $this->mock(SSHService::class, function ($mock) {
             $mock->shouldReceive('connect')->andReturnSelf();
             $mock->shouldReceive('disconnect');
             $mock->shouldReceive('execute')->andReturn([

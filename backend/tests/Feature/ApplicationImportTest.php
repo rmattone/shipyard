@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Application;
 use App\Models\Server;
-use App\Models\User;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -80,9 +79,10 @@ NGINX;
             '/var/www/legacy-site/artisan' => 'static',
         ]);
 
+        $user = $this->createOrgUser();
         $server = Server::factory()->create(['php_version' => '8.4']);
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($user)
             ->postJson("/api/servers/{$server->id}/applications/import");
 
         $response->assertOk();
@@ -150,9 +150,10 @@ NGINX;
             'cat "/var/www/shipyard/api-service/.env"' => "PORT=3001\n",
         ]);
 
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($user)
             ->postJson("/api/servers/{$server->id}/applications/import")
             ->assertOk();
 
@@ -170,6 +171,7 @@ NGINX;
     // synced) get their variables backfilled on the next import run.
     public function test_rerunning_import_backfills_env_for_managed_apps_without_variables(): void
     {
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
         $existing = Application::factory()->create([
             'server_id' => $server->id,
@@ -183,7 +185,7 @@ NGINX;
             'cat "/var/www/shipyard/blog/.env"' => "APP_KEY=abc123\n",
         ]);
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($user)
             ->postJson("/api/servers/{$server->id}/applications/import");
 
         $response->assertOk();
@@ -195,6 +197,7 @@ NGINX;
     // backfilled from the nginx config on the next import run.
     public function test_rerunning_import_backfills_domains_for_managed_apps_without_domains(): void
     {
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
         $existing = Application::factory()->create([
             'server_id' => $server->id,
@@ -207,7 +210,7 @@ NGINX;
             'sites-enabled' => self::NGINX_SITES,
         ]);
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($user)
             ->postJson("/api/servers/{$server->id}/applications/import");
 
         $response->assertOk();
@@ -225,6 +228,7 @@ NGINX;
     // backfill, even when nginx knows about more names.
     public function test_backfill_never_touches_apps_that_already_have_domains(): void
     {
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
         $existing = Application::factory()->create([
             'server_id' => $server->id,
@@ -238,7 +242,7 @@ NGINX;
             'sites-enabled' => self::NGINX_SITES,
         ]);
 
-        $this->actingAs(User::factory()->create())
+        $this->actingAs($user)
             ->postJson("/api/servers/{$server->id}/applications/import")
             ->assertOk();
 
@@ -247,6 +251,7 @@ NGINX;
 
     public function test_managed_paths_and_unclassifiable_dirs_are_skipped(): void
     {
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
         Application::factory()->create([
             'server_id' => $server->id,
@@ -258,7 +263,7 @@ NGINX;
             '/var/www/emptydir/artisan' => 'unknown',
         ]);
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($user)
             ->postJson("/api/servers/{$server->id}/applications/import");
 
         $response->assertOk();

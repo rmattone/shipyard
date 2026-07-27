@@ -17,18 +17,28 @@ class DatabaseInstallationStreamController extends Controller
         if ($token) {
             $accessToken = PersonalAccessToken::findToken($token);
             if ($accessToken) {
-                $isValid = !$accessToken->expires_at || $accessToken->expires_at->isFuture();
+                $isValid = ! $accessToken->expires_at || $accessToken->expires_at->isFuture();
                 if ($isValid) {
-                    $request->setUserResolver(fn() => $accessToken->tokenable);
+                    $request->setUserResolver(fn () => $accessToken->tokenable);
                 }
             }
         }
 
         // Check authentication
-        if (!$request->user()) {
+        if (! $request->user()) {
             return new StreamedResponse(function () {
                 $this->sendEvent('error', ['message' => 'Unauthorized']);
             }, 401, ['Content-Type' => 'text/event-stream']);
+        }
+
+        // Route is outside auth:sanctum: the binding resolved unscoped,
+        // so enforce organization membership explicitly (see
+        // DeploymentStreamController for rationale).
+        $ownerOrganizationId = $installation->server->organization_id;
+        if (! $request->user()->belongsToOrganization($ownerOrganizationId)) {
+            return new StreamedResponse(function () {
+                $this->sendEvent('error', ['message' => 'Unauthorized']);
+            }, 403, ['Content-Type' => 'text/event-stream']);
         }
 
         $installationId = $installation->id;
@@ -43,8 +53,9 @@ class DatabaseInstallationStreamController extends Controller
             set_time_limit(600);
 
             $installation = DatabaseInstallation::find($installationId);
-            if (!$installation) {
+            if (! $installation) {
                 $this->sendEvent('error', ['message' => 'Installation not found']);
+
                 return;
             }
 
@@ -63,6 +74,7 @@ class DatabaseInstallationStreamController extends Controller
                     'status' => $installation->status,
                     'is_complete' => true,
                 ]);
+
                 return;
             }
 
@@ -82,7 +94,7 @@ class DatabaseInstallationStreamController extends Controller
                 }
 
                 $installation = DatabaseInstallation::find($installationId);
-                if (!$installation) {
+                if (! $installation) {
                     $this->sendEvent('error', ['message' => 'Installation not found']);
                     break;
                 }
@@ -128,7 +140,7 @@ class DatabaseInstallationStreamController extends Controller
     private function sendEvent(string $event, array $data): void
     {
         echo "event: {$event}\n";
-        echo "data: " . json_encode($data) . "\n\n";
+        echo 'data: '.json_encode($data)."\n\n";
 
         if (ob_get_level()) {
             ob_flush();

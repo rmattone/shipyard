@@ -5,11 +5,14 @@ namespace Tests\Feature;
 use App\Jobs\ProcessServerSshKeyInstall;
 use App\Models\Application;
 use App\Models\Server;
+use App\Models\ServerSshKey;
 use App\Models\User;
+use App\Services\AuthorizedKeysService;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
 use phpseclib3\Crypt\EC;
+use phpseclib3\Crypt\PublicKeyLoader;
 use Tests\TestCase;
 
 /**
@@ -35,7 +38,7 @@ class ServerUserApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
 
         $keyPair = EC::createKey('Ed25519');
 
@@ -302,11 +305,11 @@ class ServerUserApiTest extends TestCase
         // prior attempt and left a ServerSshKey row behind, but the fresh
         // request must absorb it (same server_id/username/fingerprint)
         // rather than raw-500 on the unique index.
-        $publicKey = \phpseclib3\Crypt\PublicKeyLoader::load($this->server->private_key)
+        $publicKey = PublicKeyLoader::load($this->server->private_key)
             ->getPublicKey()->toString('OpenSSH');
-        $normalized = app(\App\Services\AuthorizedKeysService::class)->validateAndNormalize($publicKey);
+        $normalized = app(AuthorizedKeysService::class)->validateAndNormalize($publicKey);
 
-        $existing = \App\Models\ServerSshKey::factory()->create([
+        $existing = ServerSshKey::factory()->create([
             'server_id' => $this->server->id,
             'username' => 'deploy',
             'fingerprint' => $normalized['fingerprint'],

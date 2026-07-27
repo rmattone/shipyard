@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Application;
 use App\Models\Server;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -24,7 +23,7 @@ class ApplicationDeployPathTest extends TestCase
 
     public function test_duplicate_deploy_path_on_same_server_is_rejected(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
 
         // "My App" and "my-app" both slug to /var/www/shipyard/my-app
@@ -38,7 +37,7 @@ class ApplicationDeployPathTest extends TestCase
 
     public function test_same_deploy_path_on_a_different_server_is_allowed(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $serverA = Server::factory()->create();
         $serverB = Server::factory()->create();
 
@@ -51,7 +50,7 @@ class ApplicationDeployPathTest extends TestCase
 
     public function test_shallow_deploy_path_is_rejected(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
 
         $response = $this->actingAs($user)->postJson('/api/applications', $this->payload($server, ['deploy_path' => '/home/']));
@@ -61,7 +60,7 @@ class ApplicationDeployPathTest extends TestCase
 
     public function test_deploy_path_with_traversal_is_rejected(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
 
         $response = $this->actingAs($user)->postJson('/api/applications', $this->payload($server, ['deploy_path' => '/var/www/../../etc']));

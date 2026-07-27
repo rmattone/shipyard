@@ -28,7 +28,7 @@ class DatabaseInstallGuardTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
     }
 
     public function test_mysql_install_is_rejected_when_server_already_has_mysql(): void

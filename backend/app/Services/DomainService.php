@@ -18,10 +18,12 @@ class DomainService
      */
     public function addDomain(Application $application, string $domain, bool $isPrimary = false): Domain
     {
-        // Check if domain already exists globally
+        // Check if domain already exists globally (nginx/certbot can only
+        // serve one owner per hostname). Neutral wording: the domain may
+        // belong to another organization and the error must not confirm it.
         $existingDomain = Domain::where('domain', $domain)->first();
         if ($existingDomain) {
-            throw new RuntimeException("Domain '{$domain}' is already in use");
+            throw new RuntimeException("Domain '{$domain}' is not available");
         }
 
         return DB::transaction(function () use ($application, $domain, $isPrimary) {

@@ -6,6 +6,8 @@ use App\Jobs\SendDeploymentNotification;
 use App\Models\Application;
 use App\Models\Deployment;
 use App\Models\NotificationChannel;
+use App\Models\Organization;
+use App\Support\CurrentOrganization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -22,6 +24,19 @@ use Tests\TestCase;
 class DeploymentNotificationTest extends TestCase
 {
     use RefreshDatabase;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The notification job filters channels by the deployment's
+        // organization; bind one context so the channel and deployment
+        // factories land in the same organization.
+        CurrentOrganization::set(
+            Organization::factory()->create(),
+            Organization::ROLE_OWNER,
+        );
+    }
 
     private function makeDeployment(array $attributes = []): Deployment
     {

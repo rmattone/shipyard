@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganizationThroughParent;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -9,7 +10,12 @@ use Illuminate\Support\Facades\Redis;
 
 class DatabaseInstallation extends Model
 {
-    use HasFactory;
+    use BelongsToOrganizationThroughParent, HasFactory;
+
+    protected static function organizationParentRelation(): string
+    {
+        return 'server';
+    }
 
     protected $fillable = [
         'server_id',
@@ -65,7 +71,7 @@ class DatabaseInstallation extends Model
     {
         $timestamp = now()->format('Y-m-d H:i:s');
         $formattedMessage = "[{$timestamp}] {$message}\n";
-        $this->log = ($this->log ?? '') . $formattedMessage;
+        $this->log = ($this->log ?? '').$formattedMessage;
         $this->save();
 
         $this->publishLogChunk($formattedMessage);
@@ -127,7 +133,7 @@ class DatabaseInstallation extends Model
 
     public function getDuration(): ?int
     {
-        if (!$this->started_at || !$this->finished_at) {
+        if (! $this->started_at || ! $this->finished_at) {
             return null;
         }
 

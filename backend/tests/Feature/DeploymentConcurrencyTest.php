@@ -6,7 +6,6 @@ use App\Jobs\ProcessDeployment;
 use App\Jobs\ProcessRollback;
 use App\Models\Application;
 use App\Models\Deployment;
-use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Support\Facades\Queue;
@@ -18,7 +17,7 @@ class DeploymentConcurrencyTest extends TestCase
 
     private function actingAsAdmin(): void
     {
-        $this->actingAs(User::factory()->create());
+        $this->actingAs($this->createOrgUser());
     }
 
     public function test_deploy_is_rejected_while_another_deployment_is_running(): void

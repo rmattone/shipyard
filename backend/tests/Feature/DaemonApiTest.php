@@ -25,7 +25,7 @@ class DaemonApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
         $this->server = Server::factory()->create();
     }
 

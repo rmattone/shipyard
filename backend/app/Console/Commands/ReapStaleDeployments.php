@@ -28,6 +28,8 @@ class ReapStaleDeployments extends Command
     {
         $reaped = 0;
 
+        // Intentionally cross-organization: artisan never binds an
+        // organization context, so this sweeps every tenant's deployments.
         $stale = Deployment::query()
             ->where(function ($query) {
                 $query->where('status', 'running')

@@ -13,12 +13,13 @@ class ApplicationApiTest extends TestCase
     use RefreshDatabase;
 
     private User $user;
+
     private Server $server;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
         $this->server = Server::factory()->create();
     }
 
