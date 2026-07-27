@@ -53,4 +53,30 @@ class AdminSeederTest extends TestCase
         $this->assertNotNull($admin);
         $this->assertTrue(Hash::check('a-strong-password', $admin->password));
     }
+
+    public function test_seeder_creates_an_organization_owned_by_the_admin(): void
+    {
+        $this->setAdminEnv('a-strong-password');
+
+        $this->seed(DatabaseSeeder::class);
+
+        $admin = User::where('email', 'admin@example.com')->first();
+        $organization = $admin->organizations()->first();
+
+        $this->assertNotNull($organization);
+        $this->assertSame('owner', $organization->pivot->role);
+        $this->assertSame($organization->id, $admin->current_organization_id);
+    }
+
+    public function test_seeder_is_idempotent_for_organizations(): void
+    {
+        $this->setAdminEnv('a-strong-password');
+
+        $this->seed(DatabaseSeeder::class);
+        $this->seed(DatabaseSeeder::class);
+
+        $admin = User::where('email', 'admin@example.com')->first();
+
+        $this->assertSame(1, $admin->organizations()->count());
+    }
 }

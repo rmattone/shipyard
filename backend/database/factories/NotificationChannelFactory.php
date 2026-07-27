@@ -3,6 +3,8 @@
 namespace Database\Factories;
 
 use App\Models\NotificationChannel;
+use App\Models\Organization;
+use App\Support\CurrentOrganization;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class NotificationChannelFactory extends Factory
@@ -12,6 +14,7 @@ class NotificationChannelFactory extends Factory
     public function definition(): array
     {
         return [
+            'organization_id' => fn () => CurrentOrganization::id() ?? Organization::factory(),
             'type' => NotificationChannel::TYPE_DISCORD,
             'name' => 'Ops Discord',
             'config' => [

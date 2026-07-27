@@ -2,7 +2,9 @@
 
 namespace Database\Factories;
 
+use App\Models\Organization;
 use App\Models\Server;
+use App\Support\CurrentOrganization;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class ServerFactory extends Factory
@@ -12,6 +14,9 @@ class ServerFactory extends Factory
     public function definition(): array
     {
         return [
+            // Reuse the test's active organization when one is bound so
+            // factory-made servers land in the acting user's org.
+            'organization_id' => fn () => CurrentOrganization::id() ?? Organization::factory(),
             'name' => fake()->company() . ' Server',
             'host' => fake()->ipv4(),
             'port' => 22,
