@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Organization;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
@@ -27,12 +28,29 @@ class DatabaseSeeder extends Seeder
         }
 
         // Only create if user doesn't already exist
-        if (! User::where('email', $email)->exists()) {
-            User::create([
+        $user = User::where('email', $email)->first();
+
+        if (! $user) {
+            $user = User::create([
                 'name' => $name,
                 'email' => $email,
                 'password' => Hash::make($password),
             ]);
+        }
+
+        // Every install needs at least one organization; the admin owns it.
+        if ($user->organizations()->doesntExist()) {
+            $organization = Organization::create([
+                'name' => env('ADMIN_ORGANIZATION', "{$user->name}'s Organization"),
+            ]);
+
+            $user->organizations()->attach($organization, ['role' => Organization::ROLE_OWNER]);
+        }
+
+        if (! $user->current_organization_id) {
+            $user->forceFill([
+                'current_organization_id' => $user->organizations()->first()->id,
+            ])->save();
         }
     }
 }

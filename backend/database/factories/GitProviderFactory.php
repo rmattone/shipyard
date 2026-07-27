@@ -3,6 +3,8 @@
 namespace Database\Factories;
 
 use App\Models\GitProvider;
+use App\Models\Organization;
+use App\Support\CurrentOrganization;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 class GitProviderFactory extends Factory
@@ -12,6 +14,7 @@ class GitProviderFactory extends Factory
     public function definition(): array
     {
         return [
+            'organization_id' => fn () => CurrentOrganization::id() ?? Organization::factory(),
             'name' => fake()->company().' GitLab',
             'type' => 'gitlab',
             'host' => 'https://gitlab.com',
