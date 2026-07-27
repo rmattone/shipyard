@@ -57,7 +57,7 @@ Route::middleware('auth:sanctum')->group(function () {
         ->name('organizations.store');
 });
 
-Route::middleware(['auth:sanctum', 'org.context'])->group(function () {
+Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function () {
     // Organizations (owner checks live in the controllers, since the
     // {organization} in the URL is not necessarily the current one)
     Route::get('/organizations', [OrganizationController::class, 'index']);
@@ -164,7 +164,8 @@ Route::middleware(['auth:sanctum', 'org.context'])->group(function () {
     // Applications
     Route::post('/servers/{server}/applications/import', [ApplicationController::class, 'import']);
     Route::apiResource('applications', ApplicationController::class);
-    Route::post('/applications/{application}/deploy', [ApplicationController::class, 'deploy']);
+    Route::post('/applications/{application}/deploy', [ApplicationController::class, 'deploy'])
+        ->name('applications.deploy');
     Route::post('/applications/{application}/setup-ssl', [ApplicationController::class, 'setupSsl']);
     Route::get('/applications/{application}/deployments', [DeploymentController::class, 'index']);
     Route::get('/applications/{application}/deploy-script', [ApplicationController::class, 'getDeployScript']);
@@ -207,9 +208,12 @@ Route::middleware(['auth:sanctum', 'org.context'])->group(function () {
     // Deployments
     Route::get('/deployments/{deployment}', [DeploymentController::class, 'show']);
 
-    // System
-    Route::get('/system/version', [SystemController::class, 'version']);
-    Route::get('/system/environment', [SystemController::class, 'environment']);
-    Route::post('/system/update', [SystemController::class, 'update']);
-    Route::get('/system/update-status', [SystemController::class, 'updateStatus']);
+    // System (host-level operations on the ShipYard installation itself:
+    // owner-only, this reaches far beyond a single organization)
+    Route::middleware('org.role:owner')->group(function () {
+        Route::get('/system/version', [SystemController::class, 'version']);
+        Route::get('/system/environment', [SystemController::class, 'environment']);
+        Route::post('/system/update', [SystemController::class, 'update']);
+        Route::get('/system/update-status', [SystemController::class, 'updateStatus']);
+    });
 });
