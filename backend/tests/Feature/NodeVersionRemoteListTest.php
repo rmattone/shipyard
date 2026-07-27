@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Server;
-use App\Models\User;
 use App\Services\NodeVersionService;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,9 +57,10 @@ class NodeVersionRemoteListTest extends TestCase
     {
         $this->fakeIndex();
         $this->mock(SSHService::class)->shouldNotReceive('connect');
+        $user = $this->createOrgUser();
         $server = Server::factory()->create();
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($user)
             ->getJson("/api/servers/{$server->id}/node-versions/remote");
 
         $response->assertOk()

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Jobs\SendDeploymentNotification;
+use App\Models\Concerns\BelongsToOrganizationThroughParent;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -12,7 +13,12 @@ use Illuminate\Support\Str;
 
 class Deployment extends Model
 {
-    use HasFactory;
+    use BelongsToOrganizationThroughParent, HasFactory;
+
+    protected static function organizationParentRelation(): string
+    {
+        return 'application.server';
+    }
 
     protected $fillable = [
         'application_id',

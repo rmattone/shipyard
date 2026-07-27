@@ -12,8 +12,11 @@ use App\Models\Server;
 use App\Services\ApplicationImportService;
 use App\Services\CertbotService;
 use App\Services\NginxService;
+use App\Services\SSHService;
+use App\Support\CurrentOrganization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class ApplicationController extends Controller
 {
@@ -50,8 +53,16 @@ class ApplicationController extends Controller
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'server_id' => 'required|exists:servers,id',
-            'git_provider_id' => 'nullable|exists:git_providers,id',
+            // exists: hits the query builder directly and bypasses global
+            // scopes, so constrain to the current organization explicitly.
+            'server_id' => [
+                'required',
+                Rule::exists('servers', 'id')->where('organization_id', CurrentOrganization::id()),
+            ],
+            'git_provider_id' => [
+                'nullable',
+                Rule::exists('git_providers', 'id')->where('organization_id', CurrentOrganization::id()),
+            ],
             'name' => 'required|string|max:255',
             'type' => 'required|in:laravel,nodejs,static',
             'node_version' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9._-]+$/'],
@@ -129,8 +140,14 @@ class ApplicationController extends Controller
     public function update(Request $request, Application $application): JsonResponse
     {
         $validated = $request->validate([
-            'server_id' => 'sometimes|exists:servers,id',
-            'git_provider_id' => 'nullable|exists:git_providers,id',
+            'server_id' => [
+                'sometimes',
+                Rule::exists('servers', 'id')->where('organization_id', CurrentOrganization::id()),
+            ],
+            'git_provider_id' => [
+                'nullable',
+                Rule::exists('git_providers', 'id')->where('organization_id', CurrentOrganization::id()),
+            ],
             'name' => 'sometimes|required|string|max:255',
             'type' => 'sometimes|required|in:laravel,nodejs,static',
             'node_version' => ['nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9._-]+$/'],
@@ -234,7 +251,7 @@ class ApplicationController extends Controller
      */
     private function deleteServerFiles(Application $application): void
     {
-        $sshService = app(\App\Services\SSHService::class);
+        $sshService = app(SSHService::class);
         $sshService->connect($application->server);
 
         $deployPath = $application->deploy_path;
@@ -412,7 +429,10 @@ class ApplicationController extends Controller
     {
         $validated = $request->validate([
             'tag_ids' => 'present|array',
-            'tag_ids.*' => 'integer|exists:tags,id',
+            'tag_ids.*' => [
+                'integer',
+                Rule::exists('tags', 'id')->where('server_id', $application->server_id),
+            ],
         ]);
 
         // Verify all tags belong to the same server as the application

@@ -18,18 +18,30 @@ class DeploymentStreamController extends Controller
             $accessToken = PersonalAccessToken::findToken($token);
             if ($accessToken) {
                 // Check if token has expiration and is not expired
-                $isValid = !$accessToken->expires_at || $accessToken->expires_at->isFuture();
+                $isValid = ! $accessToken->expires_at || $accessToken->expires_at->isFuture();
                 if ($isValid) {
-                    $request->setUserResolver(fn() => $accessToken->tokenable);
+                    $request->setUserResolver(fn () => $accessToken->tokenable);
                 }
             }
         }
 
         // Check authentication
-        if (!$request->user()) {
+        if (! $request->user()) {
             return new StreamedResponse(function () {
                 $this->sendEvent('error', ['message' => 'Unauthorized']);
             }, 401, ['Content-Type' => 'text/event-stream']);
+        }
+
+        // This route sits outside auth:sanctum, so the {deployment}
+        // binding resolved without organization scoping. Require
+        // membership in the owning org (any membership, not the current
+        // one, so open streams survive an org switch). Same body as the
+        // auth failure: no existence leak.
+        $ownerOrganizationId = $deployment->application->server->organization_id;
+        if (! $request->user()->belongsToOrganization($ownerOrganizationId)) {
+            return new StreamedResponse(function () {
+                $this->sendEvent('error', ['message' => 'Unauthorized']);
+            }, 403, ['Content-Type' => 'text/event-stream']);
         }
 
         $deploymentId = $deployment->id;
@@ -45,8 +57,9 @@ class DeploymentStreamController extends Controller
 
             // Get fresh deployment data
             $deployment = Deployment::find($deploymentId);
-            if (!$deployment) {
+            if (! $deployment) {
                 $this->sendEvent('error', ['message' => 'Deployment not found']);
+
                 return;
             }
 
@@ -66,6 +79,7 @@ class DeploymentStreamController extends Controller
                     'status' => $deployment->status,
                     'is_complete' => true,
                 ]);
+
                 return;
             }
 
@@ -88,7 +102,7 @@ class DeploymentStreamController extends Controller
 
                 // Refresh deployment from database
                 $deployment = Deployment::find($deploymentId);
-                if (!$deployment) {
+                if (! $deployment) {
                     $this->sendEvent('error', ['message' => 'Deployment not found']);
                     break;
                 }
@@ -138,7 +152,7 @@ class DeploymentStreamController extends Controller
     private function sendEvent(string $event, array $data): void
     {
         echo "event: {$event}\n";
-        echo "data: " . json_encode($data) . "\n\n";
+        echo 'data: '.json_encode($data)."\n\n";
 
         if (ob_get_level()) {
             ob_flush();

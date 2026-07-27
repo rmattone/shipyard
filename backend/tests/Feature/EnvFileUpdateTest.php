@@ -15,7 +15,7 @@ class EnvFileUpdateTest extends TestCase
 
     public function test_update_env_file_replaces_variables_and_survives_round_trip(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $app = Application::factory()->create();
         EnvironmentVariable::create(['application_id' => $app->id, 'key' => 'OLD', 'value' => 'gone']);
 
@@ -38,7 +38,7 @@ class EnvFileUpdateTest extends TestCase
     // which read as the panel reordering what the user wrote.
     public function test_comments_blank_lines_and_order_survive_the_editor_round_trip(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $app = Application::factory()->create();
 
         $content = "# App\nAPP_NAME=shipyard\n\n# Database\nDB_HOST=localhost\nDB_PASSWORD=secret";
@@ -55,7 +55,7 @@ class EnvFileUpdateTest extends TestCase
 
     public function test_a_variable_added_via_the_structured_api_appends_after_the_layout(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $app = Application::factory()->create();
 
         $content = "# Base\nAPP_NAME=shipyard";
@@ -72,7 +72,7 @@ class EnvFileUpdateTest extends TestCase
 
     public function test_env_values_are_encrypted_at_rest(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
         $app = Application::factory()->create();
 
         $this->actingAs($user)->putJson("/api/applications/{$app->id}/env-file", [

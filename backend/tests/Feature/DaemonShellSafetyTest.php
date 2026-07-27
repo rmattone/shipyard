@@ -6,6 +6,7 @@ use App\Models\Server;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
@@ -27,11 +28,11 @@ class DaemonShellSafetyTest extends TestCase
         parent::setUp();
 
         Queue::fake();
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
         $this->server = Server::factory()->create();
     }
 
-    private function postDaemon(array $overrides): \Illuminate\Testing\TestResponse
+    private function postDaemon(array $overrides): TestResponse
     {
         return $this->actingAs($this->user)->postJson(
             "/api/servers/{$this->server->id}/daemons",

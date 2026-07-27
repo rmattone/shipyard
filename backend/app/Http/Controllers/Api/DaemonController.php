@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Jobs\ProcessDaemonInstall;
 use App\Jobs\ProcessDaemonRemoval;
-use App\Models\Application;
 use App\Models\Daemon;
 use App\Models\Server;
 use App\Services\SystemdService;
@@ -52,7 +51,7 @@ class DaemonController extends Controller
         ]);
 
         if (empty($validated['directory']) && ! empty($validated['application_id'])) {
-            $application = Application::find($validated['application_id']);
+            $application = $server->applications()->find($validated['application_id']);
             $validated['directory'] = $application->usesAtomicDeployments()
                 ? $application->getCurrentPath()
                 : $application->deploy_path;

@@ -38,11 +38,13 @@ Route::get('/deployments/{deployment}/stream', [DeploymentStreamController::clas
 Route::get('/database-installations/{installation}/stream', [DatabaseInstallationStreamController::class, 'stream']);
 
 // Protected routes
+// Auth routes that must keep working for a user with zero organizations
 Route::middleware('auth:sanctum')->group(function () {
-    // Auth
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/user', [AuthController::class, 'user']);
+});
 
+Route::middleware(['auth:sanctum', 'org.context'])->group(function () {
     // SSH Keys
     Route::post('/ssh-keys/generate', [SSHKeyController::class, 'generate']);
 

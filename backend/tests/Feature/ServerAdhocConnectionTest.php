@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\Server;
-use App\Models\User;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -28,7 +27,7 @@ class ServerAdhocConnectionTest extends TestCase
             });
         });
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($this->createOrgUser())
             ->postJson('/api/servers/test-connection', [
                 'host' => '54.10.20.30',
                 'port' => 2222,
@@ -52,7 +51,7 @@ class ServerAdhocConnectionTest extends TestCase
             ]);
         });
 
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($this->createOrgUser())
             ->postJson('/api/servers/test-connection', [
                 'host' => '54.10.20.30',
                 'username' => 'ubuntu',
@@ -64,7 +63,7 @@ class ServerAdhocConnectionTest extends TestCase
 
     public function test_connection_details_are_required(): void
     {
-        $response = $this->actingAs(User::factory()->create())
+        $response = $this->actingAs($this->createOrgUser())
             ->postJson('/api/servers/test-connection', ['host' => '54.10.20.30']);
 
         $response->assertStatus(422)->assertJsonValidationErrors(['username', 'private_key']);

@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Application;
 use App\Models\Domain;
-use App\Models\User;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -27,7 +26,7 @@ class ApplicationDomainUpdateTest extends TestCase
     public function test_updating_domain_updates_the_primary_domain_row(): void
     {
         $this->mockSsh();
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
 
         $app = Application::factory()->create(['type' => 'laravel', 'domain' => 'old.test']);
         Domain::factory()->primary()->create(['application_id' => $app->id, 'domain' => 'old.test']);
@@ -52,7 +51,7 @@ class ApplicationDomainUpdateTest extends TestCase
     public function test_updating_domain_creates_a_primary_domain_when_none_exists(): void
     {
         $this->mockSsh();
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
 
         $app = Application::factory()->create(['type' => 'laravel', 'domain' => 'legacy.test']);
 

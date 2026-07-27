@@ -18,7 +18,7 @@ class NotificationChannelApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
     }
 
     public function test_endpoints_require_authentication(): void

@@ -42,7 +42,7 @@ class RollbackController extends Controller
     public function rollback(Request $request, Application $application): JsonResponse
     {
         $validated = $request->validate([
-            'deployment_id' => 'required|exists:deployments,id',
+            'deployment_id' => 'required|integer',
         ]);
 
         if (! $application->usesAtomicDeployments()) {
@@ -51,14 +51,12 @@ class RollbackController extends Controller
             ], 422);
         }
 
-        $targetDeployment = Deployment::findOrFail($validated['deployment_id']);
-
-        // Verify target deployment belongs to this application
-        if ($targetDeployment->application_id !== $application->id) {
-            return response()->json([
-                'message' => 'Target deployment does not belong to this application.',
-            ], 422);
-        }
+        // Scoped through the application: a deployment id from another
+        // application (or another organization) is just a 404, without
+        // confirming the id exists.
+        $targetDeployment = $application->deployments()
+            ->whereKey($validated['deployment_id'])
+            ->firstOrFail();
 
         // Verify target deployment has a release path
         if (! $targetDeployment->release_path) {

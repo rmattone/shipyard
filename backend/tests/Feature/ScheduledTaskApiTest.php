@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\ProcessScheduledTaskInstall;
 use App\Jobs\ProcessScheduledTaskRemoval;
+use App\Models\Application;
 use App\Models\ScheduledTask;
 use App\Models\Server;
 use App\Models\User;
@@ -24,7 +25,7 @@ class ScheduledTaskApiTest extends TestCase
     {
         parent::setUp();
 
-        $this->user = User::factory()->create();
+        $this->user = $this->createOrgUser();
         $this->server = Server::factory()->create();
     }
 
@@ -200,7 +201,7 @@ class ScheduledTaskApiTest extends TestCase
     public function test_create_can_link_the_task_to_an_application_on_the_same_server(): void
     {
         Queue::fake();
-        $app = \App\Models\Application::factory()->create(['server_id' => $this->server->id]);
+        $app = Application::factory()->create(['server_id' => $this->server->id]);
 
         $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/scheduled-tasks", [
@@ -216,7 +217,7 @@ class ScheduledTaskApiTest extends TestCase
     public function test_create_rejects_an_application_of_another_server(): void
     {
         Queue::fake();
-        $foreignApp = \App\Models\Application::factory()->create();
+        $foreignApp = Application::factory()->create();
 
         $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/scheduled-tasks", [
@@ -233,7 +234,7 @@ class ScheduledTaskApiTest extends TestCase
 
     public function test_index_can_filter_by_application(): void
     {
-        $app = \App\Models\Application::factory()->create(['server_id' => $this->server->id]);
+        $app = Application::factory()->create(['server_id' => $this->server->id]);
         ScheduledTask::factory()->create(['server_id' => $this->server->id, 'application_id' => $app->id]);
         ScheduledTask::factory()->create(['server_id' => $this->server->id]);
 

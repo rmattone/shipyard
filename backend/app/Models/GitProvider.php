@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToOrganization;
+use App\Models\Scopes\OrganizationScope;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class GitProvider extends Model
 {
-    use HasFactory;
+    use BelongsToOrganization, HasFactory;
 
     protected $appends = [
         'has_private_key',
@@ -41,10 +43,15 @@ class GitProvider extends Model
 
     protected static function booted(): void
     {
-        // When setting a provider as default, unset others
+        // When setting a provider as default, unset others in the same
+        // organization. Explicit org filter (with the global scope
+        // removed) so the behavior is identical with and without a
+        // bound organization context (HTTP vs queue/console).
         static::saving(function (GitProvider $provider) {
             if ($provider->is_default && $provider->isDirty('is_default')) {
-                static::where('id', '!=', $provider->id ?? 0)
+                static::withoutGlobalScope(OrganizationScope::class)
+                    ->where('organization_id', $provider->organization_id)
+                    ->where('id', '!=', $provider->id ?? 0)
                     ->where('is_default', true)
                     ->update(['is_default' => false]);
             }
@@ -114,7 +121,7 @@ class GitProvider extends Model
         // Parse the repository URL to extract owner and repo
         $parsed = $this->parseRepositoryUrl($repoUrl);
 
-        if (!$parsed) {
+        if (! $parsed) {
             return $repoUrl; // Return original if can't parse
         }
 
@@ -123,6 +130,7 @@ class GitProvider extends Model
 
         // Build authenticated HTTPS URL
         $encodedPassword = urlencode($password);
+
         return "https://{$username}:{$encodedPassword}@{$host}/{$parsed['path']}.git";
     }
 
@@ -133,11 +141,12 @@ class GitProvider extends Model
     {
         $parsed = $this->parseRepositoryUrl($repoUrl);
 
-        if (!$parsed) {
+        if (! $parsed) {
             return $repoUrl;
         }
 
         $host = $this->getEffectiveHost();
+
         return "https://{$host}/{$parsed['path']}.git";
     }
 
@@ -193,7 +202,7 @@ class GitProvider extends Model
      */
     public function usesSSHKey(): bool
     {
-        return !empty($this->private_key);
+        return ! empty($this->private_key);
     }
 
     /**
@@ -205,7 +214,8 @@ class GitProvider extends Model
         // Normalize line endings
         $key = str_replace("\r\n", "\n", $key);  // Windows line endings
         $key = str_replace("\r", "\n", $key);     // Old Mac line endings
-        return trim($key) . "\n";                  // Ensure single trailing newline
+
+        return trim($key)."\n";                  // Ensure single trailing newline
     }
 
     /**
@@ -213,7 +223,7 @@ class GitProvider extends Model
      */
     public function usesAccessToken(): bool
     {
-        return !empty($this->access_token);
+        return ! empty($this->access_token);
     }
 
     /**
@@ -239,11 +249,12 @@ class GitProvider extends Model
     {
         $parsed = $this->parseRepositoryUrl($repoUrl);
 
-        if (!$parsed) {
+        if (! $parsed) {
             return $repoUrl;
         }
 
         $host = $this->getEffectiveHost();
+
         return "git@{$host}:{$parsed['path']}.git";
     }
 }

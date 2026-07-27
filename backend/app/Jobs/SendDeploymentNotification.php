@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Models\Deployment;
 use App\Models\NotificationChannel;
+use App\Models\Scopes\OrganizationScope;
 use App\Services\Notifications\DeploymentNotificationPayload;
 use App\Services\Notifications\NotificationService;
 use Illuminate\Bus\Queueable;
@@ -32,7 +33,11 @@ class SendDeploymentNotification implements ShouldQueue
 
     public function handle(NotificationService $notificationService): void
     {
-        $channels = NotificationChannel::query()
+        // Explicit org filter: queue workers run without an organization
+        // context (global scope is a no-op there), and without this every
+        // organization's channels would be notified about this deployment.
+        $channels = NotificationChannel::withoutGlobalScope(OrganizationScope::class)
+            ->where('organization_id', $this->deployment->application->server->organization_id)
             ->enabled()
             ->subscribedTo($this->event)
             ->get();

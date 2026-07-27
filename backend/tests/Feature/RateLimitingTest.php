@@ -33,7 +33,7 @@ class RateLimitingTest extends TestCase
 
     public function test_api_routes_carry_the_rate_limit_headers(): void
     {
-        $user = User::factory()->create();
+        $user = $this->createOrgUser();
 
         $response = $this->actingAs($user)->getJson('/api/servers');
 
