@@ -27,8 +27,10 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { NotificationChannels } from './NotificationChannels'
+import { OrganizationGeneral } from './OrganizationGeneral'
+import { OrganizationMembers } from './OrganizationMembers'
 
-type SettingsSection = 'source-control' | 'notifications' | 'general' | 'system'
+type SettingsSection = 'source-control' | 'notifications' | 'members' | 'general' | 'system'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -159,6 +161,7 @@ export default function Settings() {
   const sidebarItems = [
     { id: 'source-control' as const, label: 'Source Control' },
     { id: 'notifications' as const, label: 'Notifications' },
+    { id: 'members' as const, label: 'Members' },
     { id: 'general' as const, label: 'General' },
     { id: 'system' as const, label: 'System' },
   ]
@@ -277,43 +280,9 @@ export default function Settings() {
 
         {activeSection === 'notifications' && <NotificationChannels />}
 
-        {activeSection === 'general' && (
-          <Card>
-            <CardHeader>
-              <CardTitle>General</CardTitle>
-              <CardDescription>
-                Organization settings and preferences.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div>
-                <div className="flex items-start justify-between py-6 border-b">
-                  <div>
-                    <p className="font-medium">Organization name</p>
-                    <p className="text-sm text-muted-foreground">
-                      The name of your organization.
-                    </p>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    Coming soon...
-                  </div>
-                </div>
+        {activeSection === 'members' && <OrganizationMembers />}
 
-                <div className="flex items-start justify-between py-6">
-                  <div>
-                    <p className="font-medium">Organization avatar</p>
-                    <p className="text-sm text-muted-foreground">
-                      Your organization's profile picture.
-                    </p>
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    Coming soon...
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        {activeSection === 'general' && <OrganizationGeneral />}
 
         {activeSection === 'system' && (
           <div className="space-y-6">

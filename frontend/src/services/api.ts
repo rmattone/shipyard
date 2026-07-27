@@ -55,12 +55,15 @@ api.interceptors.response.use(
       const requestUrl: string = error.config?.url ?? ''
       const isLoginRequest = requestUrl.includes('/auth/login')
       const isOnLoginPage = window.location.pathname.endsWith('/login')
+      // The invitation accept page is public: a visitor with a stale token
+      // must not be bounced to login (they would lose the token param).
+      const isOnInvitePage = window.location.pathname.includes('/invitations/accept')
 
       if (!isLoginRequest) {
         localStorage.removeItem('token')
         localStorage.removeItem('user')
       }
-      if (!isLoginRequest && !isOnLoginPage) {
+      if (!isLoginRequest && !isOnLoginPage && !isOnInvitePage) {
         window.location.href = '/app/login'
       }
     }
@@ -185,10 +188,41 @@ export interface EnvironmentVariable {
   updated_at: string
 }
 
+export type OrganizationRole = 'owner' | 'admin' | 'member'
+
+export interface Organization {
+  id: number
+  name: string
+  role?: OrganizationRole
+  created_at?: string
+}
+
+export interface OrganizationMember {
+  id: number
+  name: string
+  email: string
+  role: OrganizationRole
+}
+
+export interface OrganizationInvitation {
+  id: number
+  email: string
+  role: OrganizationRole
+  expires_at: string
+  created_at: string
+  // Only present on the create response
+  token?: string
+  accept_url?: string
+}
+
 export interface User {
   id: number
   name: string
   email: string
+  // Optional: users cached in localStorage before organizations shipped
+  // don't have these fields until the next /auth/user refresh.
+  organizations?: Organization[]
+  current_organization?: Organization | null
 }
 
 export interface GitProvider {
@@ -367,6 +401,39 @@ export const authApi = {
   },
   logout: () => api.post('/auth/logout'),
   getUser: () => api.get<User>('/auth/user'),
+}
+
+// Organizations
+export const organizationsApi = {
+  list: () => api.get<Organization[]>('/organizations'),
+  create: (data: { name: string }) => api.post<Organization>('/organizations', data),
+  update: (id: number, data: { name: string }) => api.put<Organization>(`/organizations/${id}`, data),
+  delete: (id: number) => api.delete(`/organizations/${id}`),
+  switch: (id: number) => api.post<Organization>(`/organizations/${id}/switch`),
+  members: (id: number) => api.get<OrganizationMember[]>(`/organizations/${id}/members`),
+  updateMemberRole: (id: number, userId: number, role: OrganizationRole) =>
+    api.put<OrganizationMember>(`/organizations/${id}/members/${userId}`, { role }),
+  removeMember: (id: number, userId: number) => api.delete(`/organizations/${id}/members/${userId}`),
+  invitations: (id: number) => api.get<OrganizationInvitation[]>(`/organizations/${id}/invitations`),
+  invite: (id: number, data: { email: string; role: OrganizationRole }) =>
+    api.post<OrganizationInvitation>(`/organizations/${id}/invitations`, data),
+  revokeInvitation: (id: number, invitationId: number) =>
+    api.delete(`/organizations/${id}/invitations/${invitationId}`),
+}
+
+// Invitation accept flow (public)
+export const invitationsApi = {
+  show: (token: string) =>
+    api.get<{ organization: string; email: string; role: OrganizationRole; expired: boolean; existing_user: boolean }>(
+      `/invitations/${token}`
+    ),
+  accept: async (token: string, data?: { name: string; password: string; password_confirmation: string }) => {
+    await getCsrfCookie()
+    return api.post<{ user?: User; token?: string; organization: { id: number; name: string }; message?: string }>(
+      `/invitations/${token}/accept`,
+      data ?? {}
+    )
+  },
 }
 
 // SSH Keys
