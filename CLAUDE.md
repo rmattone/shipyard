@@ -42,7 +42,7 @@ cd frontend && npm run build
 ## Architecture
 
 ### Backend (`backend/`)
-- **Framework**: Laravel 11 (PHP 8.2) with Sanctum for API authentication
+- **Framework**: Laravel 12 (PHP 8.2) with Sanctum for API authentication
 - **Services pattern**: Business logic lives in `app/Services/`, controllers are thin
 - **Key services**:
   - `SSHService` - All remote server communication via phpseclib
@@ -75,6 +75,9 @@ The system supports two deployment modes:
 | `scheduler` | Laravel scheduler (`schedule:work`) |
 
 ## Key Patterns
+
+### Multi-Tenancy (Organizations)
+Users belong to organizations (pivot `organization_user` with role owner/admin/member). Tenant root tables (`servers`, `git_providers`, `notification_channels`) carry `organization_id` and use the `BelongsToOrganization` trait. The `SetOrganizationContext` middleware binds the request's organization into `App\Support\CurrentOrganization`; the global `OrganizationScope` filters queries only while that context is bound, so queue workers and artisan commands run unscoped by design. It must run before route model binding (registered in the middleware priority list in `bootstrap/app.php`). Beware: `exists:` validation rules bypass global scopes, constrain them to the current organization explicitly. In tests, `TestCase::createOrgUser()` creates an acting user and binds the context so factories land in the same organization.
 
 ### SSH Operations
 All server interactions go through `SSHService`. Never execute SSH commands directly. The service handles connections, key decryption, and error handling. Repeated `connect()` calls to the same server reuse the live session; `disconnect()` closes it. The service is a singleton, so always call `disconnect()` when an operation finishes.
