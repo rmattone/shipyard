@@ -187,7 +187,7 @@ After connecting a server, provision a deploy user from Server Settings, Users, 
 
 Servers connected before this feature keep their existing /var/www layout and behavior. Nothing changes until you provision a deploy user.
 
-A vhost written before the server gained its deploy user keeps the distro FPM socket until the application's domains change or a certificate is issued or renewed, since those are the operations that rewrite the vhost (deployments do not). All Laravel apps on a provisioned server share one FPM pool per PHP version (pm.max_children is 10 by default), so heavy multi-app servers may need pool tuning. A "reset to generated configuration" action in the nginx editor is a noted follow-up that would give operators an immediate switch.
+A vhost written before the server gained its deploy user keeps the distro FPM socket until the application's domains change or a certificate is first issued, since those are the operations that rewrite the vhost (deployments and certificate renewals do not). All Laravel apps on a provisioned server share one FPM pool per PHP version (pm.max_children is 10 by default), so heavy multi-app servers may need pool tuning. A "reset to generated configuration" action in the nginx editor is a noted follow-up that would give operators an immediate switch.
 
 On servers with a deploy user, run daemons (queue workers) and scheduled tasks as that same user. Files created at runtime in storage/ belong to whoever created them, and PHP-FPM offers no per-pool umask, so mixing users across FPM, workers, and cron leads to permission errors on shared files. The panel defaults new daemons and tasks to the deploy user on these servers for exactly this reason.
 
