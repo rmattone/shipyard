@@ -11,6 +11,8 @@ class Server extends Model
 {
     use BelongsToOrganization, HasFactory;
 
+    public const LEGACY_DEPLOY_BASE = '/var/www/shipyard';
+
     protected $fillable = [
         'name',
         'host',
@@ -51,7 +53,7 @@ class Server extends Model
     {
         return filled($this->deploy_user)
             ? "/home/{$this->deploy_user}"
-            : '/var/www/shipyard';
+            : self::LEGACY_DEPLOY_BASE;
     }
 
     public function applications(): HasMany

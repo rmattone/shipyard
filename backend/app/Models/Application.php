@@ -84,7 +84,11 @@ class Application extends Model
         $safeName = preg_replace('/-+/', '-', $safeName); // collapse multiple dashes
         $safeName = trim($safeName, '-');
 
-        $base = $server?->default_deploy_base ?? '/var/www/shipyard';
+        if ($safeName === '') {
+            $safeName = 'app';
+        }
+
+        $base = $server?->default_deploy_base ?? Server::LEGACY_DEPLOY_BASE;
 
         return "{$base}/{$safeName}";
     }
