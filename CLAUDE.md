@@ -94,6 +94,9 @@ Generated dynamically by `NginxService`. Templates are built per-application and
 ### Real-time Logs
 Deployment logs stream via SSE (Server-Sent Events) to the frontend.
 
+### Web Terminal
+`TerminalStreamController` holds an interactive PTY (`TerminalService` + `App\Support\Ssh\InteractiveSSH2`, which adds the `window-change` request phpseclib 3.0 lacks) for the life of one SSE request; keystrokes arrive as POSTs that `LPUSH` onto `terminal:{session}:input` and the stream loop drains with `RPOP`. Never route terminal I/O through `SSHService`: it is exec-only and reuses/destroys sessions in ways a long-lived shell cannot tolerate. Each stream pins one php-fpm worker, hence the 3-session cap, the stale-session reaper (`last_seen_at` touched every 15s), the enlarged pool in `docker/php/zz-shipyard.conf`, and the dedicated unbuffered nginx location. Like the other SSE routes it sits outside `auth:sanctum`, so ownership, organization membership, and the admin role are all checked by hand in the controller.
+
 ## Configuration
 
 Two `.env` files:
