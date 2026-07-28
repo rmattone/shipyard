@@ -1369,8 +1369,10 @@ Add one paragraph to Key Patterns (after the SSH Operations entry):
 
 ```markdown
 ### Deploy User Layout
-`servers.deploy_user` (nullable) selects the filesystem layout. Null means the legacy `/var/www/shipyard/{app}` defaults and the distro PHP-FPM socket. When set (provisioned via `ServerUserService`, home mode 711), new apps default to `/home/{deploy_user}/{app}`, `PhpFpmPoolService` installs a pool running as that user, and `NginxService` points vhosts at the ShipYard pool socket. Never hardcode either base path; use `Server::default_deploy_base` / `Application::generateDeployPath()`.
+`servers.deploy_user` (nullable) selects the filesystem layout. Null means the legacy `/var/www/shipyard/{app}` defaults and the distro PHP-FPM socket. When set (provisioned via `ServerUserService`, home mode 711), new apps default to `/home/{deploy_user}/{app}`, `PhpFpmPoolService` installs a pool running as that user, and `NginxService` points vhosts at the ShipYard pool socket. Because the pool and socket decision is server-wide, assigning or changing `deploy_user` is refused while the server has applications outside the new user's home (`ServerUserService::assertNoApplicationsOutsideHome`); migrating existing apps is deliberately unsupported. Never hardcode either base path; use `Server::default_deploy_base` / `Application::generateDeployPath()`.
 ```
+
+Also correct the existing SSH Operations paragraph in CLAUDE.md: it currently says `SSHService` is a singleton; `AppServiceProvider` deliberately registers it request-scoped (see the provider comment). Fix the sentence to say the service is request-scoped, and keep the guidance to call `disconnect()` when an operation finishes.
 
 - [ ] **Step 3: Run the full backend suite**
 
