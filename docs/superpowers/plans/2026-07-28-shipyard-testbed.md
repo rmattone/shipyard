@@ -546,7 +546,20 @@ git commit -m "Add heartbeat table, job, command, and schedule"
 
 **Files:**
 - Create: `config/testbed.php`, `app/Checks/RuntimeUserCheck.php`, `app/Checks/EnvSyncCheck.php`
+- Modify: `app/Support/RuntimeUser.php` (fallback honesty, see below)
 - Test: `tests/Unit/RuntimeUserCheckTest.php`, `tests/Unit/EnvSyncCheckTest.php`
+
+**Amendment from the Task 3 review (important):** `RuntimeUser::name()`'s `get_current_user()` fallback returns the script's file OWNER, not the process user. On a box where posix is unavailable, that would report `shipyard` even when FPM actually runs as `www-data`, silently hiding the exact misconfiguration `RuntimeUserCheck` exists to catch. Make the degraded path visible instead of pretending: add a companion method and use it in the check.
+
+```php
+    /** True when the process user was determined reliably (posix available). */
+    public static function isReliable(): bool
+    {
+        return function_exists('posix_geteuid') && function_exists('posix_getpwuid');
+    }
+```
+
+and correct the class docblock to say the posix path reports the effective process user, while the fallback reports the script owner and is therefore not authoritative. `RuntimeUserCheck` must then never report a bare pass on the unreliable path: when `isReliable()` is false it returns an informational result whose detail says the process user could not be determined (posix unavailable) and that the value shown is the script owner. Add a test covering that branch by stubbing reliability through a small seam or by asserting the detail text when posix is present is absent, whichever is cleanest without adding machinery.
 
 Note: these unit tests need the Laravel container (config), so they extend `Tests\TestCase`, not PHPUnit's.
 
@@ -1097,6 +1110,26 @@ final class QueueHeartbeatCheck extends HeartbeatCheck
     }
 }
 ```
+
+**Amendment from the Task 3 review (important):** on a server configured with `QUEUE_CONNECTION=sync`, `dispatch()` runs the job inline in the cron process, so a fresh queue heartbeat would prove nothing about the `queue:work` daemon and this check would give a false green. Override `run()` in `QueueHeartbeatCheck` to guard that first:
+
+```php
+    public function run(): CheckResult
+    {
+        if (config('queue.default') === 'sync') {
+            return CheckResult::fail(
+                $this->name(),
+                'a real queue connection (database)',
+                'QUEUE_CONNECTION=sync',
+                'With the sync driver, jobs run inline in the dispatching process, so this check cannot prove the queue:work daemon is alive. Set QUEUE_CONNECTION=database.'
+            );
+        }
+
+        return parent::run();
+    }
+```
+
+Add a test: with `config(['queue.default' => 'sync'])` and a fresh queue heartbeat present, the check still fails and its detail mentions `sync`. Note the test suite itself runs with `QUEUE_CONNECTION=sync` (phpunit.xml), so the other queue heartbeat tests in this task must set `config(['queue.default' => 'database'])` in their arrange step to exercise the freshness logic.
 
 `app/Checks/SchedulerHeartbeatCheck.php`:
 
@@ -1828,6 +1861,12 @@ The scheduler command dispatches the queue job, so a working cron keeps both hea
 ### Legacy mode
 
 On a server without a deploy user, leave `TESTBED_EXPECTED_USER` unset (the runtime user row turns grey and informational) and expect paths under `/var/www/shipyard`.
+
+### Two gotchas the checks themselves warn about
+
+Never deploy with `QUEUE_CONNECTION=sync`. The sync driver runs jobs inline in whichever process dispatches them, so the queue heartbeat would stay fresh even with no daemon running at all. The queue check fails outright when it sees `sync`, precisely so a false green is impossible.
+
+The runtime user row degrades to informational when PHP has no posix extension. In that case the value shown is the script owner, not the process user, so it cannot prove which user PHP-FPM runs as. Standard Ubuntu PHP builds include posix, so this should not happen on a normal target.
 
 ### Manual extras not covered by /status
 
