@@ -416,6 +416,8 @@ git add -A && git commit -m "Provision deploy users with 711 homes and optional 
 
 ### Task 4: Mark an existing user as deploy user
 
+**Why this endpoint matters beyond ergonomics:** it is also the recovery path when Task 3 provisioning partially fails (user created, then chmod/sudoers/key step failed): the create endpoint 422s on retry (`SHIPYARD_USER_EXISTS`), so marking the existing user is the only way to finish assigning `deploy_user`.
+
 **Files:**
 - Modify: `backend/app/Services/ServerUserService.php` (new method)
 - Modify: `backend/app/Http/Controllers/Api/ServerUserController.php` (new action)
@@ -599,6 +601,8 @@ git add -A && git commit -m "Allow marking an existing server user as the deploy
 **Files:**
 - Create: `backend/app/Services/PhpFpmPoolService.php`
 - Create: `backend/tests/Feature/PhpFpmPoolTest.php`
+
+**Verify invariants by mutation (Task 3 review lesson):** after tests pass, temporarily swap the validation and reload order in the generated script (or drop the rollback branch) and confirm the ordering/rollback tests FAIL, then restore. A test that survives the mutation is not pinning the invariant.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1040,6 +1044,8 @@ Append to `NginxTemplateTest`:
 Run: `cd backend && DB_HOST=127.0.0.1 DB_PORT=33061 DB_USERNAME=root DB_PASSWORD=testing php artisan test --filter=NginxTemplateTest`
 Expected: FAIL (`ensurePool` expected once, called zero times)
 
+Mutation check after the hook tests pass: temporarily remove the `deploy_user` condition from the hook (call `ensurePool` unconditionally) and confirm the legacy-server test FAILS; restore.
+
 - [ ] **Step 7: Implement the hook**
 
 At the top of `NginxService::deploy`, before `$config = $this->generateConfig($app);`, add:
@@ -1271,17 +1277,19 @@ and `openCreateDialog` resets to the same object. The dialog button label stays 
             </div>
 ```
 
-3. After a successful create with the flag on, refresh the server object so the badge and AppNew prefix update. `handleCreate` becomes:
+3. After a successful create, consume the server object the 201 response now includes (Task 3 review: never re-derive `default_deploy_base` client-side). `handleCreate` becomes:
 
 ```ts
-      await serverUsersApi.create(server.id, createForm)
+      const response = await serverUsersApi.create(server.id, createForm)
       toast.success('User creation started')
       setShowCreateDialog(false)
-      if (createForm.use_as_deploy_user) {
-        onServerChange?.({ ...server, deploy_user: createForm.username, default_deploy_base: `/home/${createForm.username}` })
+      if (response.data.server) {
+        onServerChange?.(response.data.server)
       }
       await loadUsers()
 ```
+
+and the `create` client signature types the response: `api.post<{ message: string; username: string; sudo: boolean; server: Server }>(...)`.
 
 4. Each user row: show a `deploy user` badge when `server.deploy_user === user.name`, and a "Set as deploy user" outline button (next to "Use for connection") when it is not. The handler:
 
@@ -1350,7 +1358,7 @@ Find the server setup or requirements section (`grep -n "sudo\|server" README.md
 ```markdown
 ### Recommended server layout
 
-After connecting a server, provision a deploy user from Server Settings, Users, "Create deploy user" (the default name is shipyard). ShipYard creates the user with a home directory restricted to mode 711, installs its own SSH key, and can switch the connection to it. New applications then default to /home/shipyard/{app}, and PHP applications run through a ShipYard managed PHP-FPM pool owned by that user, so deployed code and the PHP processes share one owner.
+After connecting a server, provision a deploy user from Server Settings, Users, "Create deploy user" (the default name is shipyard). ShipYard creates the user with a home directory restricted to mode 711 (this applies to every user created through this screen, so nginx can traverse into webroots without listing home contents), installs its own SSH key, and can switch the connection to it. New applications then default to /home/shipyard/{app}, and PHP applications run through a ShipYard managed PHP-FPM pool owned by that user, so deployed code and the PHP processes share one owner.
 
 Servers connected before this feature keep their existing /var/www layout and behavior. Nothing changes until you provision a deploy user.
 ```
