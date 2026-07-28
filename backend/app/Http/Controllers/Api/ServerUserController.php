@@ -47,6 +47,7 @@ class ServerUserController extends Controller
             'message' => "User '{$validated['username']}' created.",
             'username' => $validated['username'],
             'sudo' => $sudo,
+            'server' => $server->fresh(),
         ], 201);
     }
 
