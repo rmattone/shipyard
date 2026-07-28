@@ -1331,6 +1331,7 @@ Change the visible prefix at line ~312 from the literal `/var/www/shipyard/` to 
 - `SchedulerPanel.tsx:364`: placeholder becomes `php8.3 /home/shipyard/app/current/artisan schedule:run`
 - `DaemonsPanel.tsx:533`: placeholder becomes `/home/shipyard/app/current`
 - `AppSettings.tsx:491`: the "Available variables" hint for custom deploy scripts gains `$DEPLOY_OWNER` (added to `getDeployScriptWithVariables` in Task 5b).
+- Single-writer defaults (Task 5b review): on servers with a `deploy_user`, the daemon create form (`DaemonsPanel.tsx`) and the scheduled task form (`SchedulerPanel.tsx`) must default their `user` field to `server.deploy_user` instead of `www-data`, so runtime-created files in `storage/` (FPM, queue workers, scheduler) share one owner. PHP-FPM has no per-pool umask, so cooperating different-user writers cannot be guaranteed; single-writer defaults are the fix. Verify each panel's current default and adjust only the default, not the user's ability to override.
 
 - [ ] **Step 4: UsersSection provisioning flow**
 
@@ -1446,6 +1447,8 @@ Find the server setup or requirements section (`grep -n "sudo\|server" README.md
 After connecting a server, provision a deploy user from Server Settings, Users, "Create deploy user" (the default name is shipyard). ShipYard creates the user with a home directory restricted to mode 711 (this applies to every user created through this screen, so nginx can traverse into webroots without listing home contents), installs its own SSH key, and can switch the connection to it. New applications then default to /home/shipyard/{app}, and PHP applications run through a ShipYard managed PHP-FPM pool owned by that user, so deployed code and the PHP processes share one owner.
 
 Servers connected before this feature keep their existing /var/www layout and behavior. Nothing changes until you provision a deploy user.
+
+On servers with a deploy user, run daemons (queue workers) and scheduled tasks as that same user. Files created at runtime in storage/ belong to whoever created them, and PHP-FPM offers no per-pool umask, so mixing users across FPM, workers, and cron leads to permission errors on shared files. The panel defaults new daemons and tasks to the deploy user on these servers for exactly this reason.
 ```
 
 - [ ] **Step 2: CLAUDE.md**
