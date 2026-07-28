@@ -29,6 +29,7 @@ export function ContextTabs() {
       { label: 'Databases', to: `/servers/${currentServer.id}/databases` },
       { label: 'Scheduler', to: `/servers/${currentServer.id}/scheduler` },
       { label: 'Daemons', to: `/servers/${currentServer.id}/daemons` },
+      { label: 'Terminal', to: `/servers/${currentServer.id}/terminal` },
       { label: 'Settings', to: `/servers/${currentServer.id}/settings` },
     ]
   } else {
