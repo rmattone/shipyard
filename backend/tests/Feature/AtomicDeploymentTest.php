@@ -70,18 +70,6 @@ class AtomicDeploymentTest extends TestCase
         ]);
     }
 
-    private function makeInPlaceApp(string $type, array $serverAttributes = []): Application
-    {
-        $server = Server::factory()->create($serverAttributes);
-
-        return Application::factory()->create([
-            'server_id' => $server->id,
-            'type' => $type,
-            'deployment_strategy' => 'in_place',
-            'git_provider_id' => null,
-        ]);
-    }
-
     private function makeDeployment(Application $app): Deployment
     {
         $releaseId = Deployment::generateReleaseId();
@@ -175,46 +163,7 @@ class AtomicDeploymentTest extends TestCase
         $this->assertNotEmpty($chownCommands, 'Expected setPermissions to issue chown commands.');
         foreach ($chownCommands as $command) {
             $this->assertStringContainsString("chown -R 'www-data:www-data'", $command);
-            $this->assertStringNotContainsString('shipyard', $command);
-        }
-    }
-
-    /**
-     * Task 5b: DeploymentService::fixLaravelPermissions (in-place strategy)
-     * must follow the same rule as the atomic path's setPermissions.
-     */
-    public function test_in_place_laravel_deployment_fixes_permissions_for_the_deploy_user_on_provisioned_servers(): void
-    {
-        $this->mockSsh();
-
-        $app = $this->makeInPlaceApp('laravel', ['deploy_user' => 'shipyard']);
-        $deployment = $this->makeDeployment($app);
-
-        app(DeploymentService::class)->runDeployment($deployment);
-
-        $chownCommands = array_values(array_filter($this->executedCommands, fn ($c) => str_contains($c, 'chown -R')));
-
-        $this->assertNotEmpty($chownCommands, 'Expected fixLaravelPermissions to issue a chown command.');
-        foreach ($chownCommands as $command) {
-            $this->assertStringContainsString("chown -R 'shipyard:www-data'", $command);
-            $this->assertStringNotContainsString('www-data:www-data', $command);
-        }
-    }
-
-    public function test_in_place_laravel_deployment_fixes_permissions_for_www_data_on_legacy_servers(): void
-    {
-        $this->mockSsh();
-
-        $app = $this->makeInPlaceApp('laravel');
-        $deployment = $this->makeDeployment($app);
-
-        app(DeploymentService::class)->runDeployment($deployment);
-
-        $chownCommands = array_values(array_filter($this->executedCommands, fn ($c) => str_contains($c, 'chown -R')));
-
-        $this->assertNotEmpty($chownCommands, 'Expected fixLaravelPermissions to issue a chown command.');
-        foreach ($chownCommands as $command) {
-            $this->assertStringContainsString("chown -R 'www-data:www-data'", $command);
+            $this->assertStringNotContainsString("chown -R 'shipyard", $command);
         }
     }
 

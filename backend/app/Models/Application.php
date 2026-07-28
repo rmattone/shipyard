@@ -498,7 +498,7 @@ SCRIPT;
             '$APP_NAME' => $appName,
             '$DOMAIN' => $this->domain,
             '$NODE_VERSION' => $this->node_version ?? '',
-            '$DEPLOY_OWNER' => $this->server?->deploy_user ?? 'www-data',
+            '$DEPLOY_OWNER' => $this->server?->phpRuntimeUser() ?? 'www-data',
         ];
 
         return str_replace(array_keys($replacements), array_values($replacements), $script);

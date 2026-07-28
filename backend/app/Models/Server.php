@@ -46,6 +46,17 @@ class Server extends Model
     }
 
     /**
+     * The unix user PHP executes as on this server: the deploy user on
+     * home-layout servers, www-data otherwise. Values are safe to embed
+     * unescaped in generated scripts because every deploy_user write path
+     * validates against ServerUserService::USER_PATTERN.
+     */
+    public function phpRuntimeUser(): string
+    {
+        return $this->deploy_user ?? 'www-data';
+    }
+
+    /**
      * Base directory new applications default into. Servers with a
      * provisioned deploy user use the home directory layout.
      */

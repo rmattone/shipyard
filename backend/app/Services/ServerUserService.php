@@ -264,7 +264,7 @@ class ServerUserService
         // root). Verify both before touching permissions.
         $quotedHome = escapeshellarg('/home/'.$validated);
 
-        $script = implode("\n", [
+        $scriptLines = [
             'set -euo pipefail',
             '',
             'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
@@ -282,7 +282,26 @@ class ServerUserService
             // Same traversal rule as freshly provisioned users: nginx needs
             // execute on the home directory, nothing more.
             "\$SUDO chmod 711 {$quotedHome}",
-        ]);
+        ];
+
+        // assertNoApplicationsOutsideHome already guarantees every one of
+        // this server's apps lives under /home/{$validated}/, but their
+        // writable paths are still owned by whatever the PHP runtime user
+        // was BEFORE this call (www-data, on a fresh adoption). Task 6
+        // repoints the FPM pool/nginx socket to $validated immediately, so
+        // an app that hasn't redeployed since would 500 on its very next
+        // write. Repair writable dirs only (not a full-tree chown) rather
+        // than waiting for a deploy to fix it.
+        $restoreOwner = escapeshellarg($validated.':www-data');
+
+        foreach ($server->applications()->get() as $application) {
+            $path = $this->assertSafeDeployPath($application->deploy_path);
+            $quotedPath = escapeshellarg($path);
+
+            $scriptLines[] = "\$SUDO chown -R {$restoreOwner} {$quotedPath}/storage {$quotedPath}/bootstrap/cache {$quotedPath}/shared 2>/dev/null || true";
+        }
+
+        $script = implode("\n", $scriptLines);
 
         $result = $this->runRemoteScript($server, $script, 30);
 
@@ -429,7 +448,7 @@ class ServerUserService
         // PHP-FPM runs as the deploy user on home-layout servers (see
         // PhpFpmPoolService), www-data otherwise. Writable paths must be
         // restored to whichever user actually executes the code.
-        $restoreOwner = escapeshellarg(($server->deploy_user ?? 'www-data').':www-data');
+        $restoreOwner = escapeshellarg($server->phpRuntimeUser().':www-data');
 
         $lines = [
             'set -euo pipefail',
@@ -439,18 +458,7 @@ class ServerUserService
         ];
 
         foreach ($applications as $application) {
-            $path = $application->deploy_path;
-
-            // Defensive assertion: deploy_path is always set by the
-            // Application model, but a recursive chown of a relative, empty,
-            // or too-shallow path (e.g. '/' or '/var') would be catastrophic.
-            // Mirrors ApplicationController::isSafeDeployPath: at least three
-            // path segments (e.g. /var/www/app) and no '..' traversal, since
-            // '/var/www/..' passes the depth regex yet resolves to '/var'.
-            if (! is_string($path) || str_contains($path, '..') || ! preg_match('#^(/[A-Za-z0-9._-]+){3,}$#', $path)) {
-                throw new RuntimeException("Refusing to chown an unsafe deploy path: '{$path}'.");
-            }
-
+            $path = $this->assertSafeDeployPath($application->deploy_path);
             $quotedPath = escapeshellarg($path);
 
             // Trailing colon (no group after it) sets the group to the
@@ -471,6 +479,22 @@ class ServerUserService
         if (! $result['success']) {
             throw new RuntimeException('Failed to fix file ownership for applications: '.$result['output']);
         }
+    }
+
+    /**
+     * Guards against a recursive chown/chmod running against a relative,
+     * empty, or too-shallow path (e.g. '/' or '/var'), which would be
+     * catastrophic. Mirrors ApplicationController::isSafeDeployPath: at
+     * least three path segments (e.g. /var/www/app) and no '..' traversal,
+     * since '/var/www/..' passes the depth regex yet resolves to '/var'.
+     */
+    private function assertSafeDeployPath(?string $path): string
+    {
+        if (! is_string($path) || str_contains($path, '..') || ! preg_match('#^(/[A-Za-z0-9._-]+){3,}$#', $path)) {
+            throw new RuntimeException("Refusing to chown an unsafe deploy path: '{$path}'.");
+        }
+
+        return $path;
     }
 
     /**
