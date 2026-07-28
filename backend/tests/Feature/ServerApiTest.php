@@ -30,6 +30,17 @@ class ServerApiTest extends TestCase
             ->assertJsonCount(3);
     }
 
+    public function test_show_includes_applications_count(): void
+    {
+        $server = Server::factory()->hasApplications(2)->create();
+
+        $response = $this->actingAs($this->user)
+            ->getJson("/api/servers/{$server->id}");
+
+        $response->assertOk()
+            ->assertJsonPath('applications_count', 2);
+    }
+
     public function test_can_create_server(): void
     {
         $response = $this->actingAs($this->user)
