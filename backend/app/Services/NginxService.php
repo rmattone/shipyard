@@ -94,13 +94,7 @@ class NginxService
      */
     public function deploy(Application $app, array $extraLegacyNames = []): bool
     {
-        // The vhost is about to reference the ShipYard pool socket; make
-        // sure the pool exists first. Idempotent and cheap when unchanged.
-        // Must run before this service's own connect(): ensurePool opens
-        // and closes its own SSH session on the shared SSHService.
-        if ($app->type === 'laravel' && $app->server?->deploy_user !== null) {
-            $this->phpFpmPoolService->ensurePool($app->server, $app->getPhpVersion());
-        }
+        $this->ensureFpmPool($app);
 
         $config = $this->generateConfig($app);
         $server = $app->server;
@@ -210,6 +204,8 @@ class NginxService
      */
     public function updateConfigContent(Application $app, string $content): bool
     {
+        $this->ensureFpmPool($app);
+
         $server = $app->server;
         $configName = $this->configName($app);
         $configPath = "/etc/nginx/sites-available/{$configName}";
@@ -293,9 +289,32 @@ class NginxService
     }
 
     /**
+     * Laravel vhosts on provisioned servers reference the ShipYard pool
+     * socket, so the pool must exist before any config referencing it is
+     * written. Idempotent. Owns its own SSH session (see PhpFpmPoolService),
+     * so call it before this service opens its own connection.
+     */
+    private function ensureFpmPool(Application $app): void
+    {
+        if ($this->usesShipyardPool($app)) {
+            $this->phpFpmPoolService->ensurePool($app->server, $app->getPhpVersion());
+        }
+    }
+
+    private function usesShipyardPool(Application $app): bool
+    {
+        return $app->type === 'laravel' && $app->server?->deploy_user !== null;
+    }
+
+    /**
      * Servers with a deploy user serve PHP through the ShipYard managed
      * pool (owned by that user); legacy servers keep the distro default
      * pool socket. Decided per server so one server never mixes layouts.
+     *
+     * Only reachable from laravelTemplate() (non-laravel templates never
+     * call it), so this check and usesShipyardPool()'s `type === 'laravel'`
+     * check cannot observably drift even though this one omits the type
+     * guard.
      */
     private function phpSocketPath(Application $app): string
     {

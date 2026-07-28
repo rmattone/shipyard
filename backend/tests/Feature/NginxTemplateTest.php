@@ -151,12 +151,12 @@ class NginxTemplateTest extends TestCase
 
     public function test_laravel_template_uses_shipyard_socket_on_provisioned_servers(): void
     {
-        $app = $this->makeApp(['type' => 'laravel'], ['deploy_user' => 'shipyard']);
+        $app = $this->makeApp(['type' => 'laravel', 'php_version' => '8.2'], ['deploy_user' => 'shipyard']);
 
         $config = app(NginxService::class)->generateConfig($app);
 
-        $this->assertStringContainsString('fastcgi_pass unix:/run/php/php8.3-fpm-shipyard.sock;', $config);
-        $this->assertStringNotContainsString('/var/run/php/php8.3-fpm.sock', $config);
+        $this->assertStringContainsString('fastcgi_pass unix:/run/php/php8.2-fpm-shipyard.sock;', $config);
+        $this->assertStringNotContainsString('/var/run/php/php8.2-fpm.sock', $config);
     }
 
     public function test_laravel_template_keeps_distro_socket_on_legacy_servers(): void
@@ -171,7 +171,7 @@ class NginxTemplateTest extends TestCase
 
     public function test_deploy_ensures_the_fpm_pool_before_opening_its_own_ssh_session(): void
     {
-        $app = $this->makeApp(['type' => 'laravel'], ['deploy_user' => 'shipyard']);
+        $app = $this->makeApp(['type' => 'laravel', 'php_version' => '8.2'], ['deploy_user' => 'shipyard']);
 
         // ensurePool owns and closes its own SSH session, so it must run to
         // completion before NginxService::deploy opens its own connection.
@@ -240,6 +240,27 @@ class NginxTemplateTest extends TestCase
         });
 
         app(NginxService::class)->deploy($app);
+    }
+
+    public function test_update_config_content_ensures_the_fpm_pool_on_provisioned_servers(): void
+    {
+        $app = $this->makeApp(['type' => 'laravel', 'php_version' => '8.2'], ['deploy_user' => 'shipyard']);
+
+        $this->mock(PhpFpmPoolService::class, function ($mock) use ($app) {
+            $mock->shouldReceive('ensurePool')
+                ->once()
+                ->withArgs(fn ($server, $version) => $server->id === $app->server_id && $version === $app->getPhpVersion());
+        });
+
+        $this->mock(SSHService::class, function ($mock) {
+            $mock->shouldReceive('connect')->andReturnSelf();
+            $mock->shouldReceive('connectSftp')->andReturnSelf();
+            $mock->shouldReceive('disconnect');
+            $mock->shouldReceive('uploadContent')->andReturn(true);
+            $mock->shouldReceive('execute')->andReturn(['output' => '', 'exit_code' => 0, 'success' => true]);
+        });
+
+        app(NginxService::class)->updateConfigContent($app, 'server { }');
     }
 
     // SSL-2: every template must serve ACME challenges from one canonical

@@ -110,6 +110,7 @@ class ApplicationController extends Controller
                 $this->nginxService->deploy($application);
             } catch (\Exception $e) {
                 // Log but don't fail - nginx config can be deployed later
+                report($e);
             }
         }
 
