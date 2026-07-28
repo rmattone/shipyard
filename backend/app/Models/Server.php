@@ -6,12 +6,20 @@ use App\Models\Concerns\BelongsToOrganization;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Server extends Model
 {
-    use BelongsToOrganization, HasFactory;
+    use BelongsToOrganization, HasFactory, SoftDeletes;
 
     public const LEGACY_DEPLOY_BASE = '/var/www/shipyard';
+
+    /**
+     * How long a trashed server stays restorable before servers:purge-trashed
+     * force-deletes it. Child rows only cascade on the force delete, so until
+     * then a restore brings back a fully wired server.
+     */
+    public const TRASH_RETENTION_DAYS = 30;
 
     protected $fillable = [
         'name',
@@ -29,7 +37,7 @@ class Server extends Model
         'private_key',
     ];
 
-    protected $appends = ['default_deploy_base'];
+    protected $appends = ['default_deploy_base', 'purges_at'];
 
     protected function casts(): array
     {
@@ -37,6 +45,7 @@ class Server extends Model
             'private_key' => 'encrypted',
             'port' => 'integer',
             'is_local' => 'boolean',
+            'deleted_at' => 'datetime',
         ];
     }
 
@@ -65,6 +74,16 @@ class Server extends Model
         return filled($this->deploy_user)
             ? "/home/{$this->deploy_user}"
             : self::LEGACY_DEPLOY_BASE;
+    }
+
+    /**
+     * When servers:purge-trashed will force-delete this server, or null while
+     * it is not trashed. Exposed so the frontend never needs to know the
+     * retention period.
+     */
+    public function getPurgesAtAttribute(): ?string
+    {
+        return $this->deleted_at?->copy()->addDays(self::TRASH_RETENTION_DAYS)->toIso8601String();
     }
 
     public function applications(): HasMany

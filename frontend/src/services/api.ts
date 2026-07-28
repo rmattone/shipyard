@@ -84,6 +84,10 @@ export interface Server {
   default_deploy_base?: string
   applications_count?: number
   created_at: string
+  // Set only on trashed servers: when the server was deleted and when the
+  // purge command will permanently remove it.
+  deleted_at?: string | null
+  purges_at?: string | null
 }
 
 export interface Application {
@@ -452,7 +456,12 @@ export const serversApi = {
     api.post<Server>('/servers', data),
   update: (id: number, data: Partial<Server>) =>
     api.put<Server>('/servers/' + id, data),
+  // Moves the server to the trash; recoverable via restore until the purge
+  // command removes it.
   delete: (id: number) => api.delete('/servers/' + id),
+  trashed: () => api.get<Server[]>('/servers/trashed'),
+  restore: (id: number) => api.post<Server>('/servers/' + id + '/restore'),
+  forceDelete: (id: number) => api.delete('/servers/' + id + '/force'),
   testConnection: (id: number) =>
     api.post<{ success: boolean; message: string; system_info?: string }>(
       '/servers/' + id + '/test-connection'

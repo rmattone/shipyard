@@ -80,8 +80,10 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     // SSH Keys
     Route::post('/ssh-keys/generate', [SSHKeyController::class, 'generate']);
 
-    // Servers
-    Route::apiResource('servers', ServerController::class);
+    // Servers. The trash listing is declared ahead of the resource routes so
+    // /servers/trashed is not swallowed by /servers/{server}.
+    Route::get('/servers/trashed', [ServerController::class, 'trashed']);
+    Route::apiResource('servers', ServerController::class)->except(['destroy']);
     Route::post('/servers/test-connection', [ServerController::class, 'testConnectionAdhoc']);
     Route::post('/servers/{server}/test-connection', [ServerController::class, 'testConnection']);
     Route::get('/servers/{server}/node-versions', [ServerController::class, 'getNodeVersions']);
@@ -89,6 +91,18 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::post('/servers/{server}/node-versions/default', [ServerController::class, 'setDefaultNodeVersion']);
     Route::get('/servers/{server}/metrics', [ServerController::class, 'getMetrics']);
     Route::get('/servers/{server}/software', [ServerController::class, 'checkSoftware']);
+
+    // Destructive server lifecycle (admin or owner only). restore and force
+    // need withTrashed() bindings or they 404 on the very rows they act on;
+    // that bypasses the soft-delete scope but not the organization scope.
+    Route::middleware('org.role:admin')->group(function () {
+        Route::delete('/servers/{server}', [ServerController::class, 'destroy'])
+            ->name('servers.destroy');
+        Route::post('/servers/{server}/restore', [ServerController::class, 'restore'])
+            ->withTrashed();
+        Route::delete('/servers/{server}/force', [ServerController::class, 'forceDestroy'])
+            ->withTrashed();
+    });
 
     // Tags (server-scoped)
     Route::get('/servers/{server}/tags', [TagController::class, 'index']);
