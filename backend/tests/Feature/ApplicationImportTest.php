@@ -418,6 +418,35 @@ NGINX;
         $this->assertStringContainsString('deploy user home', $warnings[0]['warning']);
     }
 
+    // An already-managed misplaced app hits the "already managed" branch
+    // and continues before ever reaching the create branch, so the warning
+    // check has to run earlier in the loop to keep firing on every
+    // re-import pass, not just the one that first created the app.
+    public function test_import_warns_again_on_rerun_for_an_already_managed_misplaced_app(): void
+    {
+        $this->mockSsh([
+            'find /var/www' => '/var/www/legacy-site',
+
+            '/var/www/legacy-site/current" && test -d' => 'in_place',
+            '/var/www/legacy-site/artisan' => 'laravel',
+        ]);
+
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        app(ApplicationImportService::class)->import($server);
+
+        $response = $this->actingAs($user)
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('imported'));
+
+        $warnings = $response->json('warnings');
+        $this->assertCount(1, $warnings);
+        $this->assertSame('/var/www/legacy-site', $warnings[0]['path']);
+    }
+
     // Exercises matchSite() and importEnvironmentVariables() against a
     // /home/{deploy_user}/... deploy_path, not just the legacy /var/www
     // bases the other domain/env tests cover.
