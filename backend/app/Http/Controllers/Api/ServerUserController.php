@@ -72,4 +72,21 @@ class ServerUserController extends Controller
 
         return response()->json($server);
     }
+
+    public function setDeployUser(Request $request, Server $server, ServerUserService $serverUserService): JsonResponse
+    {
+        $validated = $request->validate([
+            'username' => self::USERNAME_RULES,
+        ]);
+
+        try {
+            $server = $serverUserService->markDeployUser($server, $validated['username']);
+        } catch (InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 500);
+        }
+
+        return response()->json($server);
+    }
 }
