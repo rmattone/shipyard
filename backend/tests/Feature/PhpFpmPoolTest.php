@@ -121,6 +121,7 @@ class PhpFpmPoolTest extends TestCase
         $this->mockSsh('SHIPYARD_POOL_INVALID', scriptSucceeds: false);
 
         $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('was rolled back');
 
         app(PhpFpmPoolService::class)->ensurePool($server, '8.3');
     }
@@ -131,6 +132,7 @@ class PhpFpmPoolTest extends TestCase
         $server = Server::factory()->create();
 
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('no deploy user');
 
         app(PhpFpmPoolService::class)->ensurePool($server, '8.3');
     }
@@ -140,7 +142,54 @@ class PhpFpmPoolTest extends TestCase
         $server = $this->provisionedServer();
 
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid PHP version');
 
         app(PhpFpmPoolService::class)->ensurePool($server, '8.3; rm -rf /');
+    }
+
+    public function test_ensure_pool_rejects_a_deploy_user_that_would_inject_pool_directives(): void
+    {
+        $server = $this->provisionedServer();
+        // deploy_user is interpolated directly into a root-installed INI
+        // file; a newline would let an attacker (or a corrupted row) inject
+        // arbitrary pool directives. Bypass the model mutator/DB round trip
+        // with forceFill so the malicious value reaches ensurePool() intact.
+        $server->forceFill(['deploy_user' => "bad\nuser"]);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        app(PhpFpmPoolService::class)->ensurePool($server, '8.3');
+    }
+
+    public function test_ensure_pool_throws_when_php_fpm_is_not_installed(): void
+    {
+        $server = $this->provisionedServer();
+        $this->mockSsh('SHIPYARD_PHP_MISSING', scriptSucceeds: false);
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('not installed');
+
+        app(PhpFpmPoolService::class)->ensurePool($server, '8.3');
+    }
+
+    public function test_ensure_pool_does_nothing_when_pool_is_unchanged_and_socket_is_live(): void
+    {
+        $server = $this->provisionedServer();
+        $this->mockSsh('SHIPYARD_POOL_UNCHANGED');
+
+        app(PhpFpmPoolService::class)->ensurePool($server, '8.3');
+
+        // No exception means the short-circuit path was accepted. Pin fix 1
+        // here too: the script must gate that short-circuit on a live
+        // socket, not merely identical file content, otherwise a run that
+        // died between install and reload would report success forever.
+        $script = $this->uploadedScripts[0];
+        $this->assertStringContainsString('test -S', $script);
+        $this->assertStringContainsString('php8.3-fpm-shipyard.sock', $script);
+
+        // The cleanup script upload must itself be removed afterwards, not
+        // left behind on the server.
+        $removals = array_filter($this->executedCommands, fn ($c) => str_starts_with($c, 'rm -f'));
+        $this->assertNotEmpty($removals, 'The uploaded script must be cleaned up after execution.');
     }
 }
