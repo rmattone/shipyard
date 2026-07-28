@@ -157,6 +157,7 @@ class PhpFpmPoolTest extends TestCase
         $server->forceFill(['deploy_user' => "bad\nuser"]);
 
         $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid deploy user');
 
         app(PhpFpmPoolService::class)->ensurePool($server, '8.3');
     }
@@ -186,6 +187,11 @@ class PhpFpmPoolTest extends TestCase
         $script = $this->uploadedScripts[0];
         $this->assertStringContainsString('test -S', $script);
         $this->assertStringContainsString('php8.3-fpm-shipyard.sock', $script);
+        // Pin the missing-PHP pre-check too: it must run before anything
+        // else touches the pool, and (per review) without sudo, since
+        // pool.d is world-readable and this must not be misattributed to a
+        // broken passwordless-sudo grant.
+        $this->assertStringContainsString('test -d /etc/php/8.3/fpm/pool.d', $script);
 
         // The cleanup script upload must itself be removed afterwards, not
         // left behind on the server.

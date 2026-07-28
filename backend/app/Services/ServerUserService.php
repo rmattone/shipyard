@@ -31,7 +31,7 @@ class ServerUserService
 {
     use RunsRemoteScripts;
 
-    public const USER_PATTERN = '/^[a-z_][a-z0-9_-]*$/';
+    public const USER_PATTERN = '/^[a-z_][a-z0-9_-]*$/D';
 
     private const USER_EXISTS_MARKER = 'SHIPYARD_USER_EXISTS';
 
