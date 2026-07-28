@@ -16,6 +16,7 @@ class Server extends Model
         'host',
         'port',
         'username',
+        'deploy_user',
         'private_key',
         'status',
         'is_local',
@@ -25,6 +26,8 @@ class Server extends Model
     protected $hidden = [
         'private_key',
     ];
+
+    protected $appends = ['default_deploy_base'];
 
     protected function casts(): array
     {
@@ -38,6 +41,17 @@ class Server extends Model
     public function isLocal(): bool
     {
         return $this->is_local;
+    }
+
+    /**
+     * Base directory new applications default into. Servers with a
+     * provisioned deploy user use the home directory layout.
+     */
+    public function getDefaultDeployBaseAttribute(): string
+    {
+        return filled($this->deploy_user)
+            ? "/home/{$this->deploy_user}"
+            : '/var/www/shipyard';
     }
 
     public function applications(): HasMany
