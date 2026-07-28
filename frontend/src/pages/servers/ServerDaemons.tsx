@@ -53,6 +53,7 @@ export default function ServerDaemons() {
       serverId={server.id}
       serverName={server.name}
       serverPhpVersion={server.php_version}
+      serverDeployUser={server.deploy_user}
       apps={apps}
     />
   )

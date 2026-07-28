@@ -168,7 +168,7 @@ export default function AppNew() {
         node_version: formData.node_version === 'default' ? null : formData.node_version,
         repository_url: formData.repository_url,
         branch: formData.branch,
-        deploy_path: formData.deploy_path ? `/var/www/shipyard/${formData.deploy_path}` : undefined,
+        deploy_path: formData.deploy_path ? `${deployBase}/${formData.deploy_path}` : undefined,
         build_command: formData.build_command || null,
       })
       setWebhookInfo({
@@ -206,6 +206,8 @@ export default function AppNew() {
   if (!server) {
     return null
   }
+
+  const deployBase = server?.default_deploy_base ?? '/var/www/shipyard'
 
   const steps = [
     { number: 1, name: 'Details' },
@@ -309,7 +311,7 @@ export default function AppNew() {
                   <Label>Deploy Path</Label>
                   <div className="flex items-center">
                     <span className="px-3 py-2 bg-muted border border-r-0 rounded-l-md text-sm text-muted-foreground font-mono">
-                      /var/www/shipyard/
+                      {deployBase}/
                     </span>
                     <Input
                       value={formData.deploy_path}

@@ -45,8 +45,10 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
   const [users, setUsers] = useState<ServerUser[]>([])
   const [loading, setLoading] = useState(true)
 
+  const defaultUseAsDeployUser = (server.applications_count || 0) === 0
+
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [createForm, setCreateForm] = useState({ username: '', sudo: true })
+  const [createForm, setCreateForm] = useState({ username: 'shipyard', sudo: true, use_as_deploy_user: defaultUseAsDeployUser })
   const [creating, setCreating] = useState(false)
 
   const [userToSwitch, setUserToSwitch] = useState<ServerUser | null>(null)
@@ -71,7 +73,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
   }
 
   const openCreateDialog = () => {
-    setCreateForm({ username: '', sudo: true })
+    setCreateForm({ username: 'shipyard', sudo: true, use_as_deploy_user: defaultUseAsDeployUser })
     setShowCreateDialog(true)
   }
 
@@ -82,14 +84,27 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
     }
     setCreating(true)
     try {
-      await serverUsersApi.create(server.id, createForm)
+      const response = await serverUsersApi.create(server.id, createForm)
       toast.success('User creation started')
       setShowCreateDialog(false)
+      if (response.data.server) {
+        onServerChange?.(response.data.server)
+      }
       await loadUsers()
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, 'Failed to create user'))
     } finally {
       setCreating(false)
+    }
+  }
+
+  const handleSetDeployUser = async (user: ServerUser) => {
+    try {
+      const response = await serverUsersApi.setDeployUser(server.id, { username: user.name })
+      toast.success(`'${user.name}' is now the deploy user`)
+      onServerChange?.(response.data)
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error, 'Failed to set deploy user'))
     }
   }
 
@@ -161,6 +176,9 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
                       {user.is_connection_user && (
                         <Badge variant="secondary">connection user</Badge>
                       )}
+                      {server.deploy_user === user.name && (
+                        <Badge variant="outline">deploy user</Badge>
+                      )}
                     </div>
                   </TableCell>
                   <TableCell>{user.uid}</TableCell>
@@ -168,15 +186,18 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
                     {user.has_sudo && <Badge variant="outline">sudo</Badge>}
                   </TableCell>
                   <TableCell className="text-right">
-                    {!user.is_connection_user && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => openSwitchDialog(user)}
-                      >
-                        Use for connection
-                      </Button>
-                    )}
+                    <div className="flex justify-end gap-2">
+                      {server.deploy_user !== user.name && user.name !== 'root' && (
+                        <Button variant="outline" size="sm" onClick={() => handleSetDeployUser(user)}>
+                          Set as deploy user
+                        </Button>
+                      )}
+                      {!user.is_connection_user && (
+                        <Button variant="outline" size="sm" onClick={() => openSwitchDialog(user)}>
+                          Use for connection
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -215,6 +236,24 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
               <Switch
                 checked={createForm.sudo}
                 onCheckedChange={(checked) => setCreateForm({ ...createForm, sudo: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between py-2">
+              <div>
+                <p className="font-medium text-sm">Use as deploy user</p>
+                <p className="text-sm text-muted-foreground">
+                  New applications will live in /home/{createForm.username || 'shipyard'} and run as this user.
+                </p>
+                {hasApplications && (
+                  <p className="text-sm text-muted-foreground">
+                    This server already has applications outside the new home directory; ShipYard
+                    refuses to switch layouts while they exist.
+                  </p>
+                )}
+              </div>
+              <Switch
+                checked={createForm.use_as_deploy_user}
+                onCheckedChange={(checked) => setCreateForm({ ...createForm, use_as_deploy_user: checked })}
               />
             </div>
           </div>

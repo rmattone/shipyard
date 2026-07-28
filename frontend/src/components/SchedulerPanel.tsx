@@ -80,13 +80,15 @@ interface SchedulerPanelProps {
   serverId: number
   serverName: string
   serverPhpVersion?: string | null
+  /** The server's provisioned deploy user, if any; new tasks default to it. */
+  serverDeployUser?: string | null
   /** When set, the panel is scoped to this application's tasks. */
   application?: Application
   /** Laravel apps on the server, for the preset select and card badges. */
   apps?: Application[]
 }
 
-export function SchedulerPanel({ serverId, serverName, serverPhpVersion, application, apps = [] }: SchedulerPanelProps) {
+export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverDeployUser, application, apps = [] }: SchedulerPanelProps) {
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -96,7 +98,7 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, applica
   const [output, setOutput] = useState<{ output: string; exists: boolean } | null>(null)
   const [loadingOutput, setLoadingOutput] = useState(false)
 
-  const [formData, setFormData] = useState(emptyForm)
+  const [formData, setFormData] = useState({ ...emptyForm, user: serverDeployUser ?? 'www-data' })
   const [presetAppId, setPresetAppId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -139,9 +141,13 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, applica
     // App-scoped Laravel apps get the scheduler command pre-filled; that is
     // the task this panel exists for.
     if (application && application.type === 'laravel') {
-      setFormData({ ...emptyForm, command: laravelSchedulerCommand(application, serverPhpVersion) })
+      setFormData({
+        ...emptyForm,
+        user: serverDeployUser ?? 'www-data',
+        command: laravelSchedulerCommand(application, serverPhpVersion),
+      })
     } else {
-      setFormData(emptyForm)
+      setFormData({ ...emptyForm, user: serverDeployUser ?? 'www-data' })
     }
     setShowAddDialog(true)
   }
@@ -154,7 +160,7 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, applica
     setFormData({
       ...emptyForm,
       command: laravelSchedulerCommand(app, serverPhpVersion),
-      user: 'www-data',
+      user: serverDeployUser ?? 'www-data',
       frequency: 'minutely',
     })
   }
@@ -361,7 +367,7 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, applica
                 className="font-mono"
                 value={formData.command}
                 onChange={(e) => setFormData({ ...formData, command: e.target.value })}
-                placeholder="php8.3 /var/www/app/current/artisan schedule:run"
+                placeholder="php8.3 /home/shipyard/app/current/artisan schedule:run"
               />
             </div>
 

@@ -53,6 +53,7 @@ export default function ServerScheduler() {
       serverId={server.id}
       serverName={server.name}
       serverPhpVersion={server.php_version}
+      serverDeployUser={server.deploy_user}
       apps={apps}
     />
   )

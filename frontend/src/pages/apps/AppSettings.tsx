@@ -492,7 +492,8 @@ export default function AppSettings() {
                   <code className="bg-muted px-1 py-0.5 rounded text-xs">$BRANCH</code>{' '}
                   <code className="bg-muted px-1 py-0.5 rounded text-xs">$APP_NAME</code>{' '}
                   <code className="bg-muted px-1 py-0.5 rounded text-xs">$DOMAIN</code>{' '}
-                  <code className="bg-muted px-1 py-0.5 rounded text-xs">$NODE_VERSION</code>
+                  <code className="bg-muted px-1 py-0.5 rounded text-xs">$NODE_VERSION</code>{' '}
+                  <code className="bg-muted px-1 py-0.5 rounded text-xs">$DEPLOY_OWNER</code>
                 </p>
               </div>
               <Textarea
