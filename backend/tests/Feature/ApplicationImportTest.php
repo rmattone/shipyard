@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Application;
 use App\Models\Server;
+use App\Services\ApplicationImportService;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -270,5 +271,56 @@ NGINX;
         $this->assertSame([], $response->json('imported'));
         $this->assertCount(2, $response->json('skipped'));
         $this->assertSame(1, Application::count());
+    }
+
+    public function test_import_scans_the_deploy_user_home_on_provisioned_servers(): void
+    {
+        $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $findCommands = [];
+
+        $this->mock(SSHService::class, function ($mock) use (&$findCommands) {
+            $mock->shouldReceive('connect')->andReturnSelf();
+            $mock->shouldReceive('disconnect');
+            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use (&$findCommands) {
+                if (str_starts_with($command, 'find ')) {
+                    $findCommands[] = $command;
+                }
+
+                return ['output' => '', 'exit_code' => 0, 'success' => true];
+            });
+        });
+
+        app(ApplicationImportService::class)->import($server);
+
+        $this->assertNotEmpty($findCommands);
+        $this->assertStringContainsString('/home/shipyard', $findCommands[0]);
+        $this->assertStringContainsString('/var/www', $findCommands[0]);
+    }
+
+    public function test_import_does_not_scan_home_on_legacy_servers(): void
+    {
+        $this->createOrgUser();
+        $server = Server::factory()->create();
+
+        $findCommands = [];
+
+        $this->mock(SSHService::class, function ($mock) use (&$findCommands) {
+            $mock->shouldReceive('connect')->andReturnSelf();
+            $mock->shouldReceive('disconnect');
+            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use (&$findCommands) {
+                if (str_starts_with($command, 'find ')) {
+                    $findCommands[] = $command;
+                }
+
+                return ['output' => '', 'exit_code' => 0, 'success' => true];
+            });
+        });
+
+        app(ApplicationImportService::class)->import($server);
+
+        $this->assertNotEmpty($findCommands);
+        $this->assertStringNotContainsString('/home/', $findCommands[0]);
     }
 }
