@@ -29,8 +29,9 @@ import { cn } from '@/lib/utils'
 import { NotificationChannels } from './NotificationChannels'
 import { OrganizationGeneral } from './OrganizationGeneral'
 import { OrganizationMembers } from './OrganizationMembers'
+import { ServerTrash } from './ServerTrash'
 
-type SettingsSection = 'source-control' | 'notifications' | 'members' | 'general' | 'system'
+type SettingsSection = 'source-control' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -163,6 +164,7 @@ export default function Settings() {
     { id: 'notifications' as const, label: 'Notifications' },
     { id: 'members' as const, label: 'Members' },
     { id: 'general' as const, label: 'General' },
+    { id: 'trash' as const, label: 'Trash' },
     { id: 'system' as const, label: 'System' },
   ]
 
@@ -283,6 +285,8 @@ export default function Settings() {
         {activeSection === 'members' && <OrganizationMembers />}
 
         {activeSection === 'general' && <OrganizationGeneral />}
+
+        {activeSection === 'trash' && <ServerTrash />}
 
         {activeSection === 'system' && (
           <div className="space-y-6">

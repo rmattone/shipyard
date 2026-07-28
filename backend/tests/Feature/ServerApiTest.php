@@ -101,7 +101,7 @@ class ServerApiTest extends TestCase
             ->deleteJson("/api/servers/{$server->id}");
 
         $response->assertNoContent();
-        $this->assertDatabaseMissing('servers', ['id' => $server->id]);
+        $this->assertSoftDeleted('servers', ['id' => $server->id]);
     }
 
     public function test_cannot_delete_server_with_applications(): void

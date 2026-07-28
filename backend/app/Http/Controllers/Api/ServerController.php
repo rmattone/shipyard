@@ -81,6 +81,11 @@ class ServerController extends Controller
         return response()->json($server);
     }
 
+    /**
+     * Soft-deletes into the trash. The applications guard stays: refusing to
+     * trash a server that still has applications guarantees every trashed
+     * server has none, so restore never has to reconcile orphaned apps.
+     */
     public function destroy(Server $server): JsonResponse
     {
         if ($server->applications()->exists()) {
@@ -90,6 +95,53 @@ class ServerController extends Controller
         }
 
         $server->delete();
+
+        return response()->json(null, 204);
+    }
+
+    /**
+     * Servers in the trash. The organization scope still applies here, so this
+     * only ever lists the current organization's trash.
+     */
+    public function trashed(): JsonResponse
+    {
+        $servers = Server::onlyTrashed()
+            ->orderByDesc('deleted_at')
+            ->get();
+
+        return response()->json($servers);
+    }
+
+    /**
+     * Bound withTrashed(), so guard against restoring a server that was never
+     * trashed rather than silently no-opping.
+     */
+    public function restore(Server $server): JsonResponse
+    {
+        if (! $server->trashed()) {
+            return response()->json([
+                'message' => 'Server is not in the trash',
+            ], 422);
+        }
+
+        $server->restore();
+
+        return response()->json($server->loadCount('applications'));
+    }
+
+    /**
+     * Permanent delete. Cascades to every child row and drops the encrypted
+     * private key, so it is restricted to servers already in the trash.
+     */
+    public function forceDestroy(Server $server): JsonResponse
+    {
+        if (! $server->trashed()) {
+            return response()->json([
+                'message' => 'Server must be in the trash before it can be permanently deleted',
+            ], 422);
+        }
+
+        $server->forceDelete();
 
         return response()->json(null, 204);
     }
