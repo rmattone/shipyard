@@ -67,4 +67,47 @@ class ApplicationDeployPathTest extends TestCase
 
         $response->assertStatus(422)->assertJsonValidationErrors('deploy_path');
     }
+
+    public function test_default_deploy_path_uses_home_layout_when_server_has_deploy_user(): void
+    {
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $response = $this->actingAs($user)->postJson('/api/applications', $this->payload($server));
+
+        $response->assertStatus(201);
+        $this->assertSame('/home/shipyard/my-app', $response->json('application.deploy_path'));
+    }
+
+    public function test_default_deploy_path_keeps_var_www_when_server_has_no_deploy_user(): void
+    {
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create();
+
+        $response = $this->actingAs($user)->postJson('/api/applications', $this->payload($server));
+
+        $response->assertStatus(201);
+        $this->assertSame('/var/www/shipyard/my-app', $response->json('application.deploy_path'));
+    }
+
+    public function test_generate_path_preview_uses_the_server_layout_when_given_a_server(): void
+    {
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $this->actingAs($user)
+            ->postJson('/api/applications/generate-path', ['name' => 'My App', 'server_id' => $server->id])
+            ->assertOk()
+            ->assertJsonPath('deploy_path', '/home/shipyard/my-app');
+    }
+
+    public function test_generate_path_preview_defaults_to_legacy_without_a_server(): void
+    {
+        $user = $this->createOrgUser();
+
+        $this->actingAs($user)
+            ->postJson('/api/applications/generate-path', ['name' => 'My App'])
+            ->assertOk()
+            ->assertJsonPath('deploy_path', '/var/www/shipyard/my-app');
+    }
 }
