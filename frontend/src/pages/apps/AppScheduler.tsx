@@ -43,6 +43,7 @@ export default function AppScheduler() {
       serverId={app.server_id}
       serverName={app.server?.name ?? `server #${app.server_id}`}
       serverPhpVersion={app.server?.php_version}
+      serverDeployUser={app.server?.deploy_user}
       application={app}
     />
   )

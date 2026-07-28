@@ -80,6 +80,8 @@ export interface Server {
   status: 'active' | 'inactive'
   is_local: boolean
   php_version?: string | null
+  deploy_user?: string | null
+  default_deploy_base?: string
   applications_count?: number
   created_at: string
 }
@@ -699,9 +701,11 @@ export const gitProvidersApi = {
 export const applicationsApi = {
   list: () => api.get<Application[]>('/applications'),
   importFromServer: (serverId: number) =>
-    api.post<{ imported: Application[]; skipped: { path: string; reason: string }[] }>(
-      '/servers/' + serverId + '/applications/import'
-    ),
+    api.post<{
+      imported: Application[]
+      skipped: { path: string; reason: string }[]
+      warnings: { path: string; warning: string }[]
+    }>('/servers/' + serverId + '/applications/import'),
   get: (id: number) => api.get<Application>('/applications/' + id),
   create: (data: Partial<Application>) =>
     api.post<{ application: Application; webhook_url: string; webhook_secret: string }>(
@@ -726,8 +730,8 @@ export const applicationsApi = {
     }),
   getDefaultScript: (type: 'laravel' | 'nodejs' | 'static') =>
     api.post<{ deploy_script: string }>('/applications/default-script', { type }),
-  generateDeployPath: (name: string) =>
-    api.post<{ deploy_path: string }>('/applications/generate-path', { name }),
+  generateDeployPath: (name: string, serverId?: number) =>
+    api.post<{ deploy_path: string }>('/applications/generate-path', { name, server_id: serverId }),
   syncTags: (id: number, tagIds: number[]) =>
     api.put<Tag[]>('/applications/' + id + '/tags', { tag_ids: tagIds }),
   getReleases: (id: number) =>
@@ -926,12 +930,14 @@ export interface ServerUser {
 export const serverUsersApi = {
   list: (serverId: number) =>
     api.get<{ users: ServerUser[] }>('/servers/' + serverId + '/users'),
-  create: (serverId: number, data: { username: string; sudo: boolean }) =>
-    api.post<{ message: string; username: string; sudo: boolean }>(
+  create: (serverId: number, data: { username: string; sudo: boolean; use_as_deploy_user?: boolean }) =>
+    api.post<{ message: string; username: string; sudo: boolean; server: Server }>(
       '/servers/' + serverId + '/users', data
     ),
   switchUser: (serverId: number, data: { username: string; fix_ownership: boolean }) =>
     api.post<Server>('/servers/' + serverId + '/switch-user', data),
+  setDeployUser: (serverId: number, data: { username: string }) =>
+    api.post<Server>('/servers/' + serverId + '/deploy-user', data),
 }
 
 // System

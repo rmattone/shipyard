@@ -72,13 +72,15 @@ interface DaemonsPanelProps {
   serverId: number
   serverName: string
   serverPhpVersion?: string | null
+  /** The server's provisioned deploy user, if any; new daemons default to it. */
+  serverDeployUser?: string | null
   /** When set, the panel is scoped to this application's daemons. */
   application?: Application
   /** Apps on the server, for the worker preset and card badges. */
   apps?: Application[]
 }
 
-export function DaemonsPanel({ serverId, serverName, serverPhpVersion, application, apps = [] }: DaemonsPanelProps) {
+export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDeployUser, application, apps = [] }: DaemonsPanelProps) {
   const [daemons, setDaemons] = useState<Daemon[]>([])
   const [loading, setLoading] = useState(true)
   const [runtime, setRuntime] = useState<Record<number, RuntimeState>>({})
@@ -91,7 +93,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, applicati
   const [output, setOutput] = useState<{ output: string; exists: boolean } | null>(null)
   const [loadingOutput, setLoadingOutput] = useState(false)
 
-  const [formData, setFormData] = useState(emptyForm)
+  const [formData, setFormData] = useState({ ...emptyForm, user: serverDeployUser ?? 'www-data' })
   const [workerForm, setWorkerForm] = useState(emptyWorkerForm)
   const [presetAppId, setPresetAppId] = useState<number | null>(null)
   const [usePreset, setUsePreset] = useState(false)
@@ -170,6 +172,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, applicati
     setWorkerForm(emptyWorkerForm)
     setFormData({
       ...emptyForm,
+      user: serverDeployUser ?? 'www-data',
       directory: application ? appWorkingDir(application) : '',
     })
     setShowAddDialog(true)
@@ -367,6 +370,11 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, applicati
                       </div>
                       <p className="text-sm text-muted-foreground truncate">
                         <Badge variant="outline" className="mr-2 font-mono">{daemon.user}</Badge>
+                        {serverDeployUser && daemon.user !== serverDeployUser && (
+                          <Badge variant="outline" className="mr-2 text-amber-500 border-amber-500/40">
+                            not the deploy user
+                          </Badge>
+                        )}
                         {!application && appName(daemon) && (
                           <Badge variant="secondary" className="mr-2">{appName(daemon)}</Badge>
                         )}
@@ -530,7 +538,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, applicati
                 className="font-mono"
                 value={formData.directory}
                 onChange={(e) => setFormData({ ...formData, directory: e.target.value })}
-                placeholder="/var/www/app/current"
+                placeholder="/home/shipyard/app/current"
               />
             </div>
 
