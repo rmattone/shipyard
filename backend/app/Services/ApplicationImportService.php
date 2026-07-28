@@ -9,9 +9,9 @@ use App\Support\EnvFile;
 
 class ApplicationImportService
 {
-    private const SCAN_BASES = ['/var/www', '/var/www/shipyard'];
+    private const SCAN_BASES = ['/var/www', Server::LEGACY_DEPLOY_BASE];
 
-    private const EXCLUDED_PATHS = ['/var/www/html', '/var/www/shipyard'];
+    private const EXCLUDED_PATHS = ['/var/www/html', Server::LEGACY_DEPLOY_BASE];
 
     public function __construct(
         private SSHService $sshService
@@ -35,7 +35,7 @@ class ApplicationImportService
         try {
             $sites = $this->parseNginxSites();
 
-            foreach ($this->listCandidateDirs() as $dir) {
+            foreach ($this->listCandidateDirs($server) as $dir) {
                 if (in_array($dir, self::EXCLUDED_PATHS, true)) {
                     continue;
                 }
@@ -139,9 +139,21 @@ class ApplicationImportService
     }
 
     /** @return array<int, string> */
-    private function listCandidateDirs(): array
+    private function scanBases(Server $server): array
     {
-        $bases = implode(' ', self::SCAN_BASES);
+        $bases = self::SCAN_BASES;
+
+        if ($server->deploy_user !== null) {
+            $bases[] = '/home/'.$server->deploy_user;
+        }
+
+        return $bases;
+    }
+
+    /** @return array<int, string> */
+    private function listCandidateDirs(Server $server): array
+    {
+        $bases = implode(' ', $this->scanBases($server));
         $result = $this->sshService->execute("find {$bases} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -u", 30);
 
         return array_values(array_filter(array_map('trim', explode("\n", $result['output'] ?? ''))));
