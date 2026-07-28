@@ -36,6 +36,13 @@ class ApplicationImportService
             $sites = $this->parseNginxSites();
 
             foreach ($this->listCandidateDirs($server) as $dir) {
+                // Home directories contain dotfile trees (.nvm is a git
+                // checkout with a package.json at its root) that must never
+                // become import candidates.
+                if (str_starts_with(basename($dir), '.')) {
+                    continue;
+                }
+
                 if (in_array($dir, self::EXCLUDED_PATHS, true)) {
                     continue;
                 }
