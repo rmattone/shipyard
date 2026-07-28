@@ -1197,6 +1197,13 @@ In `api.ts`, add to the `Server` interface (after `php_version`):
   default_deploy_base?: string
 ```
 
+Also update the unused-but-exported `applicationsApi.generateDeployPath` client (line ~729) to accept and pass an optional `server_id`, matching the backend preview endpoint extended in Task 2:
+
+```ts
+  generateDeployPath: (name: string, serverId?: number) =>
+    api.post<{ deploy_path: string }>('/applications/generate-path', { name, server_id: serverId }),
+```
+
 In the `serverUsersApi` object (line ~928), change `create`'s data type and add `setDeployUser`:
 
 ```ts
