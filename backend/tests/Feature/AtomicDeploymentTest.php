@@ -57,13 +57,27 @@ class AtomicDeploymentTest extends TestCase
         });
     }
 
-    private function makeAtomicApp(string $type): Application
+    private function makeAtomicApp(string $type, array $serverAttributes = []): Application
     {
+        $server = Server::factory()->create($serverAttributes);
+
         return Application::factory()->create([
-            'server_id' => Server::factory(),
+            'server_id' => $server->id,
             'type' => $type,
             'deployment_strategy' => 'atomic',
             'releases_to_keep' => 5,
+            'git_provider_id' => null,
+        ]);
+    }
+
+    private function makeInPlaceApp(string $type, array $serverAttributes = []): Application
+    {
+        $server = Server::factory()->create($serverAttributes);
+
+        return Application::factory()->create([
+            'server_id' => $server->id,
+            'type' => $type,
+            'deployment_strategy' => 'in_place',
             'git_provider_id' => null,
         ]);
     }
@@ -121,6 +135,87 @@ class AtomicDeploymentTest extends TestCase
             'Laravel deployments must not issue PM2 commands.'
         );
         $this->assertSame('success', $deployment->fresh()->status);
+    }
+
+    /**
+     * Task 5b: PHP-FPM runs as the deploy user on home-layout (provisioned)
+     * servers, so writable-path ownership after an atomic deploy must
+     * follow that user, or the runtime user cannot write storage/ and the
+     * first request 500s.
+     */
+    public function test_atomic_laravel_deployment_chowns_writable_paths_to_the_deploy_user_on_provisioned_servers(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeAtomicApp('laravel', ['deploy_user' => 'shipyard']);
+        $deployment = $this->makeDeployment($app);
+
+        app(DeploymentService::class)->runDeployment($deployment);
+
+        $chownCommands = array_values(array_filter($this->executedCommands, fn ($c) => str_contains($c, 'chown -R')));
+
+        $this->assertNotEmpty($chownCommands, 'Expected setPermissions to issue chown commands.');
+        foreach ($chownCommands as $command) {
+            $this->assertStringContainsString("chown -R 'shipyard:www-data'", $command);
+            $this->assertStringNotContainsString('www-data:www-data', $command);
+        }
+    }
+
+    public function test_atomic_laravel_deployment_chowns_writable_paths_to_www_data_on_legacy_servers(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeAtomicApp('laravel');
+        $deployment = $this->makeDeployment($app);
+
+        app(DeploymentService::class)->runDeployment($deployment);
+
+        $chownCommands = array_values(array_filter($this->executedCommands, fn ($c) => str_contains($c, 'chown -R')));
+
+        $this->assertNotEmpty($chownCommands, 'Expected setPermissions to issue chown commands.');
+        foreach ($chownCommands as $command) {
+            $this->assertStringContainsString("chown -R 'www-data:www-data'", $command);
+            $this->assertStringNotContainsString('shipyard', $command);
+        }
+    }
+
+    /**
+     * Task 5b: DeploymentService::fixLaravelPermissions (in-place strategy)
+     * must follow the same rule as the atomic path's setPermissions.
+     */
+    public function test_in_place_laravel_deployment_fixes_permissions_for_the_deploy_user_on_provisioned_servers(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeInPlaceApp('laravel', ['deploy_user' => 'shipyard']);
+        $deployment = $this->makeDeployment($app);
+
+        app(DeploymentService::class)->runDeployment($deployment);
+
+        $chownCommands = array_values(array_filter($this->executedCommands, fn ($c) => str_contains($c, 'chown -R')));
+
+        $this->assertNotEmpty($chownCommands, 'Expected fixLaravelPermissions to issue a chown command.');
+        foreach ($chownCommands as $command) {
+            $this->assertStringContainsString("chown -R 'shipyard:www-data'", $command);
+            $this->assertStringNotContainsString('www-data:www-data', $command);
+        }
+    }
+
+    public function test_in_place_laravel_deployment_fixes_permissions_for_www_data_on_legacy_servers(): void
+    {
+        $this->mockSsh();
+
+        $app = $this->makeInPlaceApp('laravel');
+        $deployment = $this->makeDeployment($app);
+
+        app(DeploymentService::class)->runDeployment($deployment);
+
+        $chownCommands = array_values(array_filter($this->executedCommands, fn ($c) => str_contains($c, 'chown -R')));
+
+        $this->assertNotEmpty($chownCommands, 'Expected fixLaravelPermissions to issue a chown command.');
+        foreach ($chownCommands as $command) {
+            $this->assertStringContainsString("chown -R 'www-data:www-data'", $command);
+        }
     }
 
     public function test_cleanup_removes_oldest_releases_using_absolute_paths(): void

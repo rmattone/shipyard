@@ -544,6 +544,42 @@ class ServerUserApiTest extends TestCase
         ]);
     }
 
+    /**
+     * Task 5b: PHP-FPM runs as the deploy user on home-layout (provisioned)
+     * servers, so the switch-user fix_ownership restore step must return
+     * writable dirs to that user, not hardcode www-data, or the runtime
+     * user loses write access to storage/ after the switch.
+     */
+    public function test_switch_user_with_fix_ownership_restores_writable_dirs_to_the_deploy_user_on_provisioned_servers(): void
+    {
+        $this->server->update(['deploy_user' => 'shipyard']);
+        $this->mockSsh(self::SWITCH_USERS_FIXTURE);
+
+        Application::factory()->create([
+            'server_id' => $this->server->id,
+            'deploy_path' => '/home/shipyard/my-app',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/switch-user", [
+                'username' => 'deploy',
+                'fix_ownership' => true,
+            ])
+            ->assertOk();
+
+        $chownScript = null;
+
+        foreach ($this->uploadedScripts as $script) {
+            if (str_contains($script, 'chown -R')) {
+                $chownScript = $script;
+            }
+        }
+
+        $this->assertNotNull($chownScript);
+        $this->assertStringContainsString("chown -R 'shipyard:www-data'", $chownScript);
+        $this->assertStringNotContainsString("chown -R 'www-data:www-data'", $chownScript);
+    }
+
     public function test_switch_user_returns_422_and_leaves_username_unchanged_when_user_not_found(): void
     {
         $this->mockSsh(self::USERS_FIXTURE); // does not include "ghost"

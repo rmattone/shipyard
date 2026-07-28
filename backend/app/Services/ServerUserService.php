@@ -426,6 +426,11 @@ class ServerUserService
     {
         $quotedUser = escapeshellarg($username);
 
+        // PHP-FPM runs as the deploy user on home-layout servers (see
+        // PhpFpmPoolService), www-data otherwise. Writable paths must be
+        // restored to whichever user actually executes the code.
+        $restoreOwner = escapeshellarg(($server->deploy_user ?? 'www-data').':www-data');
+
         $lines = [
             'set -euo pipefail',
             '',
@@ -452,11 +457,12 @@ class ServerUserService
             // user's login group instead of assuming a group literally named
             // after the user, which does not hold for pre-existing accounts.
             $lines[] = "\$SUDO chown -R {$quotedUser}: {$quotedPath}";
-            // Restores web-writable directories back to www-data afterwards.
-            // Covers both atomic (shared/) and in-place (storage/,
-            // bootstrap/cache) layouts; `|| true` because not every app has
-            // every one of these directories.
-            $lines[] = "\$SUDO chown -R www-data:www-data {$quotedPath}/storage {$quotedPath}/bootstrap/cache {$quotedPath}/shared 2>/dev/null || true";
+            // Restores web-writable directories to the PHP runtime user
+            // afterwards (deploy user on home-layout servers, www-data
+            // otherwise). Covers both atomic (shared/) and in-place
+            // (storage/, bootstrap/cache) layouts; `|| true` because not
+            // every app has every one of these directories.
+            $lines[] = "\$SUDO chown -R {$restoreOwner} {$quotedPath}/storage {$quotedPath}/bootstrap/cache {$quotedPath}/shared 2>/dev/null || true";
         }
 
         $script = implode("\n", $lines);
