@@ -731,6 +731,35 @@ class ServerUserApiTest extends TestCase
         $this->assertStringContainsString("chmod 711 '/home/deploy'", $joined);
     }
 
+    /**
+     * Task 5b: adopting a user whose apps already live under /home/{user}
+     * leaves their writable paths owned by the PRIOR PHP runtime user
+     * (www-data on a fresh adoption) until the next deploy. Task 6 repoints
+     * the FPM pool/nginx socket to the new deploy user immediately, so an
+     * app that hasn't redeployed since would 500 on its next write unless
+     * markDeployUser repairs ownership itself.
+     */
+    public function test_set_deploy_user_repairs_writable_path_ownership_for_existing_applications(): void
+    {
+        $this->mockSsh(self::USERS_FIXTURE);
+
+        Application::factory()->create([
+            'server_id' => $this->server->id,
+            'deploy_path' => '/home/deploy/legacy-app',
+        ]);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertOk()
+            ->assertJsonPath('deploy_user', 'deploy');
+
+        $joined = implode("\n", $this->uploadedScripts);
+        $this->assertStringContainsString(
+            "chown -R 'deploy:www-data' '/home/deploy/legacy-app'/storage '/home/deploy/legacy-app'/bootstrap/cache '/home/deploy/legacy-app'/shared",
+            $joined
+        );
+    }
+
     public function test_set_deploy_user_rejects_unknown_user(): void
     {
         $this->mockSsh(self::USERS_FIXTURE);

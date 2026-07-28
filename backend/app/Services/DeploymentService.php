@@ -414,7 +414,7 @@ BASH;
         // PHP-FPM runs as the deploy user on home-layout servers (see
         // PhpFpmPoolService), www-data otherwise. Writable paths must be
         // owned by whichever user actually executes the code.
-        $owner = escapeshellarg(($app->server?->deploy_user ?? 'www-data').':www-data');
+        $owner = escapeshellarg(($app->server?->phpRuntimeUser() ?? 'www-data').':www-data');
 
         // Set ownership to the PHP runtime user
         $this->sshService->execute("sudo chown -R {$owner} {$storage} {$cache} 2>/dev/null || true");
