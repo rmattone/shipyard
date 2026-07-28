@@ -149,7 +149,10 @@ git add -A && git commit -m "Add deploy_user column and default_deploy_base to s
 
 **Files:**
 - Modify: `backend/app/Models/Application.php:64-88`
+- Modify: `backend/app/Http/Controllers/Api/ApplicationController.php:87-91, 417-426`
 - Test: `backend/tests/Feature/ApplicationDeployPathTest.php`
+
+**Important context from Task 1 review:** `ApplicationController::store` resolves `deploy_path` itself (line ~89) before calling `Application::create`, so the model's `creating` hook never fires on the API path; the controller call must be updated too or the API tests fail. The `/applications/generate-path` preview endpoint (line ~417) also calls `generateDeployPath` with no server context. `Server::default_deploy_base` (added in Task 1) is the single source of truth for the base path; `generateDeployPath` must consume it rather than duplicate the branch.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -177,12 +180,33 @@ Append to `ApplicationDeployPathTest` (it already has a `payload()` helper that 
         $response->assertStatus(201);
         $this->assertSame('/var/www/shipyard/my-app', $response->json('deploy_path'));
     }
+
+    public function test_generate_path_preview_uses_the_server_layout_when_given_a_server(): void
+    {
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $this->actingAs($user)
+            ->postJson('/api/applications/generate-path', ['name' => 'My App', 'server_id' => $server->id])
+            ->assertOk()
+            ->assertJsonPath('deploy_path', '/home/shipyard/my-app');
+    }
+
+    public function test_generate_path_preview_defaults_to_legacy_without_a_server(): void
+    {
+        $user = $this->createOrgUser();
+
+        $this->actingAs($user)
+            ->postJson('/api/applications/generate-path', ['name' => 'My App'])
+            ->assertOk()
+            ->assertJsonPath('deploy_path', '/var/www/shipyard/my-app');
+    }
 ```
 
 - [ ] **Step 2: Run tests to verify the first fails**
 
 Run: `cd backend && DB_HOST=127.0.0.1 DB_PORT=33061 DB_USERNAME=root DB_PASSWORD=testing php artisan test --filter=ApplicationDeployPathTest`
-Expected: FAIL on `test_default_deploy_path_uses_home_layout_when_server_has_deploy_user` (path is `/var/www/shipyard/my-app`); the second new test passes.
+Expected: FAIL on `test_default_deploy_path_uses_home_layout_when_server_has_deploy_user` and `test_generate_path_preview_uses_the_server_layout_when_given_a_server` (both still produce `/var/www/shipyard/my-app`); the two legacy-path tests pass.
 
 - [ ] **Step 3: Implement**
 
@@ -191,40 +215,66 @@ In `backend/app/Models/Application.php`, change the `creating` hook default (cur
 ```php
             // Auto-generate deploy path if not set
             if (empty($application->deploy_path)) {
-                $application->deploy_path = self::generateDeployPath(
-                    $application->name,
-                    $application->server?->deploy_user,
-                );
+                $application->deploy_path = self::generateDeployPath($application->name, $application->server);
             }
 ```
 
-Change `generateDeployPath` to:
+Change `generateDeployPath` to (the base path decision lives on `Server::default_deploy_base`; do not duplicate the branch here):
 
 ```php
-    public static function generateDeployPath(string $name, ?string $deployUser = null): string
+    public static function generateDeployPath(string $name, ?Server $server = null): string
     {
         $safeName = strtolower(preg_replace('/[^a-zA-Z0-9\-]/', '-', $name));
         $safeName = preg_replace('/-+/', '-', $safeName); // collapse multiple dashes
         $safeName = trim($safeName, '-');
 
-        return $deployUser !== null
-            ? "/home/{$deployUser}/{$safeName}"
-            : "/var/www/shipyard/{$safeName}";
+        $base = $server?->default_deploy_base ?? '/var/www/shipyard';
+
+        return "{$base}/{$safeName}";
     }
 ```
 
-Check other callers: `grep -rn "generateDeployPath" backend/app backend/tests`. The added optional parameter keeps any existing call sites valid; update none unless one explicitly needs the home layout.
+(`Server` is already imported in the model via the `server()` relation; add the `use` statement if missing.)
+
+In `backend/app/Http/Controllers/Api/ApplicationController.php` `store()` (line ~89), the controller pre-resolves the path, so pass the server (already imported; `Server::find` is organization-scoped by the global scope, never use an unconstrained `exists:` here):
+
+```php
+        $validated['deploy_path'] = $validated['deploy_path']
+            ?? Application::generateDeployPath($validated['name'], Server::find($validated['server_id']));
+```
+
+In the same controller, `generateDeployPath()` preview action (line ~417) gains optional server context:
+
+```php
+    public function generateDeployPath(Request $request): JsonResponse
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'server_id' => 'nullable|integer',
+        ]);
+
+        // Server::find is organization scoped; a foreign org id resolves to
+        // null and falls back to the legacy base.
+        $server = $request->filled('server_id') ? Server::find($request->input('server_id')) : null;
+
+        return response()->json([
+            'deploy_path' => Application::generateDeployPath($request->input('name'), $server),
+        ]);
+    }
+```
+
+Check other callers: `grep -rn "generateDeployPath" backend/app backend/tests`. The optional parameter keeps remaining call sites valid.
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `cd backend && DB_HOST=127.0.0.1 DB_PORT=33061 DB_USERNAME=root DB_PASSWORD=testing php artisan test --filter=ApplicationDeployPathTest`
-Expected: PASS (all 6 tests)
+Expected: PASS (all 8 tests). Also run `--filter=ApplicationApiTest` to confirm the store path change regressed nothing.
 
 - [ ] **Step 5: Format and commit**
 
 ```bash
-cd backend && ./vendor/bin/pint app/Models/Application.php tests/Feature/ApplicationDeployPathTest.php
-git add -A && git commit -m "Default new apps to the deploy user home layout"
+cd backend && ./vendor/bin/pint app/Models/Application.php app/Http/Controllers/Api/ApplicationController.php tests/Feature/ApplicationDeployPathTest.php
+git add app/Models/Application.php app/Http/Controllers/Api/ApplicationController.php tests/Feature/ApplicationDeployPathTest.php && git commit -m "Default new apps to the deploy user home layout"
 ```
 
 ---
