@@ -287,11 +287,13 @@ class ServerUserService
         // assertNoApplicationsOutsideHome already guarantees every one of
         // this server's apps lives under /home/{$validated}/, but their
         // writable paths are still owned by whatever the PHP runtime user
-        // was BEFORE this call (www-data, on a fresh adoption). Task 6
-        // repoints the FPM pool/nginx socket to $validated immediately, so
-        // an app that hasn't redeployed since would 500 on its very next
-        // write. Repair writable dirs only (not a full-tree chown) rather
-        // than waiting for a deploy to fix it.
+        // was BEFORE this call (www-data, on a fresh adoption). An app's
+        // vhost only starts pointing at the new $validated-owned FPM socket
+        // when that vhost is next rewritten (its domains change, or a
+        // certificate is issued or renewed) -- not on every deploy. Chown
+        // the writable dirs now (not a full-tree chown) so the files are
+        // already owned correctly the moment that rewrite happens, instead
+        // of a stale-owner 500 on the app's very next write after it does.
         $restoreOwner = escapeshellarg($validated.':www-data');
 
         foreach ($server->applications()->get() as $application) {
