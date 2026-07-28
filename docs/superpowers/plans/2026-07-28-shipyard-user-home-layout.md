@@ -1252,13 +1252,14 @@ Change the visible prefix at line ~312 from the literal `/var/www/shipyard/` to 
 
 In `UsersSection.tsx`:
 
-1. Create form state gains the flag and defaults to the canonical username:
+1. Create form state gains the flag and defaults to the canonical username. IMPORTANT (Task 4 review): the backend hard-refuses `use_as_deploy_user` when the server already has applications outside `/home/{username}`, so defaulting the switch to on would 422 the most common adoption path. Default the flag to on only when the server has no applications:
 
 ```ts
-  const [createForm, setCreateForm] = useState({ username: 'shipyard', sudo: true, use_as_deploy_user: true })
+  const defaultUseAsDeployUser = (server.applications_count || 0) === 0
+  const [createForm, setCreateForm] = useState({ username: 'shipyard', sudo: true, use_as_deploy_user: defaultUseAsDeployUser })
 ```
 
-and `openCreateDialog` resets to the same object. The dialog button label stays "Create deploy user"; the username input keeps working for custom names.
+and `openCreateDialog` resets to the same object. When `applications_count > 0`, show the guard's rationale as muted helper text under the switch ("This server already has applications outside the new home directory; ShipYard refuses to switch layouts while they exist."). The dialog button label stays "Create deploy user"; the username input keeps working for custom names. The 422 message from the guard is already surfaced by the existing toast error path.
 
 2. Add a switch to the create dialog below the sudo switch, same markup pattern:
 
