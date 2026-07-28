@@ -474,6 +474,22 @@ export const serversApi = {
     api.get<ServerSoftware>('/servers/' + id + '/software'),
 }
 
+// Web terminal (SSE for output, POST for input)
+export const terminalApi = {
+  open: (serverId: number, cols: number, rows: number) =>
+    api.post<{ id: number }>('/servers/' + serverId + '/terminal-sessions', { cols, rows }),
+  input: (sessionId: number, base64Data: string) =>
+    api.post('/terminal-sessions/' + sessionId + '/input', { d: base64Data }),
+  resize: (sessionId: number, cols: number, rows: number) =>
+    api.post('/terminal-sessions/' + sessionId + '/resize', { cols, rows }),
+  close: (sessionId: number) =>
+    api.post('/terminal-sessions/' + sessionId + '/close'),
+  // EventSource can't send headers, so the token rides in the query string
+  // (same pattern as the deployment and installation log streams).
+  streamUrl: (sessionId: number, token: string) =>
+    '/api/terminal-sessions/' + sessionId + '/stream?token=' + encodeURIComponent(token),
+}
+
 // Tags (server-scoped)
 export const tagsApi = {
   list: (serverId: number) =>
