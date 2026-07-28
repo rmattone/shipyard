@@ -19,7 +19,8 @@ class NginxService
     public const ACME_WEBROOT = '/var/www/letsencrypt';
 
     public function __construct(
-        private SSHService $sshService
+        private SSHService $sshService,
+        private PhpFpmPoolService $phpFpmPoolService,
     ) {}
 
     public function generateConfig(Application $app): string
@@ -93,6 +94,14 @@ class NginxService
      */
     public function deploy(Application $app, array $extraLegacyNames = []): bool
     {
+        // The vhost is about to reference the ShipYard pool socket; make
+        // sure the pool exists first. Idempotent and cheap when unchanged.
+        // Must run before this service's own connect(): ensurePool opens
+        // and closes its own SSH session on the shared SSHService.
+        if ($app->type === 'laravel' && $app->server?->deploy_user !== null) {
+            $this->phpFpmPoolService->ensurePool($app->server, $app->getPhpVersion());
+        }
+
         $config = $this->generateConfig($app);
         $server = $app->server;
         $configName = $this->configName($app);
@@ -283,11 +292,27 @@ class NginxService
         return $nonSslDomains;
     }
 
+    /**
+     * Servers with a deploy user serve PHP through the ShipYard managed
+     * pool (owned by that user); legacy servers keep the distro default
+     * pool socket. Decided per server so one server never mixes layouts.
+     */
+    private function phpSocketPath(Application $app): string
+    {
+        $version = $app->getPhpVersion();
+
+        if ($app->server?->deploy_user !== null) {
+            return PhpFpmPoolService::socketPath($version);
+        }
+
+        return "/var/run/php/php{$version}-fpm.sock";
+    }
+
     private function laravelTemplate(Application $app): string
     {
         $serverName = $this->getServerNames($app);
         $root = $app->getDocumentRoot();
-        $phpSocket = "unix:/var/run/php/php{$app->getPhpVersion()}-fpm.sock";
+        $phpSocket = 'unix:'.$this->phpSocketPath($app);
         $acme = $this->acmeLocationBlock();
 
         // SSL blocks are emitted per SSL-enabled Domain row only. The legacy
