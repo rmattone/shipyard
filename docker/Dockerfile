@@ -27,6 +27,9 @@ RUN install -m 0755 -d /etc/apt/keyrings \
 # Install Redis extension
 RUN pecl install redis && docker-php-ext-enable redis
 
+# Worker pool sized for long-lived SSE streams (see the file's comments)
+COPY docker/php/zz-shipyard.conf /usr/local/etc/php-fpm.d/zz-shipyard.conf
+
 # Install Composer
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
