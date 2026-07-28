@@ -1269,11 +1269,14 @@ git add -A && git commit -m "Scan the deploy user home during application import
 ### Task 8: Frontend
 
 **Files:**
-- Modify: `frontend/src/services/api.ts:74-85, 917-935`
+- Modify: `frontend/src/services/api.ts:74-85, 917-935` (also the import response type at ~line 702)
 - Modify: `frontend/src/pages/apps/AppNew.tsx:171, ~312`
 - Modify: `frontend/src/pages/servers/settings/UsersSection.tsx`
+- Modify: `frontend/src/pages/servers/ServerOverview.tsx:101-108` (surface import `warnings`)
 - Modify: `frontend/src/components/SchedulerPanel.tsx:364`
 - Modify: `frontend/src/components/DaemonsPanel.tsx:533`
+
+Import warnings handoff (Task 7): the import endpoint now returns a `warnings` array (`{path, warning}` entries) for apps living outside the deploy user home. Widen the import response type in `api.ts` and, in `ServerOverview`'s import handler, emit `toast.warning(w.warning)` per entry after the success toast — otherwise the backend's warn-don't-refuse decision is a JSON key nobody reads.
 
 There is no frontend test suite; verification is `npm run lint` plus `npm run build`.
 
