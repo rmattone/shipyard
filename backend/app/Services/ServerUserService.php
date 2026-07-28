@@ -37,6 +37,10 @@ class ServerUserService
 
     private const SUDOERS_INVALID_MARKER = 'SHIPYARD_SUDOERS_INVALID';
 
+    private const HOME_MISSING_MARKER = 'SHIPYARD_HOME_MISSING';
+
+    private const HOME_NOT_OWNED_MARKER = 'SHIPYARD_HOME_NOT_OWNED';
+
     public function __construct(
         protected SSHService $sshService,
         protected AuthorizedKeysService $authorizedKeysService,
@@ -60,6 +64,10 @@ class ServerUserService
     public function createDeployUser(Server $server, string $username, bool $sudo, bool $useAsDeployUser = false): void
     {
         $validated = $this->assertValidUsername($username);
+
+        if ($useAsDeployUser) {
+            $this->assertNoApplicationsOutsideHome($server, $validated);
+        }
 
         $script = $this->buildCreateDeployUserScript($validated, $sudo);
         $result = $this->runRemoteScript($server, $script, 60);
@@ -223,6 +231,8 @@ class ServerUserService
             throw new InvalidArgumentException('Root cannot be used as the deploy user.');
         }
 
+        $this->assertNoApplicationsOutsideHome($server, $validated);
+
         $found = null;
 
         foreach ($this->listUsers($server) as $remoteUser) {
@@ -234,26 +244,57 @@ class ServerUserService
         }
 
         if ($found === null) {
-            throw new InvalidArgumentException("User '{$validated}' was not found on this server.");
+            // listUsers() silently excludes nologin/false-shell accounts, so
+            // an account that genuinely exists but cannot log in lands here
+            // too; the message must not claim the account is simply absent.
+            throw new InvalidArgumentException(
+                "User '{$validated}' was not found among login-capable users on this server. The deploy user needs a login shell because deployments connect as it."
+            );
         }
 
-        if ($found['home'] !== '/home/'.$validated) {
+        if (rtrim($found['home'], '/') !== '/home/'.$validated) {
             throw new InvalidArgumentException(
                 "User '{$validated}' has home directory '{$found['home']}', but the deploy layout requires '/home/{$validated}'."
             );
         }
 
-        // Same traversal rule as freshly provisioned users: nginx needs
-        // execute on the home directory, nothing more.
+        // Unlike createDeployUser's freshly-useradd'd accounts, an adopted
+        // account gives no guarantee its home actually exists or is owned by
+        // the account itself (e.g. it could be a leftover directory owned by
+        // root). Verify both before touching permissions.
+        $quotedHome = escapeshellarg('/home/'.$validated);
+
         $script = implode("\n", [
             'set -euo pipefail',
             '',
             'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
             '',
-            '$SUDO chmod 711 '.escapeshellarg('/home/'.$validated),
+            "if ! \$SUDO test -d {$quotedHome}; then",
+            '    echo '.self::HOME_MISSING_MARKER,
+            '    exit 4',
+            'fi',
+            '',
+            "if [ \"\$(\$SUDO stat -c %U {$quotedHome})\" != ".escapeshellarg($validated).' ]; then',
+            '    echo '.self::HOME_NOT_OWNED_MARKER,
+            '    exit 5',
+            'fi',
+            '',
+            // Same traversal rule as freshly provisioned users: nginx needs
+            // execute on the home directory, nothing more.
+            "\$SUDO chmod 711 {$quotedHome}",
         ]);
 
         $result = $this->runRemoteScript($server, $script, 30);
+
+        $lines = array_map('trim', preg_split('/\r?\n/', $result['output']));
+
+        if (in_array(self::HOME_MISSING_MARKER, $lines, true)) {
+            throw new InvalidArgumentException("User '{$validated}' has no home directory at /home/{$validated} on this server.");
+        }
+
+        if (in_array(self::HOME_NOT_OWNED_MARKER, $lines, true)) {
+            throw new InvalidArgumentException("/home/{$validated} exists but is not owned by '{$validated}'.");
+        }
 
         if (! $result['success']) {
             throw new RuntimeException("Failed to restrict /home/{$validated} to 711: ".$result['output']);
@@ -262,6 +303,25 @@ class ServerUserService
         $server->update(['deploy_user' => $validated]);
 
         return $server->fresh();
+    }
+
+    /**
+     * Changing deploy_user re-points the server-wide FPM pool and nginx
+     * sockets for every PHP app on the box (see PhpFpmPoolService and
+     * NginxService), so it is refused while apps live outside the new
+     * user's home. Migrating existing apps is deliberately unsupported.
+     */
+    private function assertNoApplicationsOutsideHome(Server $server, string $username): void
+    {
+        $misplaced = $server->applications()
+            ->where('deploy_path', 'not like', '/home/'.$username.'/%')
+            ->exists();
+
+        if ($misplaced) {
+            throw new InvalidArgumentException(
+                "This server has applications deployed outside /home/{$username}. Their PHP-FPM pool and file ownership would no longer match. Remove or migrate those applications first."
+            );
+        }
     }
 
     /**
