@@ -23,12 +23,13 @@ class ApplicationImportService
      * and default to in-place deployment unless a releases/current layout
      * is found.
      *
-     * @return array{imported: array<int, Application>, skipped: array<int, array{path: string, reason: string}>}
+     * @return array{imported: array<int, Application>, skipped: array<int, array{path: string, reason: string}>, warnings: array<int, array{path: string, warning: string}>}
      */
     public function import(Server $server): array
     {
         $imported = [];
         $skipped = [];
+        $warnings = [];
 
         $this->sshService->connect($server);
 
@@ -100,13 +101,28 @@ class ApplicationImportService
                 $this->importDomains($application, $domains);
                 $this->importEnvironmentVariables($application, $dir, $root, $strategy);
 
+                // Deliberately does not call
+                // ServerUserService::assertNoApplicationsOutsideHome here:
+                // refusing to import apps that live outside the deploy
+                // user's home would leave those real, already-running apps
+                // permanently unmanageable through the panel on a
+                // provisioned server, which is worse than the mixed layout
+                // it would be guarding against. Surface it as a warning
+                // instead so the caller can decide what to do.
+                if ($server->deploy_user !== null && ! str_starts_with($dir, $server->default_deploy_base.'/')) {
+                    $warnings[] = [
+                        'path' => $dir,
+                        'warning' => 'This application lives outside the deploy user home; deploys may hit permission issues and the server cannot change its deploy user while it exists.',
+                    ];
+                }
+
                 $imported[] = $application;
             }
         } finally {
             $this->sshService->disconnect();
         }
 
-        return ['imported' => $imported, 'skipped' => $skipped];
+        return ['imported' => $imported, 'skipped' => $skipped, 'warnings' => $warnings];
     }
 
     /**
@@ -150,8 +166,8 @@ class ApplicationImportService
     {
         $bases = self::SCAN_BASES;
 
-        if ($server->deploy_user !== null) {
-            $bases[] = '/home/'.$server->deploy_user;
+        if (filled($server->deploy_user)) {
+            $bases[] = $server->default_deploy_base;
         }
 
         return $bases;
@@ -161,7 +177,12 @@ class ApplicationImportService
     private function listCandidateDirs(Server $server): array
     {
         $bases = implode(' ', $this->scanBases($server));
-        $result = $this->sshService->execute("find {$bases} -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -u", 30);
+
+        // The deploy user's home is mode 711, so listing it needs sudo
+        // unless the connection user IS the deploy user; the fallback keeps
+        // import working for non-sudo users on the legacy /var/www bases.
+        $find = "find {$bases} -mindepth 1 -maxdepth 1 -type d 2>/dev/null";
+        $result = $this->sshService->execute("{ sudo -n {$find} || {$find}; } | sort -u", 30);
 
         return array_values(array_filter(array_map('trim', explode("\n", $result['output'] ?? ''))));
     }

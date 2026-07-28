@@ -285,7 +285,7 @@ NGINX;
             $mock->shouldReceive('connect')->andReturnSelf();
             $mock->shouldReceive('disconnect');
             $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use (&$findCommands) {
-                if (str_starts_with($command, 'find ')) {
+                if (str_contains($command, 'find ')) {
                     $findCommands[] = $command;
                 }
 
@@ -311,7 +311,7 @@ NGINX;
             $mock->shouldReceive('connect')->andReturnSelf();
             $mock->shouldReceive('disconnect');
             $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use (&$findCommands) {
-                if (str_starts_with($command, 'find ')) {
+                if (str_contains($command, 'find ')) {
                     $findCommands[] = $command;
                 }
 
@@ -325,6 +325,36 @@ NGINX;
         $this->assertStringNotContainsString('/home/', $findCommands[0]);
     }
 
+    // /home/{deploy_user} is mode 711: a non-deploy connection user (e.g.
+    // ubuntu) gets "Permission denied" from a plain find, silently swallowed
+    // by 2>/dev/null, so import would miss every home app. The scan must try
+    // sudo first and fall back to a plain find for legacy /var/www bases.
+    public function test_import_scan_tries_sudo_before_falling_back_to_a_plain_find(): void
+    {
+        $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $findCommands = [];
+
+        $this->mock(SSHService::class, function ($mock) use (&$findCommands) {
+            $mock->shouldReceive('connect')->andReturnSelf();
+            $mock->shouldReceive('disconnect');
+            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use (&$findCommands) {
+                if (str_contains($command, 'find ')) {
+                    $findCommands[] = $command;
+                }
+
+                return ['output' => '', 'exit_code' => 0, 'success' => true];
+            });
+        });
+
+        app(ApplicationImportService::class)->import($server);
+
+        $this->assertNotEmpty($findCommands);
+        $this->assertStringContainsString('sudo -n find', $findCommands[0]);
+        $this->assertStringContainsString('|| find', $findCommands[0]);
+    }
+
     // The deploy user's home is a real home directory, so it contains
     // dotfile trees like .nvm (a git checkout with a package.json at its
     // root, sourced by $HOME/.nvm/nvm.sh on Node deploys). Those must never
@@ -333,6 +363,11 @@ NGINX;
     {
         $this->mockSsh([
             'find /var/www' => "/home/shipyard/.nvm\n/home/shipyard/real-app",
+
+            // .nvm is a real git checkout with a package.json at its root
+            // in production; this fixture would classify it as nodejs if
+            // it were ever processed, which the dot-skip must prevent.
+            '/home/shipyard/.nvm/artisan' => 'nodejs',
 
             '/home/shipyard/real-app/current" && test -d' => 'in_place',
             '/home/shipyard/real-app/artisan' => 'nodejs',
@@ -350,5 +385,78 @@ NGINX;
 
         $this->assertNotNull(Application::where('deploy_path', '/home/shipyard/real-app')->first());
         $this->assertNull(Application::where('deploy_path', '/home/shipyard/.nvm')->first());
+    }
+
+    // Refusing to import apps that live outside the deploy user's home
+    // would leave those already-running apps permanently unmanageable on a
+    // provisioned server, so import surfaces the mixed layout as a warning
+    // per misplaced app instead of refusing the whole run.
+    public function test_import_warns_when_an_app_lives_outside_the_deploy_user_home(): void
+    {
+        $this->mockSsh([
+            'find /var/www' => "/var/www/legacy-site\n/home/shipyard/home-app",
+
+            '/var/www/legacy-site/current" && test -d' => 'in_place',
+            '/var/www/legacy-site/artisan' => 'laravel',
+
+            '/home/shipyard/home-app/current" && test -d' => 'in_place',
+            '/home/shipyard/home-app/artisan' => 'nodejs',
+        ]);
+
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $response = $this->actingAs($user)
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertCount(2, $response->json('imported'));
+
+        $warnings = $response->json('warnings');
+        $this->assertCount(1, $warnings);
+        $this->assertSame('/var/www/legacy-site', $warnings[0]['path']);
+        $this->assertStringContainsString('deploy user home', $warnings[0]['warning']);
+    }
+
+    // Exercises matchSite() and importEnvironmentVariables() against a
+    // /home/{deploy_user}/... deploy_path, not just the legacy /var/www
+    // bases the other domain/env tests cover.
+    public function test_home_layout_apps_import_domains_and_environment_variables(): void
+    {
+        $nginx = <<<'NGINX'
+server {
+    listen 443 ssl;
+    server_name app.example.com;
+    root /home/shipyard/webapp/current/public;
+}
+NGINX;
+
+        $this->mockSsh([
+            'find /var/www' => '/home/shipyard/webapp',
+            'sites-enabled' => $nginx,
+
+            '/home/shipyard/webapp/current" && test -d' => 'atomic',
+            '/home/shipyard/webapp/current/artisan' => 'laravel',
+            'cat "/home/shipyard/webapp/shared/.env"' => "APP_NAME=Webapp\nDB_PASSWORD=s3cret\n",
+        ]);
+
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $response = $this->actingAs($user)
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertCount(1, $response->json('imported'));
+        $this->assertSame([], $response->json('warnings'));
+
+        $app = Application::where('deploy_path', '/home/shipyard/webapp')->first();
+        $this->assertNotNull($app);
+        $this->assertSame('app.example.com', $app->domain);
+        $this->assertTrue($app->ssl_enabled);
+
+        $vars = $app->environmentVariables()->get()->mapWithKeys(fn ($v) => [$v->key => $v->value]);
+        $this->assertSame('Webapp', $vars['APP_NAME'] ?? null);
+        $this->assertSame('s3cret', $vars['DB_PASSWORD'] ?? null);
     }
 }
