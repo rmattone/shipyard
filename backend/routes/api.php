@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TagController;
 use App\Http\Controllers\Api\TerminalController;
+use App\Http\Controllers\Api\TerminalStreamController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -41,6 +42,7 @@ Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
 // SSE streaming routes (auth handled via query param token)
 Route::get('/deployments/{deployment}/stream', [DeploymentStreamController::class, 'stream']);
 Route::get('/database-installations/{installation}/stream', [DatabaseInstallationStreamController::class, 'stream']);
+Route::get('/terminal-sessions/{terminalSession}/stream', [TerminalStreamController::class, 'stream']);
 
 // Invitation accept flow (public: the token is the shared secret)
 Route::middleware('throttle:login')->group(function () {
