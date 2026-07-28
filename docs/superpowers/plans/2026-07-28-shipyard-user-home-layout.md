@@ -1330,6 +1330,7 @@ Change the visible prefix at line ~312 from the literal `/var/www/shipyard/` to 
 
 - `SchedulerPanel.tsx:364`: placeholder becomes `php8.3 /home/shipyard/app/current/artisan schedule:run`
 - `DaemonsPanel.tsx:533`: placeholder becomes `/home/shipyard/app/current`
+- `AppSettings.tsx:491`: the "Available variables" hint for custom deploy scripts gains `$DEPLOY_OWNER` (added to `getDeployScriptWithVariables` in Task 5b).
 
 - [ ] **Step 4: UsersSection provisioning flow**
 
