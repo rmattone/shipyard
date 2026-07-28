@@ -87,7 +87,11 @@ class PhpFpmPoolService
             '',
             'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
             '',
-            "if ! \$SUDO test -d /etc/php/{$phpVersion}/fpm/pool.d; then",
+            // /etc/php/{version}/fpm/pool.d is world-readable on Debian/
+            // Ubuntu, so this check does not need sudo; running it plain
+            // avoids misattributing a broken passwordless-sudo grant to a
+            // missing PHP-FPM install.
+            "if ! test -d /etc/php/{$phpVersion}/fpm/pool.d; then",
             '    echo '.self::PHP_MISSING_MARKER,
             '    exit 4',
             'fi',
@@ -144,7 +148,7 @@ class PhpFpmPoolService
 
         if (in_array(self::PHP_MISSING_MARKER, $lines, true)) {
             throw new RuntimeException(
-                "PHP {$phpVersion} FPM is not installed on this server; install php{$phpVersion}-fpm or change the application's PHP version."
+                "PHP {$phpVersion} FPM is not installed on this server; install php{$phpVersion}-fpm or change the application's PHP version. Output: ".$result['output']
             );
         }
 
