@@ -55,7 +55,7 @@ class ServerController extends Controller
 
     public function show(Server $server): JsonResponse
     {
-        $server->load('applications');
+        $server->load('applications')->loadCount('applications');
 
         return response()->json($server);
     }

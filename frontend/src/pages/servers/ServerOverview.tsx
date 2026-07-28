@@ -106,10 +106,11 @@ export default function ServerOverview() {
         toast.info(skipped > 0 ? `No new apps found (${skipped} skipped)` : 'No existing apps found on this server')
       } else {
         toast.success(`Imported ${imported} app${imported === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}`)
-        for (const w of res.data.warnings ?? []) {
-          toast.warning(w.warning)
-        }
         loadData()
+      }
+
+      for (const w of res.data.warnings ?? []) {
+        toast.warning(w.warning)
       }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }

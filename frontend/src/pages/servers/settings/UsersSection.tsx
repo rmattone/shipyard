@@ -88,7 +88,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
       toast.success('User creation started')
       setShowCreateDialog(false)
       if (response.data.server) {
-        onServerChange?.(response.data.server)
+        onServerChange?.({ ...server, ...response.data.server })
       }
       await loadUsers()
     } catch (error: unknown) {
@@ -102,7 +102,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
     try {
       const response = await serverUsersApi.setDeployUser(server.id, { username: user.name })
       toast.success(`'${user.name}' is now the deploy user`)
-      onServerChange?.(response.data)
+      onServerChange?.({ ...server, ...response.data })
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, 'Failed to set deploy user'))
     }
@@ -122,7 +122,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
         fix_ownership: fixOwnership,
       })
       toast.success(`Now connecting as '${userToSwitch.name}'`)
-      onServerChange?.(response.data)
+      onServerChange?.({ ...server, ...response.data })
       setUserToSwitch(null)
       await loadUsers()
     } catch (error: unknown) {
