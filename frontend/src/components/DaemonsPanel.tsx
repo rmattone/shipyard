@@ -81,6 +81,8 @@ interface DaemonsPanelProps {
 }
 
 export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDeployUser, application, apps = [] }: DaemonsPanelProps) {
+  const defaultDaemonUser = serverDeployUser ?? 'www-data'
+
   const [daemons, setDaemons] = useState<Daemon[]>([])
   const [loading, setLoading] = useState(true)
   const [runtime, setRuntime] = useState<Record<number, RuntimeState>>({})
@@ -93,7 +95,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
   const [output, setOutput] = useState<{ output: string; exists: boolean } | null>(null)
   const [loadingOutput, setLoadingOutput] = useState(false)
 
-  const [formData, setFormData] = useState({ ...emptyForm, user: serverDeployUser ?? 'www-data' })
+  const [formData, setFormData] = useState({ ...emptyForm, user: defaultDaemonUser })
   const [workerForm, setWorkerForm] = useState(emptyWorkerForm)
   const [presetAppId, setPresetAppId] = useState<number | null>(null)
   const [usePreset, setUsePreset] = useState(false)
@@ -172,7 +174,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
     setWorkerForm(emptyWorkerForm)
     setFormData({
       ...emptyForm,
-      user: serverDeployUser ?? 'www-data',
+      user: defaultDaemonUser,
       directory: application ? appWorkingDir(application) : '',
     })
     setShowAddDialog(true)
@@ -367,14 +369,14 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
                         </h3>
                         <StatusBadge status={daemon.status} />
                         {runtimeBadge(daemon)}
+                        {serverDeployUser && daemon.user !== serverDeployUser && (
+                          <Badge variant="outline" className="text-amber-500 border-amber-500/40 shrink-0">
+                            runs as {daemon.user}, not the deploy user
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground truncate">
                         <Badge variant="outline" className="mr-2 font-mono">{daemon.user}</Badge>
-                        {serverDeployUser && daemon.user !== serverDeployUser && (
-                          <Badge variant="outline" className="mr-2 text-amber-500 border-amber-500/40">
-                            not the deploy user
-                          </Badge>
-                        )}
                         {!application && appName(daemon) && (
                           <Badge variant="secondary" className="mr-2">{appName(daemon)}</Badge>
                         )}

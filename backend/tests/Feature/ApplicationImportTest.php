@@ -447,6 +447,35 @@ NGINX;
         $this->assertSame('/var/www/legacy-site', $warnings[0]['path']);
     }
 
+    // A directory outside the deploy user home that is not a recognizable
+    // project (e.g. /var/www/backups) must be skipped without a warning:
+    // it is not an application, so the "lives outside the deploy user
+    // home" wording would be misleading about a directory that was never
+    // going to be imported in the first place.
+    public function test_unrecognized_dir_outside_home_is_skipped_without_a_warning(): void
+    {
+        $this->mockSsh([
+            'find /var/www' => '/var/www/backups',
+            '/var/www/backups/artisan' => 'unknown',
+        ]);
+
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $response = $this->actingAs($user)
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertSame([], $response->json('imported'));
+
+        $skipped = $response->json('skipped');
+        $this->assertCount(1, $skipped);
+        $this->assertSame('/var/www/backups', $skipped[0]['path']);
+        $this->assertSame('no recognizable project', $skipped[0]['reason']);
+
+        $this->assertSame([], $response->json('warnings'));
+    }
+
     // Exercises matchSite() and importEnvironmentVariables() against a
     // /home/{deploy_user}/... deploy_path, not just the legacy /var/www
     // bases the other domain/env tests cover.

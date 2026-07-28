@@ -45,7 +45,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
   const [users, setUsers] = useState<ServerUser[]>([])
   const [loading, setLoading] = useState(true)
 
-  const defaultUseAsDeployUser = (server.applications_count || 0) === 0
+  const defaultUseAsDeployUser = (server.applications_count || 0) === 0 && !server.deploy_user
 
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [createForm, setCreateForm] = useState({ username: 'shipyard', sudo: true, use_as_deploy_user: defaultUseAsDeployUser })
@@ -54,6 +54,9 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
   const [userToSwitch, setUserToSwitch] = useState<ServerUser | null>(null)
   const [fixOwnership, setFixOwnership] = useState(true)
   const [switching, setSwitching] = useState(false)
+
+  const [userToMakeDeploy, setUserToMakeDeploy] = useState<ServerUser | null>(null)
+  const [settingDeployUser, setSettingDeployUser] = useState<string | null>(null)
 
   useEffect(() => {
     loadUsers()
@@ -98,13 +101,23 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
     }
   }
 
-  const handleSetDeployUser = async (user: ServerUser) => {
+  const openSetDeployUserDialog = (user: ServerUser) => {
+    setUserToMakeDeploy(user)
+  }
+
+  const handleSetDeployUser = async () => {
+    if (!userToMakeDeploy) return
+    const user = userToMakeDeploy
+    setSettingDeployUser(user.name)
     try {
       const response = await serverUsersApi.setDeployUser(server.id, { username: user.name })
       toast.success(`'${user.name}' is now the deploy user`)
       onServerChange?.({ ...server, ...response.data })
+      setUserToMakeDeploy(null)
     } catch (error: unknown) {
       toast.error(getErrorMessage(error, 'Failed to set deploy user'))
+    } finally {
+      setSettingDeployUser(null)
     }
   }
 
@@ -188,7 +201,13 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       {server.deploy_user !== user.name && user.name !== 'root' && (
-                        <Button variant="outline" size="sm" onClick={() => handleSetDeployUser(user)}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openSetDeployUserDialog(user)}
+                          disabled={settingDeployUser === user.name}
+                        >
+                          {settingDeployUser === user.name && <LoadingSpinner size="sm" className="mr-2" />}
                           Set as deploy user
                         </Button>
                       )}
@@ -301,6 +320,31 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
             <AlertDialogAction onClick={handleSwitch} disabled={switching}>
               {switching && <LoadingSpinner size="sm" className="mr-2" />}
               Switch Connection User
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Set deploy user confirmation */}
+      <AlertDialog open={!!userToMakeDeploy} onOpenChange={(open) => { if (!open) setUserToMakeDeploy(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Make '{userToMakeDeploy?.name}' the deploy user</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-3 text-sm">
+                <p>
+                  This sets the home directory of '{userToMakeDeploy?.name}' to mode 711, re-owns
+                  the writable directories of existing applications to this user, and repoints
+                  the PHP-FPM pool and nginx sockets to it on each application's next deploy.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!settingDeployUser}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleSetDeployUser} disabled={!!settingDeployUser}>
+              {settingDeployUser && <LoadingSpinner size="sm" className="mr-2" />}
+              Set as Deploy User
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

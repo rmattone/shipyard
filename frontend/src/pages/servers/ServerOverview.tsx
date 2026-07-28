@@ -109,8 +109,12 @@ export default function ServerOverview() {
         loadData()
       }
 
-      for (const w of res.data.warnings ?? []) {
-        toast.warning(w.warning)
+      const warnings = res.data.warnings ?? []
+      if (warnings.length > 0) {
+        toast.warning(
+          `${warnings.length} app${warnings.length === 1 ? '' : 's'} outside the deploy user home`,
+          { description: warnings.map((w) => w.path).join(', '), duration: 10000 }
+        )
       }
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
