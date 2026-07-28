@@ -48,6 +48,23 @@ class ApplicationImportService
                     continue;
                 }
 
+                // Deliberately does not call
+                // ServerUserService::assertNoApplicationsOutsideHome here:
+                // refusing to import apps that live outside the deploy
+                // user's home would leave those real, already-running apps
+                // permanently unmanageable through the panel on a
+                // provisioned server, which is worse than the mixed layout
+                // it would be guarding against. Surface it as a warning
+                // instead so the caller can decide what to do. This runs
+                // before the already-managed check so the warning keeps
+                // firing on every re-import pass, not just the first one.
+                if (filled($server->deploy_user) && ! str_starts_with($dir, $server->default_deploy_base.'/')) {
+                    $warnings[] = [
+                        'path' => $dir,
+                        'warning' => 'This application lives outside the deploy user home; deploys may hit permission issues and the server cannot change its deploy user while it exists.',
+                    ];
+                }
+
                 $existing = $server->applications()->where('deploy_path', $dir)->first();
                 if ($existing !== null) {
                     // Backfill env for apps imported before their variables
@@ -100,21 +117,6 @@ class ApplicationImportService
 
                 $this->importDomains($application, $domains);
                 $this->importEnvironmentVariables($application, $dir, $root, $strategy);
-
-                // Deliberately does not call
-                // ServerUserService::assertNoApplicationsOutsideHome here:
-                // refusing to import apps that live outside the deploy
-                // user's home would leave those real, already-running apps
-                // permanently unmanageable through the panel on a
-                // provisioned server, which is worse than the mixed layout
-                // it would be guarding against. Surface it as a warning
-                // instead so the caller can decide what to do.
-                if ($server->deploy_user !== null && ! str_starts_with($dir, $server->default_deploy_base.'/')) {
-                    $warnings[] = [
-                        'path' => $dir,
-                        'warning' => 'This application lives outside the deploy user home; deploys may hit permission issues and the server cannot change its deploy user while it exists.',
-                    ];
-                }
 
                 $imported[] = $application;
             }
