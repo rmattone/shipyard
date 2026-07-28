@@ -910,7 +910,7 @@ git add -A && git commit -m "Add PhpFpmPoolService for deploy user owned FPM poo
 
 **Why (Task 5 review, Critical):** the FPM pool runs as the deploy user, but every deploy chowns Laravel's writable paths to `www-data`. On a home-layout server the PHP worker (deploy user) then cannot write `storage/` or `bootstrap/cache`, and the first request 500s. Ownership must follow the PHP runtime user.
 
-**Ownership rule:** user = `$server->deploy_user ?? 'www-data'`, group stays `www-data` (preserves legacy behavior exactly when `deploy_user` is null; on home-layout servers the owner writes and nginx reads via group/other bits).
+**Ownership rule:** user = `$server->deploy_user ?? 'www-data'`, group stays `www-data` (preserves legacy behavior exactly when `deploy_user` is null; on home-layout servers the owner writes and nginx reads via group/other bits). The `chmod -R 775` lines stay as they are on both layouts: daemons (`SystemdService`) run as a per-daemon configurable user, so group-write through `www-data` membership remains a supported path; tightening to 755 on provisioned servers is a possible follow-up, not part of this task.
 
 **Files:**
 - Modify: `backend/app/Services/AtomicDeploymentService.php:199-222` (`setPermissions`)
