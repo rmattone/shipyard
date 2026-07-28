@@ -110,4 +110,42 @@ class ApplicationDeployPathTest extends TestCase
             ->assertOk()
             ->assertJsonPath('deploy_path', '/var/www/shipyard/my-app');
     }
+
+    public function test_creating_hook_generates_home_layout_path_for_non_api_creation(): void
+    {
+        $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $application = Application::factory()->create([
+            'server_id' => $server->id,
+            'name' => 'Hook App',
+            'deploy_path' => null,
+        ]);
+
+        $this->assertSame('/home/shipyard/hook-app', $application->deploy_path);
+    }
+
+    public function test_generated_slug_never_collapses_to_the_bare_base(): void
+    {
+        $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $this->assertSame('/home/shipyard/app', Application::generateDeployPath('###', $server));
+    }
+
+    public function test_generate_path_preview_ignores_foreign_org_servers(): void
+    {
+        // Build the foreign org's user/context and server first, then
+        // create the acting user last so the context ends bound to them
+        // (mirrors the setup in CrossTenantIsolationTest).
+        $this->createOrgUser();
+        $foreignServer = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $user = $this->createOrgUser();
+
+        $this->actingAs($user)
+            ->postJson('/api/applications/generate-path', ['name' => 'My App', 'server_id' => $foreignServer->id])
+            ->assertOk()
+            ->assertJsonPath('deploy_path', '/var/www/shipyard/my-app');
+    }
 }
