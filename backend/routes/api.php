@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\SshdSettingsController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TagController;
+use App\Http\Controllers\Api\TerminalController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -126,6 +127,17 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::post('/servers/{server}/firewall/enable', [FirewallController::class, 'enable']);
     Route::post('/servers/{server}/firewall/disable', [FirewallController::class, 'disable']);
     Route::post('/servers/{server}/firewall/install', [FirewallController::class, 'install']);
+
+    // Web terminal (shell access: admin or owner only; the SSE stream
+    // route lives in the public section with the other streams)
+    Route::middleware('org.role:admin')->group(function () {
+        Route::post('/servers/{server}/terminal-sessions', [TerminalController::class, 'open']);
+        Route::post('/terminal-sessions/{terminalSession}/input', [TerminalController::class, 'input'])
+            ->withoutMiddleware('throttle:api') // 120/min would starve keystrokes
+            ->middleware('throttle:terminal-input');
+        Route::post('/terminal-sessions/{terminalSession}/resize', [TerminalController::class, 'resize']);
+        Route::post('/terminal-sessions/{terminalSession}/close', [TerminalController::class, 'close']);
+    });
 
     // Server users
     Route::get('/servers/{server}/users', [ServerUserController::class, 'index']);
