@@ -906,6 +906,87 @@ git add -A && git commit -m "Add PhpFpmPoolService for deploy user owned FPM poo
 
 ---
 
+### Task 5b: Writable-path ownership follows the deploy user
+
+**Why (Task 5 review, Critical):** the FPM pool runs as the deploy user, but every deploy chowns Laravel's writable paths to `www-data`. On a home-layout server the PHP worker (deploy user) then cannot write `storage/` or `bootstrap/cache`, and the first request 500s. Ownership must follow the PHP runtime user.
+
+**Ownership rule:** user = `$server->deploy_user ?? 'www-data'`, group stays `www-data` (preserves legacy behavior exactly when `deploy_user` is null; on home-layout servers the owner writes and nginx reads via group/other bits).
+
+**Files:**
+- Modify: `backend/app/Services/AtomicDeploymentService.php:199-222` (`setPermissions`)
+- Modify: `backend/app/Services/DeploymentService.php:403-419` (`fixLaravelPermissions`)
+- Modify: `backend/app/Models/Application.php:147-148` (default in-place Laravel script) and `getDeployScriptWithVariables` (~line 495)
+- Modify: `backend/app/Services/ServerUserService.php:455-459` (`chownApplications` restore target)
+- Test: existing test files for each site (follow each file's established mocking style)
+
+- [ ] **Step 1: Failing tests.** Add tests asserting the chown target for both layouts:
+
+1. In the test file covering `AtomicDeploymentService` permissions (find via `grep -rn "setPermissions\|chown" backend/tests`): on a server with `deploy_user = 'shipyard'`, the executed commands contain `chown -R 'shipyard:www-data'`; on a legacy server they contain `chown -R 'www-data:www-data'` and never `shipyard`.
+2. In `tests/Unit/DeployScriptTest.php` (or wherever `getDeployScriptWithVariables` is covered): the default in-place Laravel script for an app on a provisioned server contains `chown -R shipyard:www-data storage bootstrap/cache`; on a legacy server, `chown -R www-data:www-data storage bootstrap/cache`.
+3. In `ServerUserApiTest`: the switch-user `fix_ownership` script restores writable dirs to `deploy_user:www-data` when the server has one, `www-data:www-data` otherwise.
+
+- [ ] **Step 2: Implement.**
+
+In `AtomicDeploymentService::setPermissions`, after the `isLaravel()` guard add:
+
+```php
+        // PHP-FPM runs as the deploy user on home-layout servers (see
+        // PhpFpmPoolService), www-data otherwise. Writable paths must be
+        // owned by whichever user actually executes the code.
+        $owner = escapeshellarg(($app->server?->deploy_user ?? 'www-data').':www-data');
+```
+
+and replace both `www-data:www-data` chown commands with `{$owner}` (the chmod lines are unchanged):
+
+```php
+            $this->sshService->execute(
+                "sudo chown -R {$owner} {$fullPath} 2>/dev/null || chown -R {$owner} {$fullPath} 2>/dev/null || true"
+            );
+```
+
+(same pattern for the `$sharedPath` chown).
+
+In `DeploymentService::fixLaravelPermissions`, same `$owner` local (from `$app->server?->deploy_user`), replace the line 413 chown with `{$owner}`.
+
+In `Application.php` line 147-148 (in-place Laravel default script), replace:
+
+```
+# Set permissions for web server (www-data)
+sudo chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
+```
+
+with:
+
+```
+# Set permissions for the PHP runtime user (deploy user on home-layout servers)
+sudo chown -R $DEPLOY_OWNER:www-data storage bootstrap/cache 2>/dev/null || chown -R $DEPLOY_OWNER:www-data storage bootstrap/cache 2>/dev/null || true
+```
+
+and add to the `$replacements` array in `getDeployScriptWithVariables`:
+
+```php
+            '$DEPLOY_OWNER' => $this->server?->deploy_user ?? 'www-data',
+```
+
+(`$DEPLOY_PATH` and `$DEPLOY_OWNER` do not prefix-collide in str_replace; existing apps with stored custom scripts keep their literal `www-data` text, which is correct for the legacy layout they were created under.)
+
+In `ServerUserService::chownApplications`, replace the restore line:
+
+```php
+            // Restores web-writable directories to the PHP runtime user
+            // afterwards (deploy user on home-layout servers, www-data otherwise).
+            $restoreOwner = escapeshellarg(($server->deploy_user ?? 'www-data').':www-data');
+            $lines[] = "\$SUDO chown -R {$restoreOwner} {$quotedPath}/storage {$quotedPath}/bootstrap/cache {$quotedPath}/shared 2>/dev/null || true";
+```
+
+(compute `$restoreOwner` once before the loop, not per iteration). The full-tree chown to the new connection user above it is unchanged.
+
+- [ ] **Step 3: Run affected suites** (`--filter="AtomicDeployment|DeployScript|Deployment|ServerUser"`) and the full suite. Mutation check: revert one site to hardcoded `www-data:www-data` and confirm its provisioned-server test FAILS; restore.
+
+- [ ] **Step 4: Format and commit** (`pint` the four PHP files) — message "Own writable paths by the deploy user on home-layout servers".
+
+---
+
 ### Task 6: Nginx socket selection and pool hook
 
 **Files:**
@@ -1047,6 +1128,8 @@ Expected: FAIL (`ensurePool` expected once, called zero times)
 Mutation check after the hook tests pass: temporarily remove the `deploy_user` condition from the hook (call `ensurePool` unconditionally) and confirm the legacy-server test FAILS; restore.
 
 - [ ] **Step 7: Implement the hook**
+
+Placement constraint (Task 5 review): `ensurePool` owns its own SSH session and disconnects when done, so the hook MUST run before `NginxService::deploy`'s own `$this->sshService->connect($server)` call — never between connect and the config upload.
 
 At the top of `NginxService::deploy`, before `$config = $this->generateConfig($app);`, add:
 
