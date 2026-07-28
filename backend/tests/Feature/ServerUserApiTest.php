@@ -747,8 +747,8 @@ class ServerUserApiTest extends TestCase
     {
         // listUsers() filters nologin/false-shell accounts out entirely, so
         // an account that genuinely exists but cannot log in must NOT be
-        // told it was simply "not found" — deployments connect as this
-        // user, so a login shell is mandatory.
+        // told it was simply "not found" — it is expected to become the
+        // server's connection user, so a login shell is mandatory.
         $fixture = <<<'TXT'
         USER:root:0:/root:/bin/bash
         USER:svc2:1002:/home/svc2:/usr/sbin/nologin
@@ -762,7 +762,7 @@ class ServerUserApiTest extends TestCase
             ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'svc2'])
             ->assertStatus(422);
 
-        $this->assertStringContainsString('login shell', $response->json('message'));
+        $this->assertStringContainsString("expected to become this server's connection user", $response->json('message'));
         $this->assertNull($this->server->fresh()->deploy_user);
     }
 
@@ -781,10 +781,12 @@ class ServerUserApiTest extends TestCase
     {
         // The follow-up script's HOME_MISSING marker is echoed instead of
         // listUsers' own fixture output, but only for the script whose body
-        // contains 'chmod 711' (the follow-up script), so listUsers itself
-        // still succeeds normally and finds 'deploy'.
+        // contains 'stat -c %U' (the follow-up script; 'chmod 711' is NOT
+        // used as the key here because createDeployUser's script also
+        // contains that substring, so it would be an ambiguous match), so
+        // listUsers itself still succeeds normally and finds 'deploy'.
         $this->mockSsh(self::USERS_FIXTURE, options: [
-            'outputForScriptsContaining' => ['chmod 711' => 'SHIPYARD_HOME_MISSING'],
+            'outputForScriptsContaining' => ['stat -c %U' => 'SHIPYARD_HOME_MISSING'],
         ]);
 
         $response = $this->actingAs($this->user)
@@ -798,7 +800,7 @@ class ServerUserApiTest extends TestCase
     public function test_set_deploy_user_rejects_when_home_directory_is_not_owned_by_the_user(): void
     {
         $this->mockSsh(self::USERS_FIXTURE, options: [
-            'outputForScriptsContaining' => ['chmod 711' => 'SHIPYARD_HOME_NOT_OWNED'],
+            'outputForScriptsContaining' => ['stat -c %U' => 'SHIPYARD_HOME_NOT_OWNED'],
         ]);
 
         $response = $this->actingAs($this->user)
@@ -826,6 +828,28 @@ class ServerUserApiTest extends TestCase
         $this->assertNull($this->server->fresh()->deploy_user);
         // Fails fast: never even reaches listUsers/the remote script.
         $this->assertEmpty($this->uploadedScripts);
+    }
+
+    public function test_set_deploy_user_layout_guard_is_not_fooled_by_like_wildcards(): void
+    {
+        // '_' is a single-character wildcard under SQL LIKE, so a naive
+        // `where('deploy_path', 'not like', "/home/{$username}/%")` would
+        // let an app parked at /home/depXloy/... (any X) slip through the
+        // guard for username 'dep_loy', since '_' in the pattern matches
+        // the literal 'x'. The guard must do exact prefix comparison.
+        $this->mockSsh(self::USERS_FIXTURE);
+
+        Application::factory()->create([
+            'server_id' => $this->server->id,
+            'deploy_path' => '/home/depxloy/other-app',
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'dep_loy'])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('outside /home/', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
     }
 
     public function test_create_user_with_use_as_deploy_user_rejects_when_applications_live_outside_the_new_home(): void

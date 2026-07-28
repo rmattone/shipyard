@@ -248,7 +248,7 @@ class ServerUserService
             // an account that genuinely exists but cannot log in lands here
             // too; the message must not claim the account is simply absent.
             throw new InvalidArgumentException(
-                "User '{$validated}' was not found among login-capable users on this server. The deploy user needs a login shell because deployments connect as it."
+                "User '{$validated}' was not found among login-capable users on this server. The deploy user needs a login shell because it is expected to become this server's connection user."
             );
         }
 
@@ -313,9 +313,13 @@ class ServerUserService
      */
     private function assertNoApplicationsOutsideHome(Server $server, string $username): void
     {
+        // Deliberately NOT a LIKE query: '_' in a username is a single-char
+        // SQL wildcard, so 'not like /home/dep_loy/%' would also match (and
+        // thus wrongly PASS) an app living at /home/depXloy/... for ANY
+        // character X. Exact prefix comparison in PHP has no such gap.
         $misplaced = $server->applications()
-            ->where('deploy_path', 'not like', '/home/'.$username.'/%')
-            ->exists();
+            ->pluck('deploy_path')
+            ->contains(fn (string $path) => ! str_starts_with($path, '/home/'.$username.'/'));
 
         if ($misplaced) {
             throw new InvalidArgumentException(
