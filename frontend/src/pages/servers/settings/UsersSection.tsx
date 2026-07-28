@@ -334,8 +334,10 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
               <div className="space-y-3 text-sm">
                 <p>
                   This sets the home directory of '{userToMakeDeploy?.name}' to mode 711, re-owns
-                  the writable directories of existing applications to this user, and repoints
-                  the PHP-FPM pool and nginx sockets to it on each application's next deploy.
+                  the writable directories of existing applications to this user, and switches
+                  this server's Laravel apps to a ShipYard managed PHP-FPM pool running as this
+                  user. Existing vhosts keep their current PHP socket until they are rewritten
+                  (changing an application's domains, or issuing or renewing a certificate).
                 </p>
               </div>
             </AlertDialogDescription>
