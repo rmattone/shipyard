@@ -23,6 +23,8 @@ class PhpFpmPoolService
 
     private const POOL_INVALID_MARKER = 'SHIPYARD_POOL_INVALID';
 
+    private const PHP_MISSING_MARKER = 'SHIPYARD_PHP_MISSING';
+
     private const PHP_VERSION_PATTERN = '/^\d+\.\d+$/';
 
     public function __construct(
@@ -57,11 +59,19 @@ class PhpFpmPoolService
     /**
      * Idempotently install the pool for one PHP version. Unchanged content
      * short-circuits server-side without touching FPM.
+     *
+     * Owns its SSH session: connects and disconnects itself, so it must not
+     * be called in the middle of another service's open SSH session
+     * (SSHService is shared per request).
      */
     public function ensurePool(Server $server, string $phpVersion): void
     {
         if ($server->deploy_user === null) {
             throw new InvalidArgumentException('This server has no deploy user; the ShipYard FPM pool only applies to the home directory layout.');
+        }
+
+        if (! preg_match(ServerUserService::USER_PATTERN, $server->deploy_user)) {
+            throw new InvalidArgumentException("Invalid deploy user '{$server->deploy_user}'.");
         }
 
         if (! preg_match(self::PHP_VERSION_PATTERN, $phpVersion)) {
@@ -77,6 +87,11 @@ class PhpFpmPoolService
             '',
             'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
             '',
+            "if ! \$SUDO test -d /etc/php/{$phpVersion}/fpm/pool.d; then",
+            '    echo '.self::PHP_MISSING_MARKER,
+            '    exit 4',
+            'fi',
+            '',
             'TMP=$(mktemp)',
             'trap \'rm -f "$TMP"\' EXIT',
             '',
@@ -86,7 +101,7 @@ class PhpFpmPoolService
             '',
             "POOL={$poolPath}",
             '',
-            'if $SUDO test -f "$POOL" && $SUDO cmp -s "$TMP" "$POOL"; then',
+            'if $SUDO test -f "$POOL" && $SUDO cmp -s "$TMP" "$POOL" && $SUDO test -S '.escapeshellarg(self::socketPath($phpVersion)).'; then',
             '    echo SHIPYARD_POOL_UNCHANGED',
             '    exit 0',
             'fi',
@@ -127,9 +142,17 @@ class PhpFpmPoolService
 
         $lines = array_map('trim', preg_split('/\r?\n/', $result['output']));
 
+        if (in_array(self::PHP_MISSING_MARKER, $lines, true)) {
+            throw new RuntimeException(
+                "PHP {$phpVersion} FPM is not installed on this server; install php{$phpVersion}-fpm or change the application's PHP version."
+            );
+        }
+
         if (in_array(self::POOL_INVALID_MARKER, $lines, true)) {
             throw new RuntimeException(
-                "The generated PHP-FPM pool failed validation (php-fpm{$phpVersion} -t) and was rolled back. Output: ".$result['output']
+                "The generated PHP-FPM pool failed validation (php-fpm{$phpVersion} -t) and was rolled back. "
+                .'Note php-fpm -t tests the entire FPM configuration, so a pre-existing broken pool from another source can also cause this. '
+                .'Output: '.$result['output']
             );
         }
 
