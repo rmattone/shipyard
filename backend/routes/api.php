@@ -131,6 +131,7 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::get('/servers/{server}/users', [ServerUserController::class, 'index']);
     Route::post('/servers/{server}/users', [ServerUserController::class, 'store']);
     Route::post('/servers/{server}/switch-user', [ServerUserController::class, 'switchUser']);
+    Route::post('/servers/{server}/deploy-user', [ServerUserController::class, 'setDeployUser']);
 
     // Database connections
     Route::get('/servers/{server}/databases/detect', [DatabaseController::class, 'detect']);

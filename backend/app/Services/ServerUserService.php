@@ -209,6 +209,62 @@ class ServerUserService
     }
 
     /**
+     * Mark an existing unix user as this server's deploy user. The user must
+     * exist and live under /home, because the home layout generates
+     * /home/{user}/{app} paths. Root is refused: its home is /root and apps
+     * must never run as root. Also the recovery path when createDeployUser
+     * partially failed (the account exists, so a retried create 422s).
+     */
+    public function markDeployUser(Server $server, string $username): Server
+    {
+        $validated = $this->assertValidUsername($username);
+
+        if ($validated === 'root') {
+            throw new InvalidArgumentException('Root cannot be used as the deploy user.');
+        }
+
+        $found = null;
+
+        foreach ($this->listUsers($server) as $remoteUser) {
+            if ($remoteUser['name'] === $validated) {
+                $found = $remoteUser;
+
+                break;
+            }
+        }
+
+        if ($found === null) {
+            throw new InvalidArgumentException("User '{$validated}' was not found on this server.");
+        }
+
+        if ($found['home'] !== '/home/'.$validated) {
+            throw new InvalidArgumentException(
+                "User '{$validated}' has home directory '{$found['home']}', but the deploy layout requires '/home/{$validated}'."
+            );
+        }
+
+        // Same traversal rule as freshly provisioned users: nginx needs
+        // execute on the home directory, nothing more.
+        $script = implode("\n", [
+            'set -euo pipefail',
+            '',
+            'if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo -n"; fi',
+            '',
+            '$SUDO chmod 711 '.escapeshellarg('/home/'.$validated),
+        ]);
+
+        $result = $this->runRemoteScript($server, $script, 30);
+
+        if (! $result['success']) {
+            throw new RuntimeException("Failed to restrict /home/{$validated} to 711: ".$result['output']);
+        }
+
+        $server->update(['deploy_user' => $validated]);
+
+        return $server->fresh();
+    }
+
+    /**
      * @return string[]
      */
     private function buildListUsersScript(): array

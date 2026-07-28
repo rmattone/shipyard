@@ -612,4 +612,65 @@ class ServerUserApiTest extends TestCase
             'username' => 'root',
         ]);
     }
+
+    // ---------------------------------------------------------------
+    // POST /servers/{server}/deploy-user (markDeployUser)
+    // ---------------------------------------------------------------
+
+    public function test_set_deploy_user_marks_an_existing_user(): void
+    {
+        $this->mockSsh(self::USERS_FIXTURE);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertOk()
+            ->assertJsonPath('deploy_user', 'deploy')
+            ->assertJsonPath('default_deploy_base', '/home/deploy');
+
+        $this->assertSame('deploy', $this->server->fresh()->deploy_user);
+
+        // The follow-up script restricts the home directory.
+        $joined = implode("\n", $this->uploadedScripts);
+        $this->assertStringContainsString("chmod 711 '/home/deploy'", $joined);
+    }
+
+    public function test_set_deploy_user_rejects_unknown_user(): void
+    {
+        $this->mockSsh(self::USERS_FIXTURE);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'ghost'])
+            ->assertStatus(422);
+
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_rejects_root(): void
+    {
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'root'])
+            ->assertStatus(422);
+
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_rejects_nonstandard_home(): void
+    {
+        // Fixture with a user whose home is outside /home; the layout
+        // generates /home/{user} paths, so this must be refused loudly.
+        $fixture = <<<'TXT'
+        USER:root:0:/root:/bin/bash
+        USER:svc:1000:/srv/svc:/bin/bash
+        SUDO:root:yes
+        SUDO:svc:no
+        TXT;
+
+        $this->mockSsh($fixture);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'svc'])
+            ->assertStatus(422);
+
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
 }
