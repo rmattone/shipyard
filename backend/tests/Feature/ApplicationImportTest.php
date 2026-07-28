@@ -11,9 +11,10 @@ use Tests\TestCase;
 
 /**
  * Auto-import of projects that already live on a server (e.g. deployed
- * before the panel was connected): scan /var/www and /var/www/shipyard,
- * classify each project, and create Application records for them with
- * git_provider_id left null (surfaced as a flag in the UI).
+ * before the panel was connected): scan /var/www, /var/www/shipyard, and
+ * (on home-layout servers) /home/{deploy_user}, classify each project, and
+ * create Application records for them with git_provider_id left null
+ * (surfaced as a flag in the UI).
  */
 class ApplicationImportTest extends TestCase
 {
@@ -322,5 +323,32 @@ NGINX;
 
         $this->assertNotEmpty($findCommands);
         $this->assertStringNotContainsString('/home/', $findCommands[0]);
+    }
+
+    // The deploy user's home is a real home directory, so it contains
+    // dotfile trees like .nvm (a git checkout with a package.json at its
+    // root, sourced by $HOME/.nvm/nvm.sh on Node deploys). Those must never
+    // become import candidates, and they must not even show up as skipped.
+    public function test_import_skips_dotfile_directories_in_the_deploy_user_home(): void
+    {
+        $this->mockSsh([
+            'find /var/www' => "/home/shipyard/.nvm\n/home/shipyard/real-app",
+
+            '/home/shipyard/real-app/current" && test -d' => 'in_place',
+            '/home/shipyard/real-app/artisan' => 'nodejs',
+        ]);
+
+        $user = $this->createOrgUser();
+        $server = Server::factory()->create(['deploy_user' => 'shipyard']);
+
+        $response = $this->actingAs($user)
+            ->postJson("/api/servers/{$server->id}/applications/import");
+
+        $response->assertOk();
+        $this->assertCount(1, $response->json('imported'));
+        $this->assertSame([], $response->json('skipped'));
+
+        $this->assertNotNull(Application::where('deploy_path', '/home/shipyard/real-app')->first());
+        $this->assertNull(Application::where('deploy_path', '/home/shipyard/.nvm')->first());
     }
 }
