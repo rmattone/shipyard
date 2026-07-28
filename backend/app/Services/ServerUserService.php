@@ -261,12 +261,11 @@ class ServerUserService
             '    exit 2',
             'fi',
             '',
-            "\$SUDO useradd -m -s /bin/bash {$quotedUser}",
+            '$SUDO useradd -m -d '.escapeshellarg('/home/'.$username)." -s /bin/bash {$quotedUser}",
             '',
-            // 711 lets nginx (www-data) traverse into webroots under the
-            // home directory without being able to list or read it. A more
-            // permissive default here produces confusing 403s or leaks the
-            // app list on shared servers.
+            // 755 would leak the app list on shared servers; 700 (the RHEL
+            // default) produces confusing nginx 403s. 711 is the only mode
+            // that gives www-data traversal into webroots and nothing else.
             '$SUDO chmod 711 '.escapeshellarg('/home/'.$username),
         ];
 

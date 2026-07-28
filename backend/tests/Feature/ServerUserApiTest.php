@@ -206,7 +206,7 @@ class ServerUserApiTest extends TestCase
         $this->assertCount(1, $this->uploadedScripts);
         $script = $this->uploadedScripts[0];
 
-        $this->assertStringContainsString("useradd -m -s /bin/bash 'deploy'", $script);
+        $this->assertStringContainsString("useradd -m -d '/home/deploy' -s /bin/bash 'deploy'", $script);
         $this->assertStringContainsString('visudo -cf', $script);
         $this->assertStringContainsString('deploy ALL=(ALL) NOPASSWD:ALL', $script);
         $this->assertMatchesRegularExpression('/SHIPYARD_EOF_\w+/', $script);
@@ -237,7 +237,7 @@ class ServerUserApiTest extends TestCase
 
         $script = $this->uploadedScripts[0];
 
-        $this->assertStringContainsString("useradd -m -s /bin/bash 'deploy'", $script);
+        $this->assertStringContainsString("useradd -m -d '/home/deploy' -s /bin/bash 'deploy'", $script);
         $this->assertStringNotContainsString('visudo', $script);
         $this->assertStringNotContainsString('sudoers.d', $script);
 
@@ -289,11 +289,13 @@ class ServerUserApiTest extends TestCase
             ->postJson("/api/servers/{$this->server->id}/users", [
                 'username' => 'deploy',
                 'sudo' => true,
+                'use_as_deploy_user' => true,
             ])
             ->assertStatus(500);
 
         $this->assertDatabaseMissing('server_ssh_keys', ['username' => 'deploy']);
         Queue::assertNothingPushed();
+        $this->assertNull($this->server->fresh()->deploy_user);
     }
 
     public function test_store_reuses_a_stale_ssh_key_row_instead_of_tripping_the_unique_index(): void
@@ -365,11 +367,19 @@ class ServerUserApiTest extends TestCase
         $this->mockSsh('');
 
         $this->actingAs($this->user)
-            ->postJson("/api/servers/{$this->server->id}/users", ['username' => 'shipyard'])
+            ->postJson("/api/servers/{$this->server->id}/users", [
+                'username' => 'shipyard',
+                'sudo' => false,
+            ])
             ->assertStatus(201);
 
         $script = $this->uploadedScripts[0];
         $this->assertStringContainsString("chmod 711 '/home/shipyard'", $script);
+        $this->assertGreaterThan(strpos($script, 'useradd'), strpos($script, 'chmod 711'));
+        $this->assertLessThan(
+            strpos($script, 'visudo') ?: PHP_INT_MAX,
+            strpos($script, 'chmod 711'),
+        );
     }
 
     public function test_create_user_with_use_as_deploy_user_sets_the_server_column(): void
@@ -382,7 +392,8 @@ class ServerUserApiTest extends TestCase
                 'username' => 'shipyard',
                 'use_as_deploy_user' => true,
             ])
-            ->assertStatus(201);
+            ->assertStatus(201)
+            ->assertJsonPath('server.deploy_user', 'shipyard');
 
         $this->assertSame('shipyard', $this->server->fresh()->deploy_user);
     }
@@ -394,7 +405,8 @@ class ServerUserApiTest extends TestCase
 
         $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/users", ['username' => 'shipyard'])
-            ->assertStatus(201);
+            ->assertStatus(201)
+            ->assertJsonPath('server.deploy_user', null);
 
         $this->assertNull($this->server->fresh()->deploy_user);
     }
