@@ -16,12 +16,18 @@ use phpseclib3\Crypt\PublicKeyLoader;
 use Tests\TestCase;
 
 /**
- * Server-user management: listing login users, creating a deploy user, and
- * switching ShipYard's own connection user. These tests pin the dangerous
- * properties: a sudoers file is validated (visudo -cf) before it is ever
- * installed, the new connection user is verified reachable BEFORE the switch
- * is persisted, and a failed verification must leave server->username
- * completely unchanged in the database.
+ * Server-user management: listing login users, creating a deploy user,
+ * switching ShipYard's own connection user, and marking an EXISTING user as
+ * the deploy user. These tests pin the dangerous properties: a sudoers file
+ * is validated (visudo -cf) before it is ever installed, the new connection
+ * user is verified reachable BEFORE the switch is persisted, a failed
+ * verification must leave server->username completely unchanged in the
+ * database, and marking a deploy user (markDeployUser) must not persist
+ * deploy_user unless the target account has a login shell, lives at exactly
+ * /home/{user}, has no applications deployed outside that home (their
+ * PHP-FPM pool and file ownership would stop matching), and its home
+ * directory both exists and is owned by that same account before the
+ * restricting chmod ever runs.
  */
 class ServerUserApiTest extends TestCase
 {
@@ -60,7 +66,7 @@ class ServerUserApiTest extends TestCase
     TXT;
 
     /**
-     * @param  array{connectionSucceeds?: bool, sudoCheckSucceeds?: bool, expectedTestConnectionUsername?: string, failScriptsContaining?: string}  $options
+     * @param  array{connectionSucceeds?: bool, sudoCheckSucceeds?: bool, expectedTestConnectionUsername?: string, failScriptsContaining?: string, outputForScriptsContaining?: array<string, string>}  $options
      */
     private function mockSsh(string $scriptOutput, bool $scriptSucceeds = true, array $options = []): void
     {
@@ -76,10 +82,17 @@ class ServerUserApiTest extends TestCase
         // ordering invariants (e.g. "do not persist until the LAST script
         // succeeds").
         $failScriptsContaining = $options['failScriptsContaining'] ?? null;
+        // Same idea, but overrides OUTPUT instead of success/failure: lets a
+        // test make the script whose body contains a given substring return
+        // a specific marker (e.g. SHIPYARD_HOME_MISSING) while every other
+        // script in the same request keeps returning $scriptOutput. Needed
+        // because markDeployUser's follow-up script echoes its own markers
+        // that listUsers' script output would otherwise mask.
+        $outputForScriptsContaining = $options['outputForScriptsContaining'] ?? [];
 
         $uploadedByPath = [];
 
-        $this->mock(SSHService::class, function ($mock) use ($scriptOutput, $scriptSucceeds, $connectionSucceeds, $sudoCheckSucceeds, $expectedTestConnectionUsername, $failScriptsContaining, &$uploadedByPath) {
+        $this->mock(SSHService::class, function ($mock) use ($scriptOutput, $scriptSucceeds, $connectionSucceeds, $sudoCheckSucceeds, $expectedTestConnectionUsername, $failScriptsContaining, $outputForScriptsContaining, &$uploadedByPath) {
             $testConnectionExpectation = $mock->shouldReceive('testConnection');
 
             if ($expectedTestConnectionUsername !== null) {
@@ -104,22 +117,32 @@ class ServerUserApiTest extends TestCase
 
                 return true;
             });
-            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use ($scriptOutput, $scriptSucceeds, $sudoCheckSucceeds, $failScriptsContaining, &$uploadedByPath) {
+            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use ($scriptOutput, $scriptSucceeds, $sudoCheckSucceeds, $failScriptsContaining, $outputForScriptsContaining, &$uploadedByPath) {
                 if (str_starts_with($command, 'bash ')) {
                     $succeeds = $scriptSucceeds;
+                    $output = $scriptOutput;
 
                     // runRemoteScript always executes as `bash '<path>' 2>&1`;
                     // recover the path so the uploaded body (recorded above)
-                    // can be inspected for the failing marker.
-                    if ($failScriptsContaining !== null
-                        && preg_match("/^bash '(.+)' 2>&1$/", $command, $matches)
-                        && str_contains($uploadedByPath[$matches[1]] ?? '', $failScriptsContaining)
-                    ) {
-                        $succeeds = false;
+                    // can be inspected for the failing marker / output override.
+                    if (preg_match("/^bash '(.+)' 2>&1$/", $command, $matches)) {
+                        $content = $uploadedByPath[$matches[1]] ?? '';
+
+                        if ($failScriptsContaining !== null && str_contains($content, $failScriptsContaining)) {
+                            $succeeds = false;
+                        }
+
+                        foreach ($outputForScriptsContaining as $needle => $overrideOutput) {
+                            if (str_contains($content, $needle)) {
+                                $output = $overrideOutput;
+
+                                break;
+                            }
+                        }
                     }
 
                     return [
-                        'output' => $scriptOutput,
+                        'output' => $output,
                         'exit_code' => $succeeds ? 0 : 1,
                         'success' => $succeeds,
                     ];
@@ -659,8 +682,16 @@ class ServerUserApiTest extends TestCase
 
         $this->assertSame('deploy', $this->server->fresh()->deploy_user);
 
-        // The follow-up script restricts the home directory.
+        // The follow-up script restricts the home directory, but only after
+        // verifying it exists and is owned by the account being adopted
+        // (adopted accounts, unlike freshly useradd'd ones, give no such
+        // guarantee). These assertions inspect the uploaded script body
+        // directly rather than routing through mocked marker output, so
+        // deleting either check from the real script fails this test even
+        // though the mock never actually interprets shell.
         $joined = implode("\n", $this->uploadedScripts);
+        $this->assertStringContainsString("test -d '/home/deploy'", $joined);
+        $this->assertStringContainsString("stat -c %U '/home/deploy'", $joined);
         $this->assertStringContainsString("chmod 711 '/home/deploy'", $joined);
     }
 
@@ -668,18 +699,25 @@ class ServerUserApiTest extends TestCase
     {
         $this->mockSsh(self::USERS_FIXTURE);
 
-        $this->actingAs($this->user)
+        $response = $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'ghost'])
             ->assertStatus(422);
 
+        $this->assertStringContainsString('was not found among login-capable users', $response->json('message'));
         $this->assertNull($this->server->fresh()->deploy_user);
     }
 
     public function test_set_deploy_user_rejects_root(): void
     {
+        // Without this mock, a regression of the root guard would fall
+        // through to listUsers() and have the real SSHService dial the
+        // factory's random public IP.
+        $this->mockSsh(self::USERS_FIXTURE);
+
         $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'root'])
-            ->assertStatus(422);
+            ->assertStatus(422)
+            ->assertJsonPath('message', 'Root cannot be used as the deploy user.');
 
         $this->assertNull($this->server->fresh()->deploy_user);
     }
@@ -697,10 +735,34 @@ class ServerUserApiTest extends TestCase
 
         $this->mockSsh($fixture);
 
-        $this->actingAs($this->user)
+        $response = $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'svc'])
             ->assertStatus(422);
 
+        $this->assertStringContainsString('deploy layout requires', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_rejects_a_login_incapable_user(): void
+    {
+        // listUsers() filters nologin/false-shell accounts out entirely, so
+        // an account that genuinely exists but cannot log in must NOT be
+        // told it was simply "not found" — deployments connect as this
+        // user, so a login shell is mandatory.
+        $fixture = <<<'TXT'
+        USER:root:0:/root:/bin/bash
+        USER:svc2:1002:/home/svc2:/usr/sbin/nologin
+        SUDO:root:yes
+        SUDO:svc2:no
+        TXT;
+
+        $this->mockSsh($fixture);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'svc2'])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('login shell', $response->json('message'));
         $this->assertNull($this->server->fresh()->deploy_user);
     }
 
@@ -713,5 +775,80 @@ class ServerUserApiTest extends TestCase
             ->assertStatus(500);
 
         $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_rejects_when_home_directory_is_missing(): void
+    {
+        // The follow-up script's HOME_MISSING marker is echoed instead of
+        // listUsers' own fixture output, but only for the script whose body
+        // contains 'chmod 711' (the follow-up script), so listUsers itself
+        // still succeeds normally and finds 'deploy'.
+        $this->mockSsh(self::USERS_FIXTURE, options: [
+            'outputForScriptsContaining' => ['chmod 711' => 'SHIPYARD_HOME_MISSING'],
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('no home directory', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_rejects_when_home_directory_is_not_owned_by_the_user(): void
+    {
+        $this->mockSsh(self::USERS_FIXTURE, options: [
+            'outputForScriptsContaining' => ['chmod 711' => 'SHIPYARD_HOME_NOT_OWNED'],
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('not owned by', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_rejects_when_applications_live_outside_the_new_home(): void
+    {
+        $this->mockSsh(self::USERS_FIXTURE);
+
+        Application::factory()->create([
+            'server_id' => $this->server->id,
+            'deploy_path' => '/var/www/shipyard/old-app',
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('outside /home/', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
+        // Fails fast: never even reaches listUsers/the remote script.
+        $this->assertEmpty($this->uploadedScripts);
+    }
+
+    public function test_create_user_with_use_as_deploy_user_rejects_when_applications_live_outside_the_new_home(): void
+    {
+        Queue::fake();
+        $this->mockSsh('');
+
+        Application::factory()->create([
+            'server_id' => $this->server->id,
+            'deploy_path' => '/var/www/shipyard/old-app',
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/users", [
+                'username' => 'shipyard',
+                'use_as_deploy_user' => true,
+            ])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('outside /home/', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
+        // Fails fast, BEFORE the remote useradd script is ever uploaded.
+        $this->assertEmpty($this->uploadedScripts);
+        Queue::assertNothingPushed();
     }
 }
