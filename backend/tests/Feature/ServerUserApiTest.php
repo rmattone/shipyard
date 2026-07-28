@@ -60,7 +60,7 @@ class ServerUserApiTest extends TestCase
     TXT;
 
     /**
-     * @param  array{connectionSucceeds?: bool, sudoCheckSucceeds?: bool, expectedTestConnectionUsername?: string}  $options
+     * @param  array{connectionSucceeds?: bool, sudoCheckSucceeds?: bool, expectedTestConnectionUsername?: string, failScriptsContaining?: string}  $options
      */
     private function mockSsh(string $scriptOutput, bool $scriptSucceeds = true, array $options = []): void
     {
@@ -68,8 +68,18 @@ class ServerUserApiTest extends TestCase
         $connectionSucceeds = $options['connectionSucceeds'] ?? true;
         $sudoCheckSucceeds = $options['sudoCheckSucceeds'] ?? true;
         $expectedTestConnectionUsername = $options['expectedTestConnectionUsername'] ?? null;
+        // Lets a single test make ONE of several scripts uploaded within the
+        // same request fail (matched by a substring of its body), while the
+        // rest succeed with $scriptSucceeds. Needed because a request can
+        // run more than one remote script (e.g. listUsers, then a follow-up
+        // chmod) and they must be independently controllable to pin
+        // ordering invariants (e.g. "do not persist until the LAST script
+        // succeeds").
+        $failScriptsContaining = $options['failScriptsContaining'] ?? null;
 
-        $this->mock(SSHService::class, function ($mock) use ($scriptOutput, $scriptSucceeds, $connectionSucceeds, $sudoCheckSucceeds, $expectedTestConnectionUsername) {
+        $uploadedByPath = [];
+
+        $this->mock(SSHService::class, function ($mock) use ($scriptOutput, $scriptSucceeds, $connectionSucceeds, $sudoCheckSucceeds, $expectedTestConnectionUsername, $failScriptsContaining, &$uploadedByPath) {
             $testConnectionExpectation = $mock->shouldReceive('testConnection');
 
             if ($expectedTestConnectionUsername !== null) {
@@ -88,17 +98,30 @@ class ServerUserApiTest extends TestCase
             $mock->shouldReceive('connect')->andReturnSelf();
             $mock->shouldReceive('connectSftp')->andReturnSelf();
             $mock->shouldReceive('disconnect');
-            $mock->shouldReceive('uploadContent')->andReturnUsing(function (string $content, string $path) {
+            $mock->shouldReceive('uploadContent')->andReturnUsing(function (string $content, string $path) use (&$uploadedByPath) {
                 $this->uploadedScripts[] = $content;
+                $uploadedByPath[$path] = $content;
 
                 return true;
             });
-            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use ($scriptOutput, $scriptSucceeds, $sudoCheckSucceeds) {
+            $mock->shouldReceive('execute')->andReturnUsing(function (string $command) use ($scriptOutput, $scriptSucceeds, $sudoCheckSucceeds, $failScriptsContaining, &$uploadedByPath) {
                 if (str_starts_with($command, 'bash ')) {
+                    $succeeds = $scriptSucceeds;
+
+                    // runRemoteScript always executes as `bash '<path>' 2>&1`;
+                    // recover the path so the uploaded body (recorded above)
+                    // can be inspected for the failing marker.
+                    if ($failScriptsContaining !== null
+                        && preg_match("/^bash '(.+)' 2>&1$/", $command, $matches)
+                        && str_contains($uploadedByPath[$matches[1]] ?? '', $failScriptsContaining)
+                    ) {
+                        $succeeds = false;
+                    }
+
                     return [
                         'output' => $scriptOutput,
-                        'exit_code' => $scriptSucceeds ? 0 : 1,
-                        'success' => $scriptSucceeds,
+                        'exit_code' => $succeeds ? 0 : 1,
+                        'success' => $succeeds,
                     ];
                 }
 
@@ -135,6 +158,13 @@ class ServerUserApiTest extends TestCase
     public function test_switch_user_requires_authentication(): void
     {
         $this->postJson("/api/servers/{$this->server->id}/switch-user", [
+            'username' => 'deploy',
+        ])->assertUnauthorized();
+    }
+
+    public function test_set_deploy_user_requires_authentication(): void
+    {
+        $this->postJson("/api/servers/{$this->server->id}/deploy-user", [
             'username' => 'deploy',
         ])->assertUnauthorized();
     }
@@ -670,6 +700,17 @@ class ServerUserApiTest extends TestCase
         $this->actingAs($this->user)
             ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'svc'])
             ->assertStatus(422);
+
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_does_not_persist_when_chmod_fails(): void
+    {
+        $this->mockSsh(self::USERS_FIXTURE, options: ['failScriptsContaining' => 'chmod 711']);
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertStatus(500);
 
         $this->assertNull($this->server->fresh()->deploy_user);
     }
