@@ -181,6 +181,16 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 
 > **Note on non-root users:** software installation, nginx configuration, and SSL certificate management need root privileges. When the SSH user is not `root`, ShipYard runs those commands with `sudo -n`, so the user must have passwordless sudo. On the target server, run `visudo` and add a line like `deploy ALL=(ALL) NOPASSWD:ALL` (replace `deploy` with your SSH user).
 
+### Recommended server layout
+
+After connecting a server, provision a deploy user from Server Settings, Users, "Create deploy user" (the default name is shipyard). ShipYard creates the user with a home directory restricted to mode 711 (this applies to every user created through this screen, so nginx can traverse into webroots without listing home contents), installs its own SSH key, and can switch the connection to it. New applications then default to /home/shipyard/{app}, and PHP applications run through a ShipYard managed PHP-FPM pool owned by that user, so deployed code and the PHP processes share one owner.
+
+Servers connected before this feature keep their existing /var/www layout and behavior. Nothing changes until you provision a deploy user.
+
+A vhost written before the server gained its deploy user keeps the distro FPM socket until the application's domains change or a certificate is issued or renewed, since those are the operations that rewrite the vhost (deployments do not). All Laravel apps on a provisioned server share one FPM pool per PHP version (pm.max_children is 10 by default), so heavy multi-app servers may need pool tuning. A "reset to generated configuration" action in the nginx editor is a noted follow-up that would give operators an immediate switch.
+
+On servers with a deploy user, run daemons (queue workers) and scheduled tasks as that same user. Files created at runtime in storage/ belong to whoever created them, and PHP-FPM offers no per-pool umask, so mixing users across FPM, workers, and cron leads to permission errors on shared files. The panel defaults new daemons and tasks to the deploy user on these servers for exactly this reason.
+
 ### Deploying an Application
 
 1. Go to **Applications** → **New Application**
