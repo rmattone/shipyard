@@ -212,6 +212,7 @@ class ServerUserApiTest extends TestCase
         $this->assertMatchesRegularExpression('/SHIPYARD_EOF_\w+/', $script);
         $this->assertStringContainsString('install -m 0440', $script);
         $this->assertStringContainsString('/etc/sudoers.d/shipyard-deploy', $script);
+        $this->assertLessThan(strpos($script, 'visudo'), strpos($script, 'chmod 711'));
 
         $this->assertDatabaseHas('server_ssh_keys', [
             'server_id' => $this->server->id,
@@ -376,10 +377,6 @@ class ServerUserApiTest extends TestCase
         $script = $this->uploadedScripts[0];
         $this->assertStringContainsString("chmod 711 '/home/shipyard'", $script);
         $this->assertGreaterThan(strpos($script, 'useradd'), strpos($script, 'chmod 711'));
-        $this->assertLessThan(
-            strpos($script, 'visudo') ?: PHP_INT_MAX,
-            strpos($script, 'chmod 711'),
-        );
     }
 
     public function test_create_user_with_use_as_deploy_user_sets_the_server_column(): void
