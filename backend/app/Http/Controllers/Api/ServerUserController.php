@@ -29,12 +29,14 @@ class ServerUserController extends Controller
         $validated = $request->validate([
             'username' => self::USERNAME_RULES,
             'sudo' => ['nullable', 'boolean'],
+            'use_as_deploy_user' => ['nullable', 'boolean'],
         ]);
 
         $sudo = $request->boolean('sudo', true);
+        $useAsDeployUser = $request->boolean('use_as_deploy_user', false);
 
         try {
-            $serverUserService->createDeployUser($server, $validated['username'], $sudo);
+            $serverUserService->createDeployUser($server, $validated['username'], $sudo, $useAsDeployUser);
         } catch (InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         } catch (RuntimeException $e) {

@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Exceptions\ConnectionVerificationException;
 use App\Jobs\ProcessServerSshKeyInstall;
+use App\Models\Application;
 use App\Models\Server;
 use App\Services\Concerns\RunsRemoteScripts;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use phpseclib3\Crypt\PublicKeyLoader;
@@ -55,7 +57,7 @@ class ServerUserService
         return $this->parseUsersOutput($result['output'], $server->username);
     }
 
-    public function createDeployUser(Server $server, string $username, bool $sudo): void
+    public function createDeployUser(Server $server, string $username, bool $sudo, bool $useAsDeployUser = false): void
     {
         $validated = $this->assertValidUsername($username);
 
@@ -110,6 +112,10 @@ class ServerUserService
         );
 
         ProcessServerSshKeyInstall::dispatch($sshKey);
+
+        if ($useAsDeployUser) {
+            $server->update(['deploy_user' => $validated]);
+        }
     }
 
     public function switchConnectionUser(Server $server, string $username, bool $fixOwnership): Server
@@ -256,6 +262,12 @@ class ServerUserService
             'fi',
             '',
             "\$SUDO useradd -m -s /bin/bash {$quotedUser}",
+            '',
+            // 711 lets nginx (www-data) traverse into webroots under the
+            // home directory without being able to list or read it. A more
+            // permissive default here produces confusing 403s or leaks the
+            // app list on shared servers.
+            '$SUDO chmod 711 '.escapeshellarg('/home/'.$username),
         ];
 
         if ($sudo) {
@@ -289,7 +301,7 @@ class ServerUserService
     }
 
     /**
-     * @param  \Illuminate\Support\Collection<int, \App\Models\Application>|iterable  $applications
+     * @param  Collection<int, Application>|iterable  $applications
      */
     private function chownApplications(Server $server, iterable $applications, string $username): void
     {

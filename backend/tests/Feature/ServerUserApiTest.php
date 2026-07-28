@@ -359,6 +359,61 @@ class ServerUserApiTest extends TestCase
         Queue::assertNothingPushed();
     }
 
+    public function test_create_user_script_restricts_home_directory_to_711(): void
+    {
+        Queue::fake();
+        $this->mockSsh('');
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/users", ['username' => 'shipyard'])
+            ->assertStatus(201);
+
+        $script = $this->uploadedScripts[0];
+        $this->assertStringContainsString("chmod 711 '/home/shipyard'", $script);
+    }
+
+    public function test_create_user_with_use_as_deploy_user_sets_the_server_column(): void
+    {
+        Queue::fake();
+        $this->mockSsh('');
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/users", [
+                'username' => 'shipyard',
+                'use_as_deploy_user' => true,
+            ])
+            ->assertStatus(201);
+
+        $this->assertSame('shipyard', $this->server->fresh()->deploy_user);
+    }
+
+    public function test_create_user_without_flag_leaves_deploy_user_null(): void
+    {
+        Queue::fake();
+        $this->mockSsh('');
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/users", ['username' => 'shipyard'])
+            ->assertStatus(201);
+
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_failed_create_does_not_set_deploy_user(): void
+    {
+        Queue::fake();
+        $this->mockSsh('SHIPYARD_USER_EXISTS');
+
+        $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/users", [
+                'username' => 'shipyard',
+                'use_as_deploy_user' => true,
+            ])
+            ->assertStatus(422);
+
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
     // ---------------------------------------------------------------
     // POST /servers/{server}/switch-user (switchConnectionUser)
     // ---------------------------------------------------------------
