@@ -1332,6 +1332,7 @@ Change the visible prefix at line ~312 from the literal `/var/www/shipyard/` to 
 - `DaemonsPanel.tsx:533`: placeholder becomes `/home/shipyard/app/current`
 - `AppSettings.tsx:491`: the "Available variables" hint for custom deploy scripts gains `$DEPLOY_OWNER` (added to `getDeployScriptWithVariables` in Task 5b).
 - Single-writer defaults (Task 5b review): on servers with a `deploy_user`, the daemon create form (`DaemonsPanel.tsx`) and the scheduled task form (`SchedulerPanel.tsx`) must default their `user` field to `server.deploy_user` instead of `www-data`, so runtime-created files in `storage/` (FPM, queue workers, scheduler) share one owner. PHP-FPM has no per-pool umask, so cooperating different-user writers cannot be guaranteed; single-writer defaults are the fix. Verify each panel's current default and adjust only the default, not the user's ability to override.
+- Mismatched-worker visibility (Task 5b re-review residual): the defaults only govern new daemons/tasks. In the daemons panel (or server overview), when the server has a `deploy_user`, show a subtle warning badge on daemons whose `user` differs from it, so pre-existing `www-data` workers on a converted server are a visible decision instead of a silent permission hazard.
 
 - [ ] **Step 4: UsersSection provisioning flow**
 
