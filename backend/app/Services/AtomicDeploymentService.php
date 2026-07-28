@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Application;
 use App\Models\Deployment;
 use App\Services\Concerns\RunsRemoteScripts;
+use App\Support\EnvFile;
 use RuntimeException;
 
 class AtomicDeploymentService
@@ -166,7 +167,7 @@ class AtomicDeploymentService
         $this->ensureConnected($app);
         $deployment->appendLog('Uploading .env file...');
 
-        $envContent = \App\Support\EnvFile::serialize($envVariables);
+        $envContent = EnvFile::serialize($envVariables);
 
         // For atomic deployments with Laravel, upload to shared directory
         if ($app->usesAtomicDeployments() && $app->isLaravel()) {
@@ -194,6 +195,11 @@ class AtomicDeploymentService
         $this->ensureConnected($app);
         $deployment->appendLog('Setting permissions on writable paths...');
 
+        // PHP-FPM runs as the deploy user on home-layout servers (see
+        // PhpFpmPoolService), www-data otherwise. Writable paths must be
+        // owned by whichever user actually executes the code.
+        $owner = escapeshellarg(($app->server?->deploy_user ?? 'www-data').':www-data');
+
         $writablePaths = $app->getEffectiveWritablePaths();
 
         foreach ($writablePaths as $path) {
@@ -201,9 +207,9 @@ class AtomicDeploymentService
 
             $fullPath = escapeshellarg("{$releasePath}/{$path}");
 
-            // Set ownership to www-data (web server user)
+            // Set ownership to the PHP runtime user
             $this->sshService->execute(
-                "sudo chown -R www-data:www-data {$fullPath} 2>/dev/null || chown -R www-data:www-data {$fullPath} 2>/dev/null || true"
+                "sudo chown -R {$owner} {$fullPath} 2>/dev/null || chown -R {$owner} {$fullPath} 2>/dev/null || true"
             );
 
             // Set directory permissions
@@ -215,7 +221,7 @@ class AtomicDeploymentService
         // Also set permissions on shared storage directory
         $sharedPath = escapeshellarg($app->getSharedPath());
         $this->sshService->execute(
-            "sudo chown -R www-data:www-data {$sharedPath} 2>/dev/null || chown -R www-data:www-data {$sharedPath} 2>/dev/null || true"
+            "sudo chown -R {$owner} {$sharedPath} 2>/dev/null || chown -R {$owner} {$sharedPath} 2>/dev/null || true"
         );
         $this->sshService->execute(
             "sudo chmod -R 775 {$sharedPath} 2>/dev/null || chmod -R 775 {$sharedPath} 2>/dev/null || true"

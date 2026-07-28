@@ -2,10 +2,12 @@
 
 namespace App\Services;
 
+use App\Jobs\ProcessDeployment;
 use App\Models\Application;
 use App\Models\Deployment;
 use App\Services\Concerns\RestartsLinkedDaemons;
 use App\Services\Concerns\RunsRemoteScripts;
+use App\Support\EnvFile;
 use RuntimeException;
 
 class DeploymentService
@@ -304,7 +306,7 @@ class DeploymentService
         $result = $this->runRemoteScript(
             $app->server,
             $scriptContent,
-            \App\Jobs\ProcessDeployment::TIMEOUT_SECONDS - 300
+            ProcessDeployment::TIMEOUT_SECONDS - 300
         );
 
         $deployment->appendLog('---');
@@ -409,8 +411,13 @@ BASH;
         $storage = escapeshellarg("{$path}/storage");
         $cache = escapeshellarg("{$path}/bootstrap/cache");
 
-        // Set ownership to www-data (web server user)
-        $this->sshService->execute("sudo chown -R www-data:www-data {$storage} {$cache} 2>/dev/null || true");
+        // PHP-FPM runs as the deploy user on home-layout servers (see
+        // PhpFpmPoolService), www-data otherwise. Writable paths must be
+        // owned by whichever user actually executes the code.
+        $owner = escapeshellarg(($app->server?->deploy_user ?? 'www-data').':www-data');
+
+        // Set ownership to the PHP runtime user
+        $this->sshService->execute("sudo chown -R {$owner} {$storage} {$cache} 2>/dev/null || true");
 
         // Set directory permissions
         $this->sshService->execute("sudo chmod -R 775 {$storage} {$cache} 2>/dev/null || chmod -R 775 {$storage} {$cache} 2>/dev/null || true");
@@ -430,7 +437,7 @@ BASH;
 
         $deployment->appendLog('Uploading .env file...');
 
-        $envContent = \App\Support\EnvFile::serialize($envVariables);
+        $envContent = EnvFile::serialize($envVariables);
 
         $envPath = "{$app->deploy_path}/.env";
 

@@ -144,8 +144,8 @@ php artisan optimize
 php artisan view:cache
 php artisan event:cache
 
-# Set permissions for web server (www-data)
-sudo chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || chown -R www-data:www-data storage bootstrap/cache 2>/dev/null || true
+# Set permissions for the PHP runtime user (deploy user on home-layout servers)
+sudo chown -R $DEPLOY_OWNER:www-data storage bootstrap/cache 2>/dev/null || chown -R $DEPLOY_OWNER:www-data storage bootstrap/cache 2>/dev/null || true
 sudo chmod -R 775 storage bootstrap/cache 2>/dev/null || chmod -R 775 storage bootstrap/cache
 
 # Restart queue workers (if using)
@@ -498,6 +498,7 @@ SCRIPT;
             '$APP_NAME' => $appName,
             '$DOMAIN' => $this->domain,
             '$NODE_VERSION' => $this->node_version ?? '',
+            '$DEPLOY_OWNER' => $this->server?->deploy_user ?? 'www-data',
         ];
 
         return str_replace(array_keys($replacements), array_values($replacements), $script);
