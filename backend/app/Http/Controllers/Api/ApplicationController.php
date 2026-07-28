@@ -87,7 +87,7 @@ class ApplicationController extends Controller
         // Resolve the effective deploy path (the model would otherwise
         // auto-generate it) so we can reject collisions before creating.
         $validated['deploy_path'] = $validated['deploy_path']
-            ?? Application::generateDeployPath($validated['name']);
+            ?? Application::generateDeployPath($validated['name'], Server::find($validated['server_id']));
 
         if ($this->deployPathTaken($validated['server_id'], $validated['deploy_path'])) {
             return response()->json([
@@ -418,10 +418,15 @@ class ApplicationController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
+            'server_id' => 'nullable|integer',
         ]);
 
+        // Server::find is organization scoped; a foreign org id resolves to
+        // null and falls back to the legacy base.
+        $server = $request->filled('server_id') ? Server::find($request->input('server_id')) : null;
+
         return response()->json([
-            'deploy_path' => Application::generateDeployPath($request->input('name')),
+            'deploy_path' => Application::generateDeployPath($request->input('name'), $server),
         ]);
     }
 

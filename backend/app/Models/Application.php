@@ -70,7 +70,7 @@ class Application extends Model
 
             // Auto-generate deploy path if not set
             if (empty($application->deploy_path)) {
-                $application->deploy_path = self::generateDeployPath($application->name);
+                $application->deploy_path = self::generateDeployPath($application->name, $application->server);
             }
 
             // Don't set a default deploy script - use the dynamic default based on strategy
@@ -78,13 +78,15 @@ class Application extends Model
         });
     }
 
-    public static function generateDeployPath(string $name): string
+    public static function generateDeployPath(string $name, ?Server $server = null): string
     {
         $safeName = strtolower(preg_replace('/[^a-zA-Z0-9\-]/', '-', $name));
         $safeName = preg_replace('/-+/', '-', $safeName); // collapse multiple dashes
         $safeName = trim($safeName, '-');
 
-        return "/var/www/shipyard/{$safeName}";
+        $base = $server?->default_deploy_base ?? '/var/www/shipyard';
+
+        return "{$base}/{$safeName}";
     }
 
     public static function getDefaultDeployScript(string $type, string $strategy = 'in_place'): string
