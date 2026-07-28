@@ -204,6 +204,25 @@ class NginxTemplateTest extends TestCase
         $this->assertSame(['ensurePool', 'connect'], $order, 'ensurePool must complete before deploy() opens its own SSH session.');
     }
 
+    public function test_deploy_skips_the_fpm_pool_for_non_php_apps_on_provisioned_servers(): void
+    {
+        $app = $this->makeApp(['type' => 'nodejs'], ['deploy_user' => 'shipyard']);
+
+        $this->mock(PhpFpmPoolService::class, function ($mock) {
+            $mock->shouldReceive('ensurePool')->never();
+        });
+
+        $this->mock(SSHService::class, function ($mock) {
+            $mock->shouldReceive('connect')->andReturnSelf();
+            $mock->shouldReceive('connectSftp')->andReturnSelf();
+            $mock->shouldReceive('disconnect');
+            $mock->shouldReceive('uploadContent')->andReturn(true);
+            $mock->shouldReceive('execute')->andReturn(['output' => '', 'exit_code' => 0, 'success' => true]);
+        });
+
+        app(NginxService::class)->deploy($app);
+    }
+
     public function test_deploy_skips_the_fpm_pool_on_legacy_servers(): void
     {
         $app = $this->makeApp(['type' => 'laravel']);
