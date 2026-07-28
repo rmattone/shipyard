@@ -48,23 +48,6 @@ class ApplicationImportService
                     continue;
                 }
 
-                // Deliberately does not call
-                // ServerUserService::assertNoApplicationsOutsideHome here:
-                // refusing to import apps that live outside the deploy
-                // user's home would leave those real, already-running apps
-                // permanently unmanageable through the panel on a
-                // provisioned server, which is worse than the mixed layout
-                // it would be guarding against. Surface it as a warning
-                // instead so the caller can decide what to do. This runs
-                // before the already-managed check so the warning keeps
-                // firing on every re-import pass, not just the first one.
-                if (filled($server->deploy_user) && ! str_starts_with($dir, $server->default_deploy_base.'/')) {
-                    $warnings[] = [
-                        'path' => $dir,
-                        'warning' => 'This application lives outside the deploy user home; deploys may hit permission issues and the server cannot change its deploy user while it exists.',
-                    ];
-                }
-
                 $existing = $server->applications()->where('deploy_path', $dir)->first();
                 if ($existing !== null) {
                     // Backfill env for apps imported before their variables
@@ -80,6 +63,18 @@ class ApplicationImportService
                         $this->importDomains($existing, $this->matchSite($sites, $dir)['domains'] ?? []);
                     }
 
+                    // Deliberately does not call
+                    // ServerUserService::assertNoApplicationsOutsideHome here:
+                    // refusing to import apps that live outside the deploy
+                    // user's home would leave those real, already-running apps
+                    // permanently unmanageable through the panel on a
+                    // provisioned server, which is worse than the mixed layout
+                    // it would be guarding against. Surface it as a warning
+                    // instead so the caller can decide what to do. This runs
+                    // on every re-import pass, not just the first one, so the
+                    // warning keeps firing until the situation is resolved.
+                    $this->warnIfOutsideHome($server, $dir, $warnings);
+
                     $skipped[] = ['path' => $dir, 'reason' => 'already managed'];
 
                     continue;
@@ -94,6 +89,12 @@ class ApplicationImportService
 
                     continue;
                 }
+
+                // The directory is a recognized, not-yet-managed project;
+                // warn now that it is about to be imported outside the
+                // deploy user home (see the comment above the other call
+                // site for why this is a warning and not a hard refusal).
+                $this->warnIfOutsideHome($server, $dir, $warnings);
 
                 $site = $this->matchSite($sites, $dir);
                 $domains = $site['domains'] ?? [];
@@ -125,6 +126,24 @@ class ApplicationImportService
         }
 
         return ['imported' => $imported, 'skipped' => $skipped, 'warnings' => $warnings];
+    }
+
+    /**
+     * Append a warning when $dir lives outside the deploy user's home on a
+     * provisioned server. Callers decide when this applies: it must never
+     * run for directories skipped as unrecognized projects, since those are
+     * not applications and the warning's wording would be misleading.
+     *
+     * @param  array<int, array{path: string, warning: string}>  $warnings
+     */
+    private function warnIfOutsideHome(Server $server, string $dir, array &$warnings): void
+    {
+        if (filled($server->deploy_user) && ! str_starts_with($dir, $server->default_deploy_base.'/')) {
+            $warnings[] = [
+                'path' => $dir,
+                'warning' => 'This application lives outside the deploy user home; deploys may hit permission issues and the server cannot change its deploy user while it exists.',
+            ];
+        }
     }
 
     /**

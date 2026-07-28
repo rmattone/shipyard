@@ -89,6 +89,8 @@ interface SchedulerPanelProps {
 }
 
 export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverDeployUser, application, apps = [] }: SchedulerPanelProps) {
+  const defaultTaskUser = serverDeployUser ?? 'www-data'
+
   const [tasks, setTasks] = useState<ScheduledTask[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -98,7 +100,7 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverD
   const [output, setOutput] = useState<{ output: string; exists: boolean } | null>(null)
   const [loadingOutput, setLoadingOutput] = useState(false)
 
-  const [formData, setFormData] = useState({ ...emptyForm, user: serverDeployUser ?? 'www-data' })
+  const [formData, setFormData] = useState({ ...emptyForm, user: defaultTaskUser })
   const [presetAppId, setPresetAppId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -143,11 +145,11 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverD
     if (application && application.type === 'laravel') {
       setFormData({
         ...emptyForm,
-        user: serverDeployUser ?? 'www-data',
+        user: defaultTaskUser,
         command: laravelSchedulerCommand(application, serverPhpVersion),
       })
     } else {
-      setFormData({ ...emptyForm, user: serverDeployUser ?? 'www-data' })
+      setFormData({ ...emptyForm, user: defaultTaskUser })
     }
     setShowAddDialog(true)
   }
@@ -160,7 +162,7 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverD
     setFormData({
       ...emptyForm,
       command: laravelSchedulerCommand(app, serverPhpVersion),
-      user: serverDeployUser ?? 'www-data',
+      user: defaultTaskUser,
       frequency: 'minutely',
     })
   }
@@ -193,7 +195,7 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverD
       setTasks([response.data, ...tasks])
       toast.success('Scheduled task is being installed')
       setShowAddDialog(false)
-      setFormData(emptyForm)
+      setFormData({ ...emptyForm, user: defaultTaskUser })
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err.response?.data?.message || 'Failed to create scheduled task')
@@ -296,6 +298,11 @@ export function SchedulerPanel({ serverId, serverName, serverPhpVersion, serverD
                           {task.command}
                         </h3>
                         <StatusBadge status={task.status} />
+                        {serverDeployUser && task.user !== serverDeployUser && (
+                          <Badge variant="outline" className="text-amber-500 border-amber-500/40 shrink-0">
+                            runs as {task.user}, not the deploy user
+                          </Badge>
+                        )}
                       </div>
                       <p className="text-sm text-muted-foreground">
                         <Badge variant="outline" className="mr-2 font-mono">{task.user}</Badge>
