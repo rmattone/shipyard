@@ -8,6 +8,7 @@ use App\Models\Server;
 use App\Models\ServerSshKey;
 use App\Models\User;
 use App\Services\AuthorizedKeysService;
+use App\Services\ServerUserService;
 use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -755,7 +756,7 @@ class ServerUserApiTest extends TestCase
 
         $joined = implode("\n", $this->uploadedScripts);
         $this->assertStringContainsString(
-            "chown -R 'deploy:www-data' '/home/deploy/legacy-app'/storage '/home/deploy/legacy-app'/bootstrap/cache '/home/deploy/legacy-app'/shared",
+            "chown -R 'deploy:www-data' '/home/deploy/legacy-app'/storage '/home/deploy/legacy-app'/bootstrap/cache '/home/deploy/legacy-app'/shared '/home/deploy/legacy-app'/current/bootstrap/cache",
             $joined
         );
     }
@@ -915,6 +916,41 @@ class ServerUserApiTest extends TestCase
 
         $this->assertStringContainsString('outside /home/', $response->json('message'));
         $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    public function test_set_deploy_user_layout_guard_is_not_fooled_by_a_prefix_collision(): void
+    {
+        // 'deployer' starts with the string 'deploy', so a guard comparing
+        // paths with str_starts_with($path, '/home/'.$username) (no
+        // trailing slash) would wrongly treat an app at
+        // /home/deployer/other-app as living under /home/deploy/... when
+        // marking 'deploy' as the deploy user. The trailing slash on
+        // '/home/'.$username.'/' is what prevents this collision.
+        $this->mockSsh(self::USERS_FIXTURE);
+
+        Application::factory()->create([
+            'server_id' => $this->server->id,
+            'deploy_path' => '/home/deployer/other-app',
+        ]);
+
+        $response = $this->actingAs($this->user)
+            ->postJson("/api/servers/{$this->server->id}/deploy-user", ['username' => 'deploy'])
+            ->assertStatus(422);
+
+        $this->assertStringContainsString('outside /home/', $response->json('message'));
+        $this->assertNull($this->server->fresh()->deploy_user);
+    }
+
+    /**
+     * The /D modifier on ServerUserService::USER_PATTERN is load-bearing:
+     * without it, PCRE's $ anchor also matches immediately before a single
+     * trailing "\n", so a username like "deploy\n" would pass validation
+     * and then be embedded as a raw token in generated shell scripts.
+     */
+    public function test_user_pattern_rejects_a_trailing_newline(): void
+    {
+        $this->assertSame(1, preg_match(ServerUserService::USER_PATTERN, 'deploy'));
+        $this->assertSame(0, preg_match(ServerUserService::USER_PATTERN, "deploy\n"));
     }
 
     public function test_create_user_with_use_as_deploy_user_rejects_when_applications_live_outside_the_new_home(): void

@@ -337,7 +337,7 @@ export default function UsersSection({ server, onServerChange }: UsersSectionPro
                   the writable directories of existing applications to this user, and switches
                   this server's Laravel apps to a ShipYard managed PHP-FPM pool running as this
                   user. Existing vhosts keep their current PHP socket until they are rewritten
-                  (changing an application's domains, or issuing or renewing a certificate).
+                  (changing an application's domains, or issuing a certificate).
                 </p>
               </div>
             </AlertDialogDescription>

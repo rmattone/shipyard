@@ -290,8 +290,8 @@ class ServerUserService
         // was BEFORE this call (www-data, on a fresh adoption). An app's
         // vhost only starts pointing at the new $validated-owned FPM socket
         // when that vhost is next rewritten (its domains change, or a
-        // certificate is issued or renewed) -- not on every deploy. Chown
-        // the writable dirs now (not a full-tree chown) so the files are
+        // certificate is first issued), not on every deploy. Chown the
+        // writable dirs now (not a full-tree chown) so the files are
         // already owned correctly the moment that rewrite happens, instead
         // of a stale-owner 500 on the app's very next write after it does.
         $restoreOwner = escapeshellarg($validated.':www-data');
@@ -300,7 +300,12 @@ class ServerUserService
             $path = $this->assertSafeDeployPath($application->deploy_path);
             $quotedPath = escapeshellarg($path);
 
-            $scriptLines[] = "\$SUDO chown -R {$restoreOwner} {$quotedPath}/storage {$quotedPath}/bootstrap/cache {$quotedPath}/shared 2>/dev/null || true";
+            // current/bootstrap/cache covers atomic apps: their live
+            // release's bootstrap/cache is only reachable through the
+            // current symlink (bootstrap/cache is a per-release writable
+            // path, not one of the shared/ paths). A harmless no-op for
+            // in-place apps, which have no current symlink.
+            $scriptLines[] = "\$SUDO chown -R {$restoreOwner} {$quotedPath}/storage {$quotedPath}/bootstrap/cache {$quotedPath}/shared {$quotedPath}/current/bootstrap/cache 2>/dev/null || true";
         }
 
         $script = implode("\n", $scriptLines);

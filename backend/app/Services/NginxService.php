@@ -291,8 +291,11 @@ class NginxService
     /**
      * Laravel vhosts on provisioned servers reference the ShipYard pool
      * socket, so the pool must exist before any config referencing it is
-     * written. Idempotent. Owns its own SSH session (see PhpFpmPoolService),
-     * so call it before this service opens its own connection.
+     * written. Idempotent. Owns its own SSH session on its own SSHService
+     * instance (see PhpFpmPoolService); SSHService is transient, so this
+     * does not depend on session sharing, but calling it before this
+     * service opens its own connection is kept as the convention for
+     * hygiene.
      */
     private function ensureFpmPool(Application $app): void
     {

@@ -60,9 +60,12 @@ class PhpFpmPoolService
      * Idempotently install the pool for one PHP version. Unchanged content
      * short-circuits server-side without touching FPM.
      *
-     * Owns its SSH session: connects and disconnects itself, so it must not
-     * be called in the middle of another service's open SSH session
-     * (SSHService is shared per request).
+     * Owns its SSH session: connects and disconnects itself, using the
+     * SSHService instance injected into this service. SSHService is
+     * transient (a fresh instance per injection), so this does not affect
+     * a caller's own session on its own SSHService instance; the
+     * convention of calling this before opening another connection is
+     * kept for hygiene, not because sessions are shared.
      */
     public function ensurePool(Server $server, string $phpVersion): void
     {
