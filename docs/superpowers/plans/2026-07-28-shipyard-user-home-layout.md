@@ -983,7 +983,7 @@ In `ServerUserService::chownApplications`, replace the restore line:
 
 - [ ] **Step 3: Run affected suites** (`--filter="AtomicDeployment|DeployScript|Deployment|ServerUser"`) and the full suite. Mutation check: revert one site to hardcoded `www-data:www-data` and confirm its provisioned-server test FAILS; restore.
 
-- [ ] **Step 4: Format and commit** (`pint` the four PHP files) — message "Own writable paths by the deploy user on home-layout servers".
+- [ ] **Step 4: Format and commit** (`pint` the four PHP files) with the message "Own writable paths by the deploy user on home-layout servers".
 
 ---
 
@@ -1129,7 +1129,7 @@ Mutation check after the hook tests pass: temporarily remove the `deploy_user` c
 
 - [ ] **Step 7: Implement the hook**
 
-Placement constraint (Task 5 review): `ensurePool` owns its own SSH session and disconnects when done, so the hook MUST run before `NginxService::deploy`'s own `$this->sshService->connect($server)` call — never between connect and the config upload.
+Placement constraint (Task 5 review): `ensurePool` owns its own SSH session and disconnects when done, so the hook MUST run before `NginxService::deploy`'s own `$this->sshService->connect($server)` call, never between connect and the config upload.
 
 At the top of `NginxService::deploy`, before `$config = $this->generateConfig($app);`, add:
 
@@ -1276,7 +1276,7 @@ git add -A && git commit -m "Scan the deploy user home during application import
 - Modify: `frontend/src/components/SchedulerPanel.tsx:364`
 - Modify: `frontend/src/components/DaemonsPanel.tsx:533`
 
-Import warnings handoff (Task 7): the import endpoint now returns a `warnings` array (`{path, warning}` entries) for apps living outside the deploy user home. Widen the import response type in `api.ts` and, in `ServerOverview`'s import handler, emit `toast.warning(w.warning)` per entry after the success toast — otherwise the backend's warn-don't-refuse decision is a JSON key nobody reads.
+Import warnings handoff (Task 7): the import endpoint now returns a `warnings` array (`{path, warning}` entries) for apps living outside the deploy user home. Widen the import response type in `api.ts` and, in `ServerOverview`'s import handler, emit `toast.warning(w.warning)` per entry after the success toast. Otherwise the backend's warn-don't-refuse decision is a JSON key nobody reads.
 
 There is no frontend test suite; verification is `npm run lint` plus `npm run build`.
 
