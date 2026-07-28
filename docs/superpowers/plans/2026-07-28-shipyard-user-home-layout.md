@@ -1233,8 +1233,8 @@ In `ApplicationImportService`, change `listCandidateDirs()` to take the server a
     {
         $bases = self::SCAN_BASES;
 
-        if ($server->deploy_user !== null) {
-            $bases[] = '/home/'.$server->deploy_user;
+        if (filled($server->deploy_user)) {
+            $bases[] = $server->default_deploy_base;
         }
 
         return $bases;
@@ -1483,4 +1483,4 @@ git add README.md CLAUDE.md && git commit -m "Document the deploy user home dire
 1. Full backend suite green (Task 9 Step 3).
 2. `cd frontend && npm run build` green.
 3. Spec section coverage: deploy_user column (Task 1), provisioning + 711 (Tasks 3, 4), default path (Task 2), FPM pool (Task 5), nginx socket + hook (Task 6), import (Task 7), frontend (Task 8), docs (Task 9). Migration tooling and scoped sudoers intentionally absent (spec non-goals).
-4. Manual end-to-end on a fresh EC2 instance (user's workflow): connect as ubuntu, provision shipyard deploy user with "use as deploy user", switch connection to it, create a Laravel app, deploy, confirm the site serves and `storage/` is writable by the app, confirm `/home/shipyard` is mode 711 and the pool socket exists.
+4. Manual end-to-end on a fresh EC2 instance (user's workflow): connect as ubuntu, provision shipyard deploy user with "use as deploy user", switch connection to it, create a Laravel app, deploy, confirm the site serves and `storage/` is writable by the app, confirm `/home/shipyard` is mode 711 and the pool socket exists. Also run an import while still connected as ubuntu (before switching) with `deploy_user` set, and confirm apps under `/home/shipyard` appear (pins the sudo find fallback against the 711 home).
