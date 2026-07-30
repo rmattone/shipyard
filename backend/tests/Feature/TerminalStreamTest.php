@@ -73,6 +73,23 @@ class TerminalStreamTest extends TestCase
         $response->assertStatus(403);
     }
 
+    public function test_stream_refuses_rather_than_500s_when_the_session_server_is_soft_deleted(): void
+    {
+        // A database-only server can be trashed while its TerminalSession
+        // row survives (cascade only fires on force-delete), so ->server
+        // resolves null through the soft-delete scope for the whole trash
+        // window.
+        [$user, $session] = $this->makeSession();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $session->server->delete();
+
+        $response = $this->get("/api/terminal-sessions/{$session->id}/stream?token={$token}");
+
+        $response->assertStatus(403);
+        $this->assertStringContainsString('Unauthorized', $response->streamedContent());
+    }
+
     public function test_stream_conflicts_when_session_already_attached(): void
     {
         [$user, $session] = $this->makeSession();
