@@ -61,18 +61,18 @@ class BackupRestoreServiceTest extends TestCase
         return null;
     }
 
-    private function makeRun(array $attributes = []): BackupRun
+    private function makeRun(array $attributes = [], array $databaseAttributes = []): BackupRun
     {
         $this->createOrgUser();
 
         Storage::fake('local');
         Storage::disk('local')->put('restores/dump.sql.gz', gzencode('SELECT 1;'));
 
-        $database = Database::factory()->create([
+        $database = Database::factory()->create(array_merge([
             'type' => 'postgresql',
             'admin_user' => 'postgres',
             'admin_password' => 'secret',
-        ]);
+        ], $databaseAttributes));
 
         return BackupRun::factory()->create(array_merge([
             'database_id' => $database->id,
@@ -150,7 +150,7 @@ class BackupRestoreServiceTest extends TestCase
 
         $this->assertSame('failed', $run->status);
         $this->assertSame('restore', $run->failed_step);
-        $this->assertStringContainsString('partially loaded', $run->log);
+        $this->assertStringContainsString('unknown state', $run->log);
         $this->assertStringContainsString($run->safety_dump_path, $run->log);
     }
 
@@ -278,5 +278,123 @@ class BackupRestoreServiceTest extends TestCase
         $this->assertSame('upload', $run->failed_step);
         $this->assertStringContainsString('SSH authentication failed for db1.example.com', $run->log);
         Storage::disk('local')->assertMissing('restores/dump.sql.gz');
+    }
+
+    public function test_mysql_overwrite_restore_succeeds(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['information_schema.tables'] = ['output' => '5', 'exit_code' => 0, 'success' => true];
+        $run = $this->makeRun(databaseAttributes: [
+            'type' => 'mysql',
+            'admin_user' => 'root',
+            'admin_password' => 'secret',
+        ]);
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $run->refresh();
+
+        $this->assertSame('success', $run->status);
+        $this->assertNotNull($this->indexOfCommandContaining('mysqldump'), 'expected a safety dump via mysqldump');
+        $this->assertNotNull($this->indexOfCommandContaining('DROP DATABASE'));
+        $this->assertNotNull($this->indexOfCommandContaining('CREATE DATABASE'));
+        $this->assertStringContainsString('/var/backups/shipyard/', $run->safety_dump_path);
+        $this->assertStringContainsString('Restore completed', $run->log);
+    }
+
+    public function test_overwrite_recreates_the_database_with_the_described_attributes(): void
+    {
+        $this->mockSsh();
+        // describeDatabase()'s SQL contains pg_get_userbyid; the pipe-separated
+        // output is owner|charset|collation.
+        $this->fakeResults['pg_get_userbyid'] = ['output' => 'alice|UTF8|en_US.UTF-8', 'exit_code' => 0, 'success' => true];
+        $this->fakeResults['pg_tables'] = ['output' => '5', 'exit_code' => 0, 'success' => true];
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $createAt = $this->indexOfCommandContaining('CREATE DATABASE');
+        $this->assertNotNull($createAt, 'expected a create command');
+        $this->assertStringContainsString("ENCODING 'UTF8'", $this->executed[$createAt]);
+        $this->assertStringContainsString("LC_COLLATE 'en_US.UTF-8'", $this->executed[$createAt]);
+
+        $ownerAt = $this->indexOfCommandContaining('OWNER TO');
+        $this->assertNotNull($ownerAt, 'expected the owner to be reapplied');
+        $this->assertStringContainsString('OWNER TO', $this->executed[$ownerAt]);
+        $this->assertStringContainsString('alice', $this->executed[$ownerAt]);
+
+        $this->assertSame('success', $run->fresh()->status);
+    }
+
+    public function test_a_failed_create_after_a_successful_drop_names_the_safety_dump(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['CREATE DATABASE'] = [
+            'output' => 'ERROR:  could not create database directory',
+            'exit_code' => 1,
+            'success' => false,
+        ];
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $run->refresh();
+
+        // The drop already succeeded by this point, so the target does not
+        // exist at all; the failed_step and the neutral recovery wording must
+        // not claim it is "partially loaded".
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('restore', $run->failed_step);
+        $this->assertNotNull($run->safety_dump_path);
+        $this->assertStringContainsString('unknown state', $run->log);
+        $this->assertStringContainsString($run->safety_dump_path, $run->log);
+    }
+
+    public function test_a_failed_attribute_application_names_the_safety_dump(): void
+    {
+        $this->mockSsh();
+        // An owner must be present or applyDatabaseAttributes() is a no-op for
+        // Postgres and never calls execute() at all.
+        $this->fakeResults['pg_get_userbyid'] = ['output' => 'alice|UTF8|en_US.UTF-8', 'exit_code' => 0, 'success' => true];
+        $this->fakeResults['OWNER TO'] = [
+            'output' => 'ERROR:  role "alice" does not exist',
+            'exit_code' => 1,
+            'success' => false,
+        ];
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $run->refresh();
+
+        // The database exists and was just created (empty) at this point, not
+        // "partially loaded" in any sense the old wording implied.
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('restore', $run->failed_step);
+        $this->assertNotNull($run->safety_dump_path);
+        $this->assertStringContainsString('unknown state', $run->log);
+        $this->assertStringContainsString($run->safety_dump_path, $run->log);
+    }
+
+    public function test_a_failed_describe_is_labelled_a_describe_failure(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['pg_get_userbyid'] = [
+            'output' => 'connection reset by peer',
+            'exit_code' => 255,
+            'success' => false,
+        ];
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $run->refresh();
+
+        // The upload already succeeded by this point; labelling this failure
+        // 'upload' would be false. No safety dump was ever attempted either.
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('describe', $run->failed_step);
+        $this->assertNull($run->safety_dump_path);
+        $this->assertNull($this->indexOfCommandContaining('pg_dump'));
     }
 }
