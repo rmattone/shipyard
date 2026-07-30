@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\DatabaseController;
 use App\Http\Controllers\Api\DatabaseInstallationStreamController;
+use App\Http\Controllers\Api\DatabaseRestoreController;
 use App\Http\Controllers\Api\DatabaseUserController;
 use App\Http\Controllers\Api\DeploymentController;
 use App\Http\Controllers\Api\DeploymentStreamController;
@@ -173,6 +174,14 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::get('/servers/{server}/databases/{database}/remote-databases', [DatabaseController::class, 'listRemoteDatabases']);
     Route::post('/servers/{server}/databases/{database}/remote-databases', [DatabaseController::class, 'createRemoteDatabase']);
     Route::delete('/servers/{server}/databases/{database}/remote-databases', [DatabaseController::class, 'dropRemoteDatabase']);
+
+    // Database restores. The upload drops and recreates a database, so it
+    // sits behind the admin gate like the destructive server actions.
+    Route::get('/servers/{server}/databases/{database}/restores', [DatabaseRestoreController::class, 'index']);
+    Route::get('/backup-runs/{backupRun}', [DatabaseRestoreController::class, 'show']);
+    Route::middleware('org.role:admin')->group(function () {
+        Route::post('/servers/{server}/databases/{database}/restores', [DatabaseRestoreController::class, 'store']);
+    });
 
     // Database users
     Route::get('/servers/{server}/databases/{database}/users/remote', [DatabaseUserController::class, 'listRemoteUsers']);
