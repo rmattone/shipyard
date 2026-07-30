@@ -7,9 +7,9 @@ use App\Models\Organization;
 use App\Models\TerminalSession;
 use App\Services\Terminal\TerminalMessage;
 use App\Services\TerminalService;
+use App\Support\QueryTokenAuth;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redis;
-use Laravel\Sanctum\PersonalAccessToken;
 use phpseclib3\Net\SSH2;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -32,18 +32,7 @@ class TerminalStreamController extends Controller
     public function stream(Request $request, TerminalSession $terminalSession): StreamedResponse
     {
         // Authenticate via query param token (EventSource doesn't support headers)
-        $token = $request->query('token');
-        if ($token) {
-            $accessToken = PersonalAccessToken::findToken($token);
-            if ($accessToken) {
-                $isValid = ! $accessToken->expires_at || $accessToken->expires_at->isFuture();
-                if ($isValid) {
-                    $request->setUserResolver(fn () => $accessToken->tokenable);
-                }
-            }
-        }
-
-        if (! $request->user()) {
+        if (! QueryTokenAuth::resolveUser($request)) {
             return $this->refuse(401);
         }
 
