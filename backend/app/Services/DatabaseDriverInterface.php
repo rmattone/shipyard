@@ -60,4 +60,35 @@ interface DatabaseDriverInterface
      * Get system databases that should be excluded from listings.
      */
     public function getSystemDatabases(): array;
+
+    /**
+     * Shell command that loads a dump file on the server into $dbName.
+     * Must abort on the first SQL error rather than continuing.
+     */
+    public function buildRestoreCommand(Database $database, string $dbName, string $dumpPath, bool $gzipped): string;
+
+    /**
+     * Shell command that writes a gzipped dump of $dbName to $outputPath.
+     */
+    public function buildDumpCommand(Database $database, string $dbName, string $outputPath): string;
+
+    /**
+     * Current attributes of an existing database, so a recreate can match it.
+     *
+     * @return array{owner: ?string, charset: ?string, collation: ?string}
+     */
+    public function describeDatabase(SSHService $ssh, Database $database, string $dbName): array;
+
+    /**
+     * Apply attributes that createDatabase() cannot take, such as ownership.
+     *
+     * @param  array{owner: ?string, charset: ?string, collation: ?string}  $attributes
+     */
+    public function applyDatabaseAttributes(SSHService $ssh, Database $database, string $dbName, array $attributes): void;
+
+    /**
+     * Shell command that runs a read-only query against $dbName and returns
+     * bare values, used for post-restore verification.
+     */
+    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string;
 }
