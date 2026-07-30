@@ -47,9 +47,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LoadingSpinner } from '@/components/custom'
+import { RestoreDatabaseDialog } from '@/components/databases/RestoreDatabaseDialog'
+import { RestoreLogPanel } from '@/components/databases/RestoreLogPanel'
 import {
   databasesApi,
   databaseUsersApi,
+  databaseRestoresApi,
+  type BackupRun,
   type Database,
   type DatabaseUser,
 } from '@/services/api'
@@ -78,6 +82,11 @@ export default function DatabaseDetail() {
   const [creatingDb, setCreatingDb] = useState(false)
   const [deletingDb, setDeletingDb] = useState(false)
 
+  // Restore from uploaded dump
+  const [restoreTarget, setRestoreTarget] = useState<string | null>(null)
+  const [activeRunId, setActiveRunId] = useState<number | null>(null)
+  const [restoreHistory, setRestoreHistory] = useState<BackupRun[]>([])
+
   // User dialogs
   const [showCreateUserDialog, setShowCreateUserDialog] = useState(false)
   const [userToDelete, setUserToDelete] = useState<DatabaseUser | null>(null)
@@ -104,7 +113,7 @@ export default function DatabaseDetail() {
     try {
       const dbRes = await databasesApi.get(serverId, dbId)
       setDatabase(dbRes.data)
-      await Promise.all([loadRemoteDatabases(), loadUsers()])
+      await Promise.all([loadRemoteDatabases(), loadUsers(), loadRestoreHistory()])
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err.response?.data?.message || 'Failed to load database')
@@ -140,6 +149,26 @@ export default function DatabaseDetail() {
       toast.error(err.response?.data?.message || 'Failed to load users')
     } finally {
       setLoadingUsers(false)
+    }
+  }
+
+  const loadRestoreHistory = async () => {
+    try {
+      const response = await databaseRestoresApi.list(serverId, dbId)
+      setRestoreHistory(response.data.data)
+
+      // If a restore was already running when this page loaded (e.g. the user
+      // navigated away mid-restore and came back), reattach the log panel to
+      // it rather than requiring a click on the history row. The stream's
+      // "connected" event replays the full persisted log, so nothing is lost.
+      const inFlight = response.data.data.find(
+        (run) => run.status === 'running' || run.status === 'pending'
+      )
+      if (inFlight && activeRunId === null) {
+        setActiveRunId(inFlight.id)
+      }
+    } catch {
+      // History is informational; a failure here must not break the page.
     }
   }
 
@@ -370,14 +399,23 @@ export default function DatabaseDetail() {
                         <CircleStackIcon className="h-5 w-5 text-muted-foreground" />
                         <span className="font-medium">{dbName}</span>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setDbToDelete(dbName)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setRestoreTarget(dbName)}
+                        >
+                          Restore
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setDbToDelete(dbName)}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -502,6 +540,81 @@ export default function DatabaseDetail() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {activeRunId && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Restore in progress</CardTitle>
+            <CardDescription>
+              Follows the restore live. Safe to leave this page; the restore keeps running and you
+              can reattach to it from the history below.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <RestoreLogPanel
+              runId={activeRunId}
+              onComplete={() => {
+                loadRestoreHistory()
+                loadRemoteDatabases()
+              }}
+            />
+          </CardContent>
+        </Card>
+      )}
+
+      {restoreHistory.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Restore history</CardTitle>
+            <CardDescription>Recent restores from an uploaded dump</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="divide-y rounded-md border text-sm">
+              {restoreHistory.map((run) => (
+                <li key={run.id} className="flex items-center justify-between p-3">
+                  <div>
+                    <p className="font-medium">{run.database_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {run.original_filename} ({((run.size_bytes ?? 0) / 1024 / 1024).toFixed(1)} MB)
+                      {run.user ? ` by ${run.user.name}` : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={
+                        run.status === 'failed'
+                          ? 'text-destructive'
+                          : run.status === 'success'
+                            ? 'text-green-600'
+                            : 'text-muted-foreground'
+                      }
+                    >
+                      {run.status}
+                    </span>
+                    <Button variant="ghost" size="sm" onClick={() => setActiveRunId(run.id)}>
+                      Log
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
+
+      {restoreTarget && (
+        <RestoreDatabaseDialog
+          open={Boolean(restoreTarget)}
+          onOpenChange={(open) => !open && setRestoreTarget(null)}
+          serverId={serverId}
+          databaseId={dbId}
+          targetDatabase={restoreTarget}
+          onQueued={(runId) => {
+            setActiveRunId(runId)
+            setRestoreTarget(null)
+          }}
+        />
+      )}
 
       {/* Create Database Dialog */}
       <Dialog open={showCreateDbDialog} onOpenChange={setShowCreateDbDialog}>
