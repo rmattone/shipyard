@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\Database;
+use App\Services\Concerns\WrapsShellPipeline;
 use RuntimeException;
 
 class PostgreSQLService implements DatabaseDriverInterface
 {
+    use WrapsShellPipeline;
+
     protected array $systemDatabases = [
         'postgres',
         'template0',
@@ -382,9 +385,11 @@ class PostgreSQLService implements DatabaseDriverInterface
             : 'cat '.escapeshellarg($dumpPath);
 
         // ON_ERROR_STOP=1 is what turns a broken dump into a failed restore
-        // instead of a silently half-loaded database.
+        // instead of a silently half-loaded database. The trailing 2>&1
+        // that used to sit here is now redundant: withPipefail() wraps the
+        // whole pipeline in a `{ ...; } 2>&1` group that covers it.
         $pipeline = sprintf(
-            '%s | PGPASSWORD=%s psql -h %s -p %d -U %s -d %s -v ON_ERROR_STOP=1 -q 2>&1',
+            '%s | PGPASSWORD=%s psql -h %s -p %d -U %s -d %s -v ON_ERROR_STOP=1 -q',
             $reader,
             escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
@@ -420,7 +425,17 @@ class PostgreSQLService implements DatabaseDriverInterface
         );
 
         $result = $ssh->execute($this->buildCommand($database, $sql, true));
-        $parts = array_map('trim', explode('|', trim($result['output'])));
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to describe database: '.$result['output']);
+        }
+
+        // A blank/missing field parses to '' via explode()/trim(), not the
+        // documented ?string null, so normalize it before returning.
+        $parts = array_map(
+            fn ($part) => $part === '' ? null : $part,
+            array_map('trim', explode('|', trim($result['output'])))
+        );
 
         return [
             'owner' => $parts[0] ?? null,
@@ -455,18 +470,6 @@ class PostgreSQLService implements DatabaseDriverInterface
         // at PostgreSQLService.php:354, so this asks for bare values against the
         // restored database rather than the default postgres database.
         return $this->buildCommand($database, $sql, true, $dbName);
-    }
-
-    /**
-     * Wrap a piped command so a failure upstream of the last stage (e.g. a
-     * failing pg_dump piped into a succeeding gzip) is not masked by the
-     * shell reporting only the last command's exit status. bash is used
-     * explicitly because `set -o pipefail` is not POSIX and phpseclib's
-     * exec() does not guarantee bash as the default shell.
-     */
-    protected function withPipefail(string $pipeline): string
-    {
-        return 'bash -c '.escapeshellarg('set -o pipefail; '.$pipeline);
     }
 
     protected function escapeName(string $name): string

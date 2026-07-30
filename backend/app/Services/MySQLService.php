@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\Database;
+use App\Services\Concerns\WrapsShellPipeline;
 use RuntimeException;
 
 class MySQLService implements DatabaseDriverInterface
 {
+    use WrapsShellPipeline;
+
     protected array $systemDatabases = [
         'information_schema',
         'mysql',
@@ -276,9 +279,11 @@ class MySQLService implements DatabaseDriverInterface
             : 'cat '.escapeshellarg($dumpPath);
 
         // The mysql client aborts on the first error unless --force is given,
-        // which is the behaviour a restore needs.
+        // which is the behaviour a restore needs. The trailing 2>&1 that
+        // used to sit here is now redundant: withPipefail() wraps the whole
+        // pipeline in a `{ ...; } 2>&1` group that covers it.
         $pipeline = sprintf(
-            '%s | MYSQL_PWD=%s mysql -h %s -P %d -u %s %s 2>&1',
+            '%s | MYSQL_PWD=%s mysql -h %s -P %d -u %s %s',
             $reader,
             escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
@@ -314,7 +319,20 @@ class MySQLService implements DatabaseDriverInterface
         );
 
         $result = $ssh->execute($this->buildCommand($database, $sql));
-        $parts = preg_split('/\s+/', trim($result['output'])) ?: [];
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to describe database: '.$result['output']);
+        }
+
+        // mysql -N batch output is tab-separated (no header), matching the
+        // convention listUsers() above already relies on; splitting on
+        // arbitrary whitespace would misparse a value containing a space.
+        // A blank/missing field parses to '' here, not the documented
+        // ?string null, so normalize it before returning.
+        $parts = array_map(
+            fn ($part) => $part === '' ? null : $part,
+            explode("\t", trim($result['output']))
+        );
 
         return [
             'owner' => null,
@@ -334,18 +352,6 @@ class MySQLService implements DatabaseDriverInterface
         // The verification query names its own schema, so there is no need to
         // select a default database the way the PostgreSQL driver does.
         return $this->buildCommand($database, $sql);
-    }
-
-    /**
-     * Wrap a piped command so a failure upstream of the last stage (e.g. a
-     * failing mysqldump piped into a succeeding gzip) is not masked by the
-     * shell reporting only the last command's exit status. bash is used
-     * explicitly because `set -o pipefail` is not POSIX and phpseclib's
-     * exec() does not guarantee bash as the default shell.
-     */
-    protected function withPipefail(string $pipeline): string
-    {
-        return 'bash -c '.escapeshellarg('set -o pipefail; '.$pipeline);
     }
 
     protected function escapeName(string $name): string

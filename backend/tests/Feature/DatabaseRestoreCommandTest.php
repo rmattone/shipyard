@@ -5,8 +5,11 @@ namespace Tests\Feature;
 use App\Models\Database;
 use App\Services\MySQLService;
 use App\Services\PostgreSQLService;
+use App\Services\SSHService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Mockery;
 use ReflectionMethod;
+use RuntimeException;
 use Tests\TestCase;
 
 class DatabaseRestoreCommandTest extends TestCase
@@ -41,26 +44,32 @@ class DatabaseRestoreCommandTest extends TestCase
 
     /**
      * buildRestoreCommand()/buildDumpCommand() wrap their pipeline as
-     * `bash -c '<escaped pipeline>'` so `set -o pipefail` can be set (see
-     * withPipefail() on both drivers). That means the pipeline's own single
-     * quotes get escaped a second time by the outer escapeshellarg call, so
-     * a test asserting on the raw wrapped string would have to match a
-     * doubly escaped literal. Instead we hand the outer quoted argument to
-     * a real shell and let it undo the escaping, then assert against the
-     * plain inner pipeline, which is what is actually executed inside the
-     * bash -c.
+     * `bash -c '<escaped set -o pipefail; { pipeline; } 2>&1>'` (see
+     * withPipefail() in App\Services\Concerns\WrapsShellPipeline) so
+     * pipefail can be set and stderr captured without corrupting a
+     * redirected archive. That means the pipeline's own single quotes get
+     * escaped a second time by the outer escapeshellarg call, so a test
+     * asserting on the raw wrapped string would have to match a doubly
+     * escaped literal.
+     *
+     * escapeshellarg()'s scheme is a deterministic, reversible substitution
+     * cipher: wrap the argument in single quotes, and replace every
+     * embedded ' with the four bytes '\''. This undoes exactly that in pure
+     * PHP (no shell_exec, which hardened php.ini configs commonly disable),
+     * then strips the pipefail/group-redirect scaffolding to get back the
+     * plain inner pipeline that is what actually executes.
      */
     private function unwrapPipefail(string $command): string
     {
         $this->assertStringStartsWith('bash -c ', $command);
 
-        $quotedPipeline = substr($command, strlen('bash -c '));
-        $inner = shell_exec("printf '%s' $quotedPipeline");
+        $quoted = substr($command, strlen('bash -c '));
+        $unescaped = str_replace("'\\''", "'", substr($quoted, 1, -1));
 
-        $this->assertNotNull($inner, 'failed to unwrap the bash -c pipeline through a real shell');
-        $this->assertStringStartsWith('set -o pipefail; ', $inner);
+        $this->assertStringStartsWith('set -o pipefail; { ', $unescaped);
+        $this->assertStringEndsWith('; } 2>&1', $unescaped);
 
-        return substr($inner, strlen('set -o pipefail; '));
+        return substr($unescaped, strlen('set -o pipefail; { '), -strlen('; } 2>&1'));
     }
 
     public function test_postgres_restore_pipes_gunzip_into_psql_and_stops_on_error(): void
@@ -184,8 +193,20 @@ class DatabaseRestoreCommandTest extends TestCase
         // the shell reports gzip's exit status, not false's. That is
         // precisely the bug that let buildDumpCommand() report a truncated
         // safety dump as a success. This runs the real wrapper both drivers
-        // now use, through a real shell, and proves it changes that outcome
-        // rather than merely appearing in the generated string.
+        // now use (App\Services\Concerns\WrapsShellPipeline::withPipefail(),
+        // shared by both, so one execution test covers both drivers),
+        // through a real shell, and proves it changes that outcome rather
+        // than merely appearing in the generated string.
+        //
+        // withPipefail() is protected and exercised here via reflection
+        // rather than through the public buildRestoreCommand()/
+        // buildDumpCommand() seam, deliberately: driving it through
+        // buildDumpCommand() would pipe into a real pg_dump/mysqldump,
+        // making the test's exit code depend on whether those binaries
+        // happen to be installed on the machine running the suite, which
+        // would let it pass or fail for the wrong reason. `false` and
+        // `gzip` are used instead so the assertion is about the wrapper's
+        // own behaviour, not about the environment.
         $outputPath = tempnam(sys_get_temp_dir(), 'pipefail-test-');
 
         $wrapper = new ReflectionMethod(PostgreSQLService::class, 'withPipefail');
@@ -198,5 +219,162 @@ class DatabaseRestoreCommandTest extends TestCase
         } finally {
             @unlink($outputPath);
         }
+    }
+
+    public function test_postgres_describe_database_parses_owner_charset_and_collation(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => "app_owner|UTF8|en_US.UTF-8\n",
+            'exit_code' => 0,
+            'success' => true,
+        ]);
+
+        $attributes = (new PostgreSQLService)->describeDatabase($ssh, $this->pgConnection(), 'shop');
+
+        $this->assertSame([
+            'owner' => 'app_owner',
+            'charset' => 'UTF8',
+            'collation' => 'en_US.UTF-8',
+        ], $attributes);
+    }
+
+    public function test_postgres_describe_database_throws_on_ssh_failure(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => 'connection reset by peer',
+            'exit_code' => 255,
+            'success' => false,
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        (new PostgreSQLService)->describeDatabase($ssh, $this->pgConnection(), 'shop');
+    }
+
+    public function test_postgres_describe_database_normalizes_blank_output_to_nulls(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => "\n",
+            'exit_code' => 0,
+            'success' => true,
+        ]);
+
+        $attributes = (new PostgreSQLService)->describeDatabase($ssh, $this->pgConnection(), 'shop');
+
+        $this->assertSame(['owner' => null, 'charset' => null, 'collation' => null], $attributes);
+    }
+
+    public function test_postgres_apply_database_attributes_sets_owner_with_escaped_identifiers(): void
+    {
+        $captured = null;
+
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturnUsing(function (string $command) use (&$captured) {
+            $captured = $command;
+
+            return ['output' => '', 'exit_code' => 0, 'success' => true];
+        });
+
+        (new PostgreSQLService)->applyDatabaseAttributes(
+            $ssh, $this->pgConnection(), 'sho"p', ['owner' => 'ow"ner', 'charset' => null, 'collation' => null]
+        );
+
+        // escapeName() doubles an embedded double quote so an identifier
+        // cannot break out of its own quoting: sho"p -> sho""p. The whole
+        // SQL string is then addcslashes()'d for embedding inside
+        // buildCommand()'s bash -c "..." wrapper, same as every other
+        // driver method.
+        $this->assertStringContainsString('ALTER DATABASE', $captured);
+        $this->assertStringContainsString(addcslashes('"sho""p"', '"`$\\'), $captured);
+        $this->assertStringContainsString(addcslashes('"ow""ner"', '"`$\\'), $captured);
+    }
+
+    public function test_postgres_apply_database_attributes_throws_on_failure(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => 'permission denied',
+            'exit_code' => 1,
+            'success' => false,
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        (new PostgreSQLService)->applyDatabaseAttributes(
+            $ssh, $this->pgConnection(), 'shop', ['owner' => 'newowner', 'charset' => null, 'collation' => null]
+        );
+    }
+
+    public function test_postgres_apply_database_attributes_does_nothing_without_an_owner(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldNotReceive('execute');
+
+        (new PostgreSQLService)->applyDatabaseAttributes(
+            $ssh, $this->pgConnection(), 'shop', ['owner' => null, 'charset' => 'UTF8', 'collation' => 'en_US.UTF-8']
+        );
+
+        $this->assertTrue(true, 'no SSH call and no exception for a database with no recorded owner');
+    }
+
+    public function test_mysql_describe_database_parses_charset_and_collation(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => "utf8mb4\tutf8mb4_unicode_ci\n",
+            'exit_code' => 0,
+            'success' => true,
+        ]);
+
+        $attributes = (new MySQLService)->describeDatabase($ssh, $this->mysqlConnection(), 'shop');
+
+        $this->assertSame([
+            'owner' => null,
+            'charset' => 'utf8mb4',
+            'collation' => 'utf8mb4_unicode_ci',
+        ], $attributes);
+    }
+
+    public function test_mysql_describe_database_throws_on_ssh_failure(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => 'access denied for user',
+            'exit_code' => 1,
+            'success' => false,
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        (new MySQLService)->describeDatabase($ssh, $this->mysqlConnection(), 'shop');
+    }
+
+    public function test_mysql_describe_database_normalizes_blank_output_to_nulls(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldReceive('execute')->once()->andReturn([
+            'output' => "\n",
+            'exit_code' => 0,
+            'success' => true,
+        ]);
+
+        $attributes = (new MySQLService)->describeDatabase($ssh, $this->mysqlConnection(), 'shop');
+
+        $this->assertSame(['owner' => null, 'charset' => null, 'collation' => null], $attributes);
+    }
+
+    public function test_mysql_apply_database_attributes_executes_nothing(): void
+    {
+        $ssh = Mockery::mock(SSHService::class);
+        $ssh->shouldNotReceive('execute');
+
+        (new MySQLService)->applyDatabaseAttributes(
+            $ssh, $this->mysqlConnection(), 'shop', ['owner' => null, 'charset' => 'utf8mb4', 'collation' => 'utf8mb4_unicode_ci']
+        );
+
+        $this->assertTrue(true, 'MySQL has no database owner; createDatabase() already applies charset/collation');
     }
 }
