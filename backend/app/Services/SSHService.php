@@ -238,7 +238,10 @@ class SSHService
             throw new RuntimeException('Not connected to any server');
         }
 
-        return $this->sftp->put($remotePath, file_get_contents($localPath));
+        // Stream from disk rather than buffering: restore dumps reach a
+        // gigabyte, and file_get_contents on one would exhaust memory_limit
+        // before anything reached the server.
+        return $this->sftp->put($remotePath, $localPath, SFTP::SOURCE_LOCAL_FILE);
     }
 
     public function uploadContent(string $content, string $remotePath): bool
