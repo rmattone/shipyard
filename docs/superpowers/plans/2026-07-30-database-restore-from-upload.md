@@ -1780,6 +1780,20 @@ git commit -m "Add ProcessDatabaseRestore job"
 - Modify: `backend/routes/api.php`
 - Test: `backend/tests/Feature/DatabaseRestoreUploadTest.php`
 
+### The upload disk must be named, never defaulted
+
+Write the dump with `Storage::disk(BackupRun::UPLOAD_DISK)->putFileAs(...)`, not `$file->storeAs(...)`. `storeAs()` resolves `config('filesystems.default')`, while the restore path needs a real local filesystem path to hand to SFTP and therefore names the `local` disk explicitly. Those agree only while `FILESYSTEM_DISK=local`; set it to `s3` and the dump uploads to object storage while the restore looks for it on disk, fails, and the cleanup deletes nothing while the real object leaks. One constant on the model, used at all four sites (the controller's write, the controller's cleanup, the service's read, and the job's `failed()` cleanup), is what keeps them from drifting.
+
+### Clean up the stored file on every failure, not just the refusal
+
+The 409 branch returns rather than throwing, so it needs its own cleanup. But `DB::transaction()` makes one attempt by default, so a deadlock, lock-wait timeout, or dropped connection propagates out of it, and nothing in this codebase sweeps `restores/`. Wrap the transaction so any throw deletes the file and re-raises. A narrow window remains between the write and the transaction starting; that is a disk leak rather than a correctness problem, and it is left open deliberately.
+
+### Two testing notes that cost real time to rediscover
+
+Use `postJson()` in the tests, not `post()`. This api group has no JSON-forcing middleware, so a validation failure under plain `post()` returns a 302 redirect rather than 422, and every other feature test in this codebase asserting 422 already uses `postJson`.
+
+The disk headroom check cannot be tested through `Storage::fake()`, because `disk_free_space()` is a raw filesystem call with no hook. Route it through a `protected function availableDiskSpace()` and override it in a controller subclass bound into the container for the one test that needs it. Laravel rebuilds the container per test method, so the binding does not leak.
+
 ### The endpoint must refuse a concurrent restore against the same database
 
 `BackupRun::claim()` (added in Task 6) makes one run's lifecycle safe against duplicate job delivery, but it does nothing about two DIFFERENT runs targeting the same database. A double-clicked dialog, or a second restore started while the first is still loading, creates two rows that each legitimately win their own claim and then run destructively against the same target at the same time. The second would drop the database out from under the first mid-load.
