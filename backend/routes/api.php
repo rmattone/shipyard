@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BackupRunStreamController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\DatabaseController;
 use App\Http\Controllers\Api\DatabaseInstallationStreamController;
@@ -44,6 +45,7 @@ Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
 Route::get('/deployments/{deployment}/stream', [DeploymentStreamController::class, 'stream']);
 Route::get('/database-installations/{installation}/stream', [DatabaseInstallationStreamController::class, 'stream']);
 Route::get('/terminal-sessions/{terminalSession}/stream', [TerminalStreamController::class, 'stream']);
+Route::get('/backup-runs/{backupRun}/stream', [BackupRunStreamController::class, 'stream']);
 
 // Invitation accept flow (public: the token is the shared secret)
 Route::middleware('throttle:login')->group(function () {
