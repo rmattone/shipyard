@@ -198,8 +198,19 @@ class BackupRestoreService
 
         $run->appendLog("Taking a safety dump to {$path}...");
 
-        $this->ssh->execute('sudo mkdir -p '.escapeshellarg(self::SAFETY_DUMP_DIR)
-            .' && sudo chmod 700 '.escapeshellarg(self::SAFETY_DUMP_DIR));
+        // The directory needs sudo to create under /var, but the dump itself is
+        // written by a plain shell redirect running as the SSH user, so that
+        // user must own the directory or the redirect fails with "Permission
+        // denied" before pg_dump produces a byte. Creating it root-owned 700
+        // and leaving the write unelevated is the bug this replaces. 700 on a
+        // user-owned directory still keeps the dumps private, and it means no
+        // file operation here (write, list, prune) needs sudo afterwards.
+        $dir = escapeshellarg(self::SAFETY_DUMP_DIR);
+        $this->ssh->execute(
+            "sudo mkdir -p {$dir}"
+            .' && sudo chown "$(id -un)":"$(id -gn)" '.$dir
+            ." && sudo chmod 700 {$dir}"
+        );
 
         $result = $this->ssh->execute(
             $driver->buildDumpCommand($run->database, $target, $path),
@@ -266,9 +277,11 @@ class BackupRestoreService
         // propagate into the outer catch and mark an otherwise-successful
         // restore as failed.
         try {
+            // No sudo: safetyDump() chowns the directory to the connecting user,
+            // so that user owns every dump in it.
             $this->ssh->execute(
-                "sudo ls -1t {$pattern} 2>/dev/null | tail -n +".(self::SAFETY_DUMPS_KEPT + 1)
-                .' | xargs -r sudo rm -f'
+                "ls -1t {$pattern} 2>/dev/null | tail -n +".(self::SAFETY_DUMPS_KEPT + 1)
+                .' | xargs -r rm -f'
             );
         } catch (Throwable $e) {
             // Not fatal; see above.
