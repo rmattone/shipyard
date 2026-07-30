@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BackupRun;
 use App\Models\Organization;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -30,17 +31,9 @@ class BackupRunStreamController extends Controller
 
     public function stream(Request $request, BackupRun $backupRun): StreamedResponse
     {
-        $token = $request->query('token');
+        $user = $this->resolveUser($request);
 
-        if ($token) {
-            $accessToken = PersonalAccessToken::findToken($token);
-
-            if ($accessToken && (! $accessToken->expires_at || $accessToken->expires_at->isFuture())) {
-                $request->setUserResolver(fn () => $accessToken->tokenable);
-            }
-        }
-
-        if (! $request->user()) {
+        if (! $user) {
             return $this->refuse(401);
         }
 
@@ -50,8 +43,23 @@ class BackupRunStreamController extends Controller
         // failure, matching TerminalStreamController: differing bodies
         // would leak whether the run exists and whether the caller is a
         // member.
-        $user = $request->user();
-        $organizationId = $backupRun->database->server->organization_id;
+        //
+        // The chain is null-safe because the server can be soft-deleted
+        // (trashed) while its Database and BackupRun rows survive: cascade
+        // deletion only fires on force-delete, and ServerController::destroy
+        // only guards against trashing a server that still has applications,
+        // not one with only databases. A trashed server therefore resolves
+        // ->server as null through the soft-delete scope for the whole trash
+        // retention window, and roleIn()/belongsToOrganization() are both
+        // non-nullable, so passing null through them would throw a TypeError
+        // (a 500, and a stack trace leak wherever APP_DEBUG is on) instead of
+        // the refusal every other failure on this route produces.
+        $organizationId = $backupRun->database?->server?->organization_id;
+
+        if ($organizationId === null) {
+            return $this->refuse(403);
+        }
+
         $role = $user->roleIn($organizationId);
 
         if (! $user->belongsToOrganization($organizationId)
@@ -158,6 +166,38 @@ class BackupRunStreamController extends Controller
         $response->headers->set('X-Accel-Buffering', 'no');
 
         return $response;
+    }
+
+    /**
+     * Registered as this route's ->missing() callback in routes/api.php.
+     * Implicit route model binding resolves (and can fail) before stream()
+     * ever runs, so without this a request for a nonexistent run id skipped
+     * straight to Laravel's 404 while a real id went through the 401/403
+     * checks below: the status code alone let anyone probe which ids exist,
+     * across every organization, without a credential. Resolving the token
+     * the same way stream() does and mapping to the same two refusal
+     * outcomes (no valid user, or a valid user who simply isn't allowed to
+     * see this stream) makes a missing run indistinguishable from one that
+     * exists but belongs to someone else.
+     */
+    public function refuseMissing(Request $request): StreamedResponse
+    {
+        return $this->resolveUser($request) ? $this->refuse(403) : $this->refuse(401);
+    }
+
+    private function resolveUser(Request $request): ?User
+    {
+        $token = $request->query('token');
+
+        if ($token) {
+            $accessToken = PersonalAccessToken::findToken($token);
+
+            if ($accessToken && (! $accessToken->expires_at || $accessToken->expires_at->isFuture())) {
+                $request->setUserResolver(fn () => $accessToken->tokenable);
+            }
+        }
+
+        return $request->user();
     }
 
     private function refuse(int $status): StreamedResponse

@@ -51,8 +51,21 @@ class TerminalStreamController extends Controller
         // organization, and the admin role manually. Same body for every
         // failure: no existence leak. The role re-check matters because a
         // user demoted after opening a session must not attach.
+        //
+        // Null-safe: the server can be soft-deleted (trashed) while this
+        // TerminalSession row survives, since cascade deletion only fires on
+        // force-delete and trashing only guards against a server that still
+        // has applications, not a database-only one. ->server then resolves
+        // null for the whole trash retention window, and roleIn() is
+        // non-nullable, so passing null through it would throw a TypeError
+        // (a 500) instead of the 403 every other failure here produces.
         $user = $request->user();
-        $organizationId = $terminalSession->server->organization_id;
+        $organizationId = $terminalSession->server?->organization_id;
+
+        if ($organizationId === null) {
+            return $this->refuse(403);
+        }
+
         $role = $user->roleIn($organizationId);
 
         if ($terminalSession->user_id !== $user->id

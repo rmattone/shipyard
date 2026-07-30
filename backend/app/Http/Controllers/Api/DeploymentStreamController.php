@@ -37,8 +37,17 @@ class DeploymentStreamController extends Controller
         // membership in the owning org (any membership, not the current
         // one, so open streams survive an org switch). Same body as the
         // auth failure: no existence leak.
-        $ownerOrganizationId = $deployment->application->server->organization_id;
-        if (! $request->user()->belongsToOrganization($ownerOrganizationId)) {
+        //
+        // Null-safe: a server with applications can never be trashed
+        // (ServerController::destroy's applications guard), so this
+        // particular chain is not reachable via the trash window today, but
+        // the guard belongs here rather than resting on a rule enforced in
+        // a different controller. ->server resolving null would otherwise
+        // pass null into the non-nullable belongsToOrganization() and throw
+        // a TypeError (a 500) instead of the 403 every other failure here
+        // produces.
+        $ownerOrganizationId = $deployment->application?->server?->organization_id;
+        if ($ownerOrganizationId === null || ! $request->user()->belongsToOrganization($ownerOrganizationId)) {
             return new StreamedResponse(function () {
                 $this->sendEvent('error', ['message' => 'Unauthorized']);
             }, 403, ['Content-Type' => 'text/event-stream']);

@@ -45,7 +45,13 @@ Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
 Route::get('/deployments/{deployment}/stream', [DeploymentStreamController::class, 'stream']);
 Route::get('/database-installations/{installation}/stream', [DatabaseInstallationStreamController::class, 'stream']);
 Route::get('/terminal-sessions/{terminalSession}/stream', [TerminalStreamController::class, 'stream']);
-Route::get('/backup-runs/{backupRun}/stream', [BackupRunStreamController::class, 'stream']);
+// ->missing() closes the existence oracle: without it, a nonexistent run
+// id 404s before the controller's own auth checks ever run, letting a
+// request with no credentials at all distinguish "id doesn't exist" (404)
+// from "id exists" (401) across every organization. Routing it through the
+// same refusal outcomes the controller uses removes that signal.
+Route::get('/backup-runs/{backupRun}/stream', [BackupRunStreamController::class, 'stream'])
+    ->missing(fn ($request) => app(BackupRunStreamController::class)->refuseMissing($request));
 
 // Invitation accept flow (public: the token is the shared secret)
 Route::middleware('throttle:login')->group(function () {

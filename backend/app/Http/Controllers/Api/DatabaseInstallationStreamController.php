@@ -34,8 +34,17 @@ class DatabaseInstallationStreamController extends Controller
         // Route is outside auth:sanctum: the binding resolved unscoped,
         // so enforce organization membership explicitly (see
         // DeploymentStreamController for rationale).
-        $ownerOrganizationId = $installation->server->organization_id;
-        if (! $request->user()->belongsToOrganization($ownerOrganizationId)) {
+        //
+        // Null-safe: the server can be soft-deleted (trashed) while this
+        // DatabaseInstallation row survives, since cascade deletion only
+        // fires on force-delete and trashing only guards against a server
+        // that still has applications, not a database-only one. ->server
+        // then resolves null for the whole trash retention window, and
+        // belongsToOrganization() is non-nullable, so passing null through
+        // it would throw a TypeError (a 500) instead of the 403 every other
+        // failure on this route produces.
+        $ownerOrganizationId = $installation->server?->organization_id;
+        if ($ownerOrganizationId === null || ! $request->user()->belongsToOrganization($ownerOrganizationId)) {
             return new StreamedResponse(function () {
                 $this->sendEvent('error', ['message' => 'Unauthorized']);
             }, 403, ['Content-Type' => 'text/event-stream']);
