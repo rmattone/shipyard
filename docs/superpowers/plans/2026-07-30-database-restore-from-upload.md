@@ -893,11 +893,9 @@ class DatabaseRestoreCommandTest extends TestCase
         $this->assertStringContainsString("| gzip > '/var/backups/shipyard/shop.sql.gz'", $command);
     }
 
-    public function test_postgres_verify_command_targets_the_restored_database(): void
+    public function test_postgres_table_count_command_targets_the_restored_database(): void
     {
-        $command = (new PostgreSQLService)->buildRestoreVerifyCommand(
-            $this->pgConnection(), 'shop', 'SELECT count(*) FROM pg_tables'
-        );
+        $command = (new PostgreSQLService)->buildTableCountCommand($this->pgConnection(), 'shop');
 
         // Must run against the restored database, not the default postgres one,
         // and return a bare value the service can parse into an integer.
@@ -905,11 +903,9 @@ class DatabaseRestoreCommandTest extends TestCase
         $this->assertStringContainsString('-t -A', $command);
     }
 
-    public function test_mysql_verify_command_is_built_for_the_connection(): void
+    public function test_mysql_table_count_command_queries_information_schema(): void
     {
-        $command = (new MySQLService)->buildRestoreVerifyCommand(
-            $this->mysqlConnection(), 'shop', 'SELECT count(*) FROM information_schema.tables'
-        );
+        $command = (new MySQLService)->buildTableCountCommand($this->mysqlConnection(), 'shop');
 
         $this->assertStringContainsString('mysql', $command);
         $this->assertStringContainsString('information_schema.tables', $command);
@@ -954,10 +950,13 @@ Append to the interface in `backend/app/Services/DatabaseDriverInterface.php`, b
     public function applyDatabaseAttributes(SSHService $ssh, Database $database, string $dbName, array $attributes): void;
 
     /**
-     * Shell command that runs a read-only query against $dbName and returns
-     * bare values, used for post-restore verification.
+     * Shell command that counts the tables in $dbName and returns a bare
+     * value, used for post-restore verification. The dialect-specific query
+     * (pg_tables vs information_schema.tables) and its escaping live here,
+     * not in the caller, matching every other engine-specific detail in this
+     * interface.
      */
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string;
+    public function buildTableCountCommand(Database $database, string $dbName): string;
 ```
 
 - [ ] **Step 4: Implement in PostgreSQLService**
@@ -1034,12 +1033,14 @@ Append to `backend/app/Services/PostgreSQLService.php`, before `escapeName()`:
         }
     }
 
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
+    public function buildTableCountCommand(Database $database, string $dbName): string
     {
+        $sql = "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'";
+
         // buildCommand's existing signature is
         // (Database, string $sql, bool $tupleOnly = false, ?string $dbName = null)
-        // at PostgreSQLService.php:354, so this asks for bare values against the
-        // restored database rather than the default postgres database.
+        // so this asks for bare values against the restored database rather
+        // than the default postgres database.
         return $this->buildCommand($database, $sql, true, $dbName);
     }
 ```
@@ -1107,10 +1108,17 @@ Append to `backend/app/Services/MySQLService.php`, before `escapeName()`:
         // createDatabase(), so there is nothing left to do here.
     }
 
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
+    public function buildTableCountCommand(Database $database, string $dbName): string
     {
-        // The verification query names its own schema, so there is no need to
-        // select a default database the way the PostgreSQL driver does.
+        // Names its own schema, so there is no need to select a default
+        // database the way the PostgreSQL driver does. escapeString(), not a
+        // hand-rolled str_replace: it also escapes backslashes, which a plain
+        // "'" -> "''" substitution would miss.
+        $sql = sprintf(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s'",
+            $this->escapeString($dbName)
+        );
+
         return $this->buildCommand($database, $sql);
     }
 ```
@@ -1278,7 +1286,7 @@ class BackupRestoreServiceTest extends TestCase
 
         $this->assertSame('failed', $run->status);
         $this->assertSame('restore', $run->failed_step);
-        $this->assertStringContainsString('partially loaded', $run->log);
+        $this->assertStringContainsString('unknown state', $run->log);
         $this->assertStringContainsString($run->safety_dump_path, $run->log);
     }
 
@@ -1444,7 +1452,7 @@ class BackupRestoreService
 
             if ($run->safety_dump_path) {
                 $run->appendLog(
-                    "The target database may be partially loaded. The pre-restore dump is at "
+                    'The target database is now in an unknown state. The pre-restore dump is at '
                     ."{$run->safety_dump_path} on the server."
                 );
             }
@@ -1507,19 +1515,19 @@ class BackupRestoreService
      */
     private function verify(BackupRun $run, Database $database, string $target): void
     {
+        // No SQL here: the dialect-specific query lives on the driver, like
+        // every other engine-specific detail in this feature.
         $driver = $this->driverFor($database);
 
-        $sql = $database->isPostgreSQL()
-            ? "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"
-            : sprintf(
-                "SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s'",
-                str_replace("'", "''", $target)
-            );
-
-        $result = $this->ssh->execute($driver->buildRestoreVerifyCommand($database, $target, $sql));
+        $result = $this->ssh->execute($driver->buildTableCountCommand($database, $target));
         $output = trim($result['output'] ?? '');
 
-        if (! $result['success'] || ! preg_match('/\d+/', $output, $matches)) {
+        // Start-anchored deliberately. MySQL's buildCommand appends 2>&1, so a
+        // client warning containing a version number could otherwise be read as
+        // the table count, turning an empty restore into a reported success.
+        // Leading noise must fail; trailing noise is harmless because the real
+        // count still comes first.
+        if (! $result['success'] || ! preg_match('/^\d+/', $output, $matches)) {
             throw new RuntimeException('Could not verify the restored database: '.($output ?: 'no output'));
         }
 
@@ -1576,7 +1584,7 @@ class BackupRestoreService
 
 Run: `DB_HOST=127.0.0.1 DB_PORT=33061 DB_USERNAME=root DB_PASSWORD=testing php artisan test --filter=BackupRestoreServiceTest`
 
-Expected: PASS, 7 tests. `buildRestoreVerifyCommand` already exists on both drivers from Task 4, so this task only writes the service.
+Expected: PASS. `buildTableCountCommand` already exists on both drivers from Task 4, so this task only writes the service.
 
 - [ ] **Step 5: Commit**
 
@@ -1771,6 +1779,13 @@ git commit -m "Add ProcessDatabaseRestore job"
 - Create: `backend/app/Http/Controllers/Api/DatabaseRestoreController.php`
 - Modify: `backend/routes/api.php`
 - Test: `backend/tests/Feature/DatabaseRestoreUploadTest.php`
+
+This task establishes a precedent rather than following one. Verified against the codebase: there is no `$request->file()` in any controller, no `storeAs` or `store` anywhere in `app/`, and no `UploadedFile` in any test. The only existing `Storage` calls are the ones Task 5 just added. So do not go looking for a local upload convention; there is none.
+
+Two environment facts, both verified rather than assumed:
+
+- `storage/app/private` does not exist yet. Laravel's local disk creates it on first write, and `storage/app/.gitignore` ignores everything except `public/`, so the new directory needs no repository change.
+- PHP-FPM in the `app` container runs as `www-data` (uid 33) and can create and write `storage/app/private/restores` despite `storage/app` showing as `root:root` under the bind mount. Confirmed by creating and writing a probe file as that user, so there is no permission blocker for the first upload.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -3066,7 +3081,7 @@ sudo ls -la /var/backups/shipyard/
 
 Upload a gzipped file containing `SELECT 1; GARBAGE SYNTAX HERE;` and overwrite an expendable database.
 
-Expected: the run ends failed with `failed_step` of `restore`, the log states the database may be partially loaded, and it names the safety dump path.
+Expected: the run ends failed with `failed_step` of `restore`, the log states the database is in an unknown state, and it names the safety dump path.
 
 - [ ] **Step 6: Verify the size ceiling**
 
@@ -3121,7 +3136,7 @@ Spec coverage check against the amendment:
 | Partial-load failure message names the safety dump | Task 5 |
 | Every listed test case | Tasks 2 through 8 |
 
-Naming consistency: `BackupRun`, `BackupRestoreService::restoreFromUpload`, `ProcessDatabaseRestore`, `DumpInspector::detect`, `buildRestoreCommand`, `buildDumpCommand`, `describeDatabase`, `applyDatabaseAttributes`, `buildRestoreVerifyCommand`, `databaseRestoresApi` are each used identically everywhere they appear.
+Naming consistency: `BackupRun`, `BackupRestoreService::restoreFromUpload`, `ProcessDatabaseRestore`, `DumpInspector::detect`, `buildRestoreCommand`, `buildDumpCommand`, `describeDatabase`, `applyDatabaseAttributes`, `buildTableCountCommand`, `databaseRestoresApi` are each used identically everywhere they appear.
 
 Signatures verified against the codebase while writing, so no task asks the implementer to guess: `PostgreSQLService::buildCommand()` takes `(Database, string $sql, bool $tupleOnly = false, ?string $dbName = null)` at line 354, and the role accessor is `User::roleIn()` at line 49 (there is no `roleInOrganization()`). The SSE controller follows `TerminalStreamController`'s single-refusal-body convention so authorization failures leak nothing about what exists.
 
