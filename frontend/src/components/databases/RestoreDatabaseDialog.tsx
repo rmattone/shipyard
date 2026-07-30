@@ -109,7 +109,15 @@ export function RestoreDatabaseDialog({
     <Dialog
       open={open}
       onOpenChange={(next) => {
-        if (!next && !uploading) reset()
+        // Radix funnels every dismissal path (Escape, an outside click, and
+        // the built-in close button rendered inside DialogContent) through
+        // this single callback before it ever reaches the caller's own
+        // onOpenChange, so ignoring it here while uploading blocks all three
+        // at once. Without this, any of them closes the dialog mid-upload
+        // with no further feedback, while the upload (up to 1.2 GB) keeps
+        // running unseen.
+        if (uploading) return
+        if (!next) reset()
         onOpenChange(next)
       }}
     >
@@ -158,7 +166,13 @@ export function RestoreDatabaseDialog({
 
           {uploading && (
             <div className="space-y-1">
-              <div className="h-2 w-full overflow-hidden rounded bg-muted">
+              <div
+                className="h-2 w-full overflow-hidden rounded bg-muted"
+                role="progressbar"
+                aria-valuenow={progress}
+                aria-valuemin={0}
+                aria-valuemax={100}
+              >
                 <div
                   className="h-full bg-primary transition-all"
                   style={{ width: `${progress}%` }}
