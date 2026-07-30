@@ -65,6 +65,9 @@ Route::middleware('throttle:login')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/user', [AuthController::class, 'user']);
+    Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
+    Route::put('/auth/password', [AuthController::class, 'updatePassword']);
+    Route::post('/auth/logout-others', [AuthController::class, 'logoutOthers']);
     Route::post('/organizations', [OrganizationController::class, 'store'])
         ->name('organizations.store');
 });
