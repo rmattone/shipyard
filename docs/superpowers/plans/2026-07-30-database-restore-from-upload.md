@@ -765,10 +765,35 @@ git commit -m "Add dump format detection by magic bytes"
 Engine specifics stay in the drivers. The service orchestrates and never writes SQL or shell itself.
 
 **Files:**
+- Create: `backend/app/Services/Concerns/WrapsShellPipeline.php`
 - Modify: `backend/app/Services/DatabaseDriverInterface.php`
 - Modify: `backend/app/Services/PostgreSQLService.php`
 - Modify: `backend/app/Services/MySQLService.php`
 - Test: `backend/tests/Feature/DatabaseRestoreCommandTest.php`
+
+### Every piped command must be pipefail wrapped
+
+`SSHService::execute()` hands the raw string to phpseclib's `exec()` with no shell wrapping, and a shell reports only the LAST command's status in a pipeline. So `pg_dump | gzip > path` returns 0 when `pg_dump` fails after emitting some bytes, which would produce a truncated safety dump reported as success. That dump is the only recovery path before a destructive restore, which makes this the most consequential detail in the task.
+
+Both piped commands (`buildRestoreCommand` and `buildDumpCommand`) therefore go through a shared trait, `WrapsShellPipeline`, whose `withPipefail()` returns:
+
+```php
+return 'bash -c '.escapeshellarg('set -o pipefail; { '.$pipeline.'; } 2>&1');
+```
+
+Three things are load bearing:
+
+1. `bash -c` explicitly, because `set -o pipefail` is not POSIX and dash lacks it, so the remote default shell cannot be assumed. This matches existing practice, as `RunsRemoteScripts` already runs `bash {$path}`.
+2. The `{ ...; } 2>&1` group, NOT a trailing `2>&1` after `> $path`. Appending after the file redirect duplicates the file descriptor and writes stderr into the archive, corrupting it. The group sends every stage's stderr to the command's stdout, which is what phpseclib captures, while leaving gzip's stdout bound to the file. Verified: the archive still passes `gunzip -t` and the stderr text arrives separately.
+3. Because the group covers it, neither `buildRestoreCommand` carries its own trailing `2>&1`.
+
+The trait, rather than a copy in each driver, because there is exactly one correct way to wrap a pipeline and no per-engine variation, unlike `escapeName`, `escapeString`, and `buildCommand`, which genuinely differ per dialect.
+
+Note for the tests: the outer `escapeshellarg` re-escapes the inner pipeline's own single quotes, so `gunzip -c '/path'` does NOT survive as a literal substring of the wrapped command. Assert on the wrapping (`bash -c `, `set -o pipefail; `) directly, and recover the inner pipeline for content assertions by reversing the escaping in pure PHP (strip the outer quotes, then `str_replace("'\\''", "'", ...)`). Do not shell out to do this, and do not hardcode doubly escaped literals.
+
+### describeDatabase must not parse a failed command
+
+Every other method in both drivers checks `$result['success']` and throws. `describeDatabase` must too. Without the guard, a transient SSH failure gets carved into `owner`, `charset`, and `collation`, and `applyDatabaseAttributes` then runs `ALTER DATABASE "x" OWNER TO "<fragment of an error message>"`. Normalize blank fields to null as well, so the documented `?string` holds. Both this method and `applyDatabaseAttributes` need tests in both drivers, including the failure case: a test that mocks success and asserts the parse would not have caught the missing guard.
 
 - [ ] **Step 1: Write the failing test**
 
