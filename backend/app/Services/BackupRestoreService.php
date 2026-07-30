@@ -37,11 +37,27 @@ class BackupRestoreService
     public const LOAD_TIMEOUT = 1500;
 
     /**
-     * Headroom for the remaining steps, none of which are given an explicit
-     * timeout and so fall back to SSHService::execute()'s 300s default:
-     * describe, drop, create, apply attributes, verify, prune, cleanup.
+     * Headroom for every step that is NOT given its own explicit timeout and
+     * so falls back to SSHService::execute()'s 300s per-command default: the
+     * touch/chmod before upload (push()), describeDatabase, the safety-dump
+     * directory's mkdir/chmod (safetyDump()), PostgreSQL's separate
+     * pg_terminate_backend before the actual drop, dropDatabase itself,
+     * createDatabase, applyDatabaseAttributes, the post-restore table-count
+     * verification, pruneSafetyDumps, and the final cleanup rm -f. That is up
+     * to ten SSH round trips sharing this one budget, not the seven an
+     * earlier version of this comment counted.
+     *
+     * None of them are individually slow in the common case, but none of
+     * them hit their own 300s ceiling either if they are merely slow rather
+     * than hung (DROP DATABASE waiting on a lock, pg_terminate_backend
+     * against many open connections, an ls -1t over a poorly-pruned dump
+     * directory), so a merely-slow command still counts fully against this
+     * shared total instead of failing on its own and being caught by the
+     * service's own try/catch. Budgeted at roughly 60s per round trip across
+     * up to ten of them, rather than the flat 300s this constant used to
+     * carry regardless of how many steps it actually had to cover.
      */
-    public const OVERHEAD_TIMEOUT = 300;
+    public const OVERHEAD_TIMEOUT = 600;
 
     /**
      * The job timeout must cover the whole sequence, not any single command.
@@ -142,22 +158,7 @@ class BackupRestoreService
             $run->markAsSuccess();
         } catch (Throwable $e) {
             $run->appendLog('ERROR: '.$e->getMessage());
-
-            if ($run->safety_dump_path) {
-                // Deliberately neutral rather than "may be partially loaded":
-                // that phrasing is only true for a failure during the load
-                // itself. If dropDatabase() succeeded but createDatabase()
-                // then failed, the target does not exist at all; if
-                // applyDatabaseAttributes() failed, it exists and is empty.
-                // "Unknown state" is honest on every path that reaches here,
-                // and the safety dump path is what actually matters for
-                // recovery regardless of which of those it was.
-                $run->appendLog(
-                    'The target database is now in an unknown state. The pre-restore dump is at '
-                    ."{$run->safety_dump_path} on the server."
-                );
-            }
-
+            $run->appendUnknownStateNote();
             $run->markAsFailed($step);
         } finally {
             $this->cleanup($run, $remotePath);
