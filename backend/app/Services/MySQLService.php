@@ -277,7 +277,7 @@ class MySQLService implements DatabaseDriverInterface
 
         // The mysql client aborts on the first error unless --force is given,
         // which is the behaviour a restore needs.
-        return sprintf(
+        $pipeline = sprintf(
             '%s | MYSQL_PWD=%s mysql -h %s -P %d -u %s %s 2>&1',
             $reader,
             escapeshellarg($database->admin_password),
@@ -286,11 +286,13 @@ class MySQLService implements DatabaseDriverInterface
             escapeshellarg($database->admin_user),
             escapeshellarg($dbName)
         );
+
+        return $this->withPipefail($pipeline);
     }
 
     public function buildDumpCommand(Database $database, string $dbName, string $outputPath): string
     {
-        return sprintf(
+        $pipeline = sprintf(
             'MYSQL_PWD=%s mysqldump -h %s -P %d -u %s --single-transaction --routines --triggers %s | gzip > %s',
             escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
@@ -299,6 +301,8 @@ class MySQLService implements DatabaseDriverInterface
             escapeshellarg($dbName),
             escapeshellarg($outputPath)
         );
+
+        return $this->withPipefail($pipeline);
     }
 
     public function describeDatabase(SSHService $ssh, Database $database, string $dbName): array
@@ -330,6 +334,18 @@ class MySQLService implements DatabaseDriverInterface
         // The verification query names its own schema, so there is no need to
         // select a default database the way the PostgreSQL driver does.
         return $this->buildCommand($database, $sql);
+    }
+
+    /**
+     * Wrap a piped command so a failure upstream of the last stage (e.g. a
+     * failing mysqldump piped into a succeeding gzip) is not masked by the
+     * shell reporting only the last command's exit status. bash is used
+     * explicitly because `set -o pipefail` is not POSIX and phpseclib's
+     * exec() does not guarantee bash as the default shell.
+     */
+    protected function withPipefail(string $pipeline): string
+    {
+        return 'bash -c '.escapeshellarg('set -o pipefail; '.$pipeline);
     }
 
     protected function escapeName(string $name): string

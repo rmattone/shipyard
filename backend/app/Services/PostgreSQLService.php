@@ -383,7 +383,7 @@ class PostgreSQLService implements DatabaseDriverInterface
 
         // ON_ERROR_STOP=1 is what turns a broken dump into a failed restore
         // instead of a silently half-loaded database.
-        return sprintf(
+        $pipeline = sprintf(
             '%s | PGPASSWORD=%s psql -h %s -p %d -U %s -d %s -v ON_ERROR_STOP=1 -q 2>&1',
             $reader,
             escapeshellarg($database->admin_password),
@@ -392,11 +392,13 @@ class PostgreSQLService implements DatabaseDriverInterface
             escapeshellarg($database->admin_user),
             escapeshellarg($dbName)
         );
+
+        return $this->withPipefail($pipeline);
     }
 
     public function buildDumpCommand(Database $database, string $dbName, string $outputPath): string
     {
-        return sprintf(
+        $pipeline = sprintf(
             'PGPASSWORD=%s pg_dump -h %s -p %d -U %s %s | gzip > %s',
             escapeshellarg($database->admin_password),
             escapeshellarg($database->host),
@@ -405,6 +407,8 @@ class PostgreSQLService implements DatabaseDriverInterface
             escapeshellarg($dbName),
             escapeshellarg($outputPath)
         );
+
+        return $this->withPipefail($pipeline);
     }
 
     public function describeDatabase(SSHService $ssh, Database $database, string $dbName): array
@@ -451,6 +455,18 @@ class PostgreSQLService implements DatabaseDriverInterface
         // at PostgreSQLService.php:354, so this asks for bare values against the
         // restored database rather than the default postgres database.
         return $this->buildCommand($database, $sql, true, $dbName);
+    }
+
+    /**
+     * Wrap a piped command so a failure upstream of the last stage (e.g. a
+     * failing pg_dump piped into a succeeding gzip) is not masked by the
+     * shell reporting only the last command's exit status. bash is used
+     * explicitly because `set -o pipefail` is not POSIX and phpseclib's
+     * exec() does not guarantee bash as the default shell.
+     */
+    protected function withPipefail(string $pipeline): string
+    {
+        return 'bash -c '.escapeshellarg('set -o pipefail; '.$pipeline);
     }
 
     protected function escapeName(string $name): string
