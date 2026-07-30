@@ -147,6 +147,34 @@ class BackupRun extends Model
         ]);
     }
 
+    /**
+     * The one recovery line every failure path needs to say identically:
+     * where the pre-restore safety dump is, if one was taken. Extracted so
+     * BackupRestoreService's own catch block, ProcessDatabaseRestore::failed()
+     * (which runs instead of that catch block when a worker is killed or the
+     * job's own timeout fires mid-restore), and the stale-run reaper all say
+     * exactly the same thing rather than three wordings that can drift apart.
+     * A no-op when no safety dump was ever taken.
+     */
+    public function appendUnknownStateNote(): void
+    {
+        if (! $this->safety_dump_path) {
+            return;
+        }
+
+        // Deliberately neutral rather than "may be partially loaded": that
+        // phrasing is only true for a failure during the load itself. If
+        // dropDatabase() succeeded but createDatabase() then failed, the
+        // target does not exist at all; if applyDatabaseAttributes() failed,
+        // it exists and is empty. "Unknown state" is honest regardless of
+        // which of those it was, and the safety dump path is what actually
+        // matters for recovery either way.
+        $this->appendLog(
+            'The target database is now in an unknown state. The pre-restore dump is at '
+            ."{$this->safety_dump_path} on the server."
+        );
+    }
+
     // started_at->diffInSeconds(now()), not the reverse: Carbon 3's
     // diffInSeconds($other) returns $other - $this, so calling it on the
     // later timestamp with the earlier one as the argument yields a
