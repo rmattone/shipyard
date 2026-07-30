@@ -2,6 +2,7 @@
 
 Date: 2026-07-28
 Status: Approved
+Amended: 2026-07-30 (see "Amendment: restore from an uploaded dump")
 
 ## Summary
 
@@ -138,3 +139,133 @@ Manual verification on a fresh EC2 instance: create a config with a `* * * * *` 
 - Success notifications and per-channel event toggles.
 - Multipart upload tuning for very large dumps (rclone chunks large files by default, so the 5 GB single PUT limit does not apply here).
 - Backup of application files or volumes.
+
+---
+
+# Amendment: restore from an uploaded dump
+
+Date: 2026-07-30
+Status: Approved
+
+## Why
+
+The restore flow above assumes the dump already lives in an S3 destination. The common case in practice is a dump sitting on a developer machine, produced by `pg_dump` or `mysqldump` somewhere else entirely (a production box ShipYard does not manage, a colleague, a CI artifact). Reaching it today means creating a destination, uploading by hand with another tool, and only then restoring. This amendment adds a second restore source, a direct file upload, and it deliberately reuses the restore machinery defined above instead of introducing a parallel one.
+
+This amendment can ship before the rest of the feature. It needs the `backup_runs` table and model, `BackupRestoreService`, `ProcessDatabaseRestore`, and the SSE log. It does not need rclone, destinations, configs, cron, or the callback, because an uploaded dump never touches S3.
+
+## Source model
+
+Restore gains an explicit source, recorded on the run:
+
+- `s3`: the flow already specified. The object is listed live through rclone and streamed with `rclone cat`.
+- `upload`: a dump uploaded through the ShipYard UI, stored briefly on the ShipYard host, then pushed to the target server over SFTP.
+
+Everything after the bytes land on the target server is shared: the same target selection, the same confirmation rule, the same log, the same run row, the same failure semantics.
+
+## Data model changes
+
+`backup_runs` carries restores for both sources, distinguished by the `kind` column (`backup` or `restore`) that the implementation plan already defines. Changes:
+
+- `backup_config_id` becomes nullable. An uploaded restore has no config to anchor to.
+- `s3_key` is nullable and stays empty for uploaded restores, which never touch object storage.
+- `trigger` is `manual` for every uploaded restore, since there is no cron path to it.
+- `database_id` is added (FK to `databases`), always set. For config-based runs it matches the config's connection. This is what an uploaded restore is scoped and authorized by, and what the organization scope traverses.
+- `database_name` already exists and carries the restore target.
+- `source` is added, values `s3` or `upload`, nullable for backup runs where it has no meaning.
+- `original_filename`, `byte_size`, and `format` (values `sql` or `sql_gz`) are added, populated for uploaded restores.
+- `upload_path` is added, hidden from API responses, holding the location on the ShipYard host so the job can find the file and cleanup can find orphans.
+- `safety_dump_path` is added, holding the pre-restore dump location on the target server.
+
+The model reaches the organization through `database.server` using `BelongsToOrganizationThroughParent`, which already supports dotted relations. Restores are route-bound records that can destroy a database, so this scope is load-bearing rather than cosmetic.
+
+## Accepted formats
+
+Plain SQL and gzipped plain SQL, for both engines. The format is resolved by sniffing the first bytes rather than trusting the extension, because `.sql.gz` has no reliable MIME type:
+
+- `1f 8b` means gzip.
+- A leading `--`, `SET`, or `/*` means plain SQL.
+- A leading `PGDMP` is a custom-format `pg_dump` archive. It is rejected with a message naming `pg_restore`, rather than a generic unsupported-file error, because the fix is specific and the user needs to know it.
+
+## Size ceiling and infrastructure
+
+The ceiling is 1 GB compressed. Nothing in the current stack is sized for that, so all three limits move together:
+
+- PHP runs on defaults today (`upload_max_filesize` 2M, `post_max_size` 8M) because there is no custom ini. Both go to 1200M as `php_admin_value` entries in `docker/php/zz-shipyard.conf`. That file is baked with `COPY`, so applying it needs `docker compose build app`, not a container restart.
+- nginx caps bodies at 100M globally (`docker/nginx/default.conf`). The global cap stays. A location block scoped to the restore upload route raises it to 1200M, with a matching `client_body_timeout`. Editing that file needs `docker compose restart nginx`, because the single-file bind mount goes stale when an edit replaces the inode.
+- Uploads never enter memory. PHP spools the request body to a temp file and `storeAs()` moves it. The transient cost is roughly the file size twice, once in the nginx body temp directory and once in `storage/app/restores`, so the controller checks free disk before accepting and fails early with a clear message instead of dying mid-write.
+
+## Target selection and guardrails
+
+The target rule from the main spec stands, and the upload source inherits it rather than redefining it. Restoring into a new database name is the default and the recommended path. Overwriting an existing database requires typing the database name to confirm, and the API enforces the match server-side so the dialog is not the only thing standing between a misclick and a wiped database.
+
+Overwriting is implemented as drop, recreate, then load, because plain `pg_dump` and `mysqldump` output assumes an empty target. The recreate reads the current owner and encoding (PostgreSQL) or charset and collation (MySQL) before the drop and reuses the drivers' existing `dropDatabase` and `createDatabase` methods, so the new database matches the old one and the DDL is not duplicated.
+
+A safety dump of the target is taken before any destructive step in the overwrite path, written to `/var/backups/shipyard/` rather than `/var/tmp` so it survives a reboot. Each successful restore prunes that directory to the three most recent dumps per target database, which bounds the growth without needing a new scheduled command.
+
+The upload endpoint is gated by `org.role:admin`, matching the destructive server actions. `org.writes` already blocks members ahead of it, so the admin gate is the meaningful one.
+
+## Credentials
+
+Database credentials follow the convention already used by both drivers, `PGPASSWORD` and `MYSQL_PWD` populated through `escapeshellarg`, never a password on a command line. The restore does not assume passwordless `sudo` on the target server, so it works with the stored admin credentials alone.
+
+## Execution
+
+`ProcessDatabaseRestore` runs with `tries = 1`, because a destructive operation must never be retried automatically, and a timeout sized for a gigabyte load. `BackupRestoreService` drives discrete SSH calls with a log append per step, following `DatabaseInstallationService::runCommand`, rather than one bundled remote script. A bundled script only returns its output at the end, which would leave the user watching a dead panel for several minutes.
+
+Steps for the upload source:
+
+1. Preflight. Confirm the target exists (or does not exist, when restoring to a new name), the client binaries are present, and the server has disk headroom for the dump plus the safety dump.
+2. Push the dump to `/var/tmp` over SFTP, mode 600.
+3. Safety dump, when overwriting.
+4. Drop and recreate, when overwriting. Create, when restoring to a new name.
+5. Load, as `gunzip -c dump | psql -v ON_ERROR_STOP=1` or the `mysql` equivalent, so a mid-dump error aborts instead of leaving a silently half-loaded database.
+6. Verify. Table count and row totals, appended to the log.
+7. Cleanup. Remove the dump from the target server and from the ShipYard host.
+
+## API surface
+
+```
+POST   /servers/{server}/databases/{database}/restores    multipart upload, returns 202 and the run
+GET    /servers/{server}/databases/{database}/restores    restore history for the connection
+GET    /backup-runs/{run}                                 status poll fallback
+GET    /backup-runs/{run}/stream                          SSE log
+```
+
+The multipart body carries `dump`, `target_database`, `overwrite`, and `confirm_name`. The S3 restore endpoint from the main spec is unchanged and continues to live under its config.
+
+The stream route sits outside `auth:sanctum` with the other SSE routes, so it validates the query parameter token, organization membership, and the admin role by hand. It caps at 1800 seconds and the client reconnects on timeout, resuming from its log offset. This matters because the log is persisted on the run rather than existing only in Redis, and because every SSE stream pins a php-fpm worker. The 300 second cap in `DatabaseInstallationStreamController` is too short to copy here.
+
+## Frontend
+
+`DatabaseDetail.tsx` is already 817 lines, so the new surface goes in its own components, `RestoreDatabaseDialog.tsx` and `RestoreLogPanel.tsx`, rather than growing that file further.
+
+The dialog states what is about to happen (which database is affected, that it will be dropped and recreated when overwriting, that a safety dump is taken first), requires the typed name for overwrites, and uploads with an axios `onUploadProgress` handler so the progress bar reflects real bytes. On a 202 it switches to the log panel on the SSE stream, the same shape as the installation log in `ServerSoftware.tsx`. A short restore history sits below, showing status, size, when, and who ran it.
+
+## Error handling
+
+Every failure appends to the log and marks the run failed. The uploaded file is removed on both success and failure, from the job's `finally` and from `failed()`, so a killed worker cannot leak a gigabyte into `storage/app`.
+
+A load that dies partway leaves the target partially populated. The failure message says so explicitly and prints the safety dump path, so recovery is one command rather than an investigation. This is the same non-transactional warning the main spec makes for S3 restores, and it is the reason restoring to a new name is the default.
+
+## Testing
+
+Feature tests with faked SSH results, following the `fakeResults` approach in `RollbackReliabilityTest`:
+
+- The admin gate, and a member being refused.
+- Cross-organization access returning 404 through the `database.server` scope.
+- `confirm_name` mismatch refused when overwriting.
+- The size cap, and the free-disk refusal.
+- Format sniffing for gzip, plain SQL, and the `PGDMP` rejection.
+- Target must exist when overwriting, and must not exist when restoring to a new name.
+- Safety dump ordering, proving it precedes the drop.
+- Upload cleanup on both the success and failure paths.
+- The three SSE authorization checks.
+
+Manual verification on a throwaway EC2 instance with a real dump, restoring first to a new database name and then over an existing one.
+
+## Out of scope for this amendment
+
+- Chunked or resumable uploads. The 1 GB ceiling is a single request by design.
+- Custom-format `pg_dump` archives and `pg_restore`.
+- Uploading a dump into an S3 destination as a side effect of restoring.
+- Cross-server restore, which the main spec already excludes.
