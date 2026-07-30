@@ -24,6 +24,21 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  * offset, which works because BackupRun::log is persisted on the row: a
  * fresh connection always replays the full log via the "connected" event, so
  * the frontend must replace its buffer on "connected", not append to it.
+ *
+ * Events sent: connected, log, heartbeat, complete, timeout, stream_error.
+ * Deliberately "stream_error" rather than "error": a browser EventSource
+ * fires its OWN "error" event (via the onerror handler) for transport-level
+ * failures (dropped connection, non-200 response), and that firing is not a
+ * separate channel from a same-named event we send ourselves, it is the same
+ * DOM event type. Naming our fatal, per-run failures (missing run, denied
+ * auth) "error" would make every one of them also trigger the client's
+ * generic transport-error handling, and vice versa: a plain network blip
+ * would spuriously look like one of these named failures. The three sibling
+ * stream controllers (DeploymentStreamController,
+ * DatabaseInstallationStreamController, TerminalStreamController) still use
+ * "error" and share this same latent collision, but their frontends are
+ * shipped, so changing their wire contract is a separate, deliberately
+ * deferred assessment.
  */
 class BackupRunStreamController extends Controller
 {
@@ -75,7 +90,7 @@ class BackupRunStreamController extends Controller
             $run = BackupRun::withoutGlobalScopes()->find($runId);
 
             if (! $run) {
-                $this->sendEvent('error', ['message' => 'Run not found']);
+                $this->sendEvent('stream_error', ['message' => 'Run not found']);
 
                 return;
             }
@@ -131,7 +146,7 @@ class BackupRunStreamController extends Controller
                 $run = BackupRun::withoutGlobalScopes()->find($runId);
 
                 if (! $run) {
-                    $this->sendEvent('error', ['message' => 'Run not found']);
+                    $this->sendEvent('stream_error', ['message' => 'Run not found']);
                     break;
                 }
 
@@ -203,7 +218,7 @@ class BackupRunStreamController extends Controller
     private function refuse(int $status): StreamedResponse
     {
         return new StreamedResponse(function () {
-            $this->sendEvent('error', ['message' => 'Unauthorized']);
+            $this->sendEvent('stream_error', ['message' => 'Unauthorized']);
         }, $status, ['Content-Type' => 'text/event-stream']);
     }
 

@@ -365,6 +365,7 @@ export interface BackupRun {
   id: number
   backup_config_id: number | null
   database_id: number
+  user_id: number | null
   database_name: string
   kind: 'backup' | 'restore'
   trigger: 'cron' | 'manual'
