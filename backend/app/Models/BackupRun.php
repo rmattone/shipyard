@@ -24,6 +24,19 @@ class BackupRun extends Model
 
     public const FORMAT_SQL_GZ = 'sql_gz';
 
+    public const TRIGGER_MANUAL = 'manual';
+
+    /**
+     * The disk an uploaded dump is stored on and later read from, pinned
+     * here rather than left to follow config('filesystems.default'). The
+     * restore step (BackupRestoreService::push()) needs a real local
+     * filesystem path to hand to SFTP, so this deliberately does not follow
+     * whatever the app's default disk is configured to (e.g. s3): every
+     * site that writes, reads, or cleans up an upload_path must agree on
+     * the same disk, and naming it once here is what keeps them agreeing.
+     */
+    public const UPLOAD_DISK = 'local';
+
     protected static function organizationParentRelation(): string
     {
         return 'database.server';

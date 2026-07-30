@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\Api\DatabaseRestoreController;
 use App\Jobs\ProcessDatabaseRestore;
 use App\Models\BackupRun;
 use App\Models\Database;
@@ -22,6 +23,11 @@ class DatabaseRestoreUploadTest extends TestCase
     private function gzDump(string $name = 'dump.sql.gz'): UploadedFile
     {
         return UploadedFile::fake()->createWithContent($name, gzencode("--\n-- dump\n--\nSELECT 1;\n"));
+    }
+
+    private function sqlDump(string $name = 'dump.sql'): UploadedFile
+    {
+        return UploadedFile::fake()->createWithContent($name, "--\n-- dump\n--\nSELECT 1;\n");
     }
 
     private function setup_target(): array
@@ -56,7 +62,7 @@ class DatabaseRestoreUploadTest extends TestCase
         $run = BackupRun::first();
         $this->assertSame(BackupRun::KIND_RESTORE, $run->kind);
         $this->assertSame(BackupRun::SOURCE_UPLOAD, $run->source);
-        $this->assertSame('manual', $run->trigger);
+        $this->assertSame(BackupRun::TRIGGER_MANUAL, $run->trigger);
         $this->assertSame(BackupRun::FORMAT_SQL_GZ, $run->format);
         $this->assertSame($user->id, $run->user_id);
         $this->assertSame('shop', $run->database_name);
@@ -218,5 +224,139 @@ class DatabaseRestoreUploadTest extends TestCase
         $response->assertStatus(202);
         $this->assertSame(2, BackupRun::count());
         Queue::assertPushed(ProcessDatabaseRestore::class);
+    }
+
+    public function test_an_uncompressed_sql_dump_is_accepted(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $database] = $this->setup_target();
+
+        $response = $this->actingAs($user)->postJson($this->url($database), [
+            'dump' => $this->sqlDump(),
+            'target_database' => 'shop',
+            'overwrite' => '0',
+        ]);
+
+        $response->assertStatus(202);
+
+        $run = BackupRun::first();
+        $this->assertSame(BackupRun::FORMAT_SQL, $run->format);
+        Storage::disk('local')->assertExists($run->upload_path);
+        $this->assertStringEndsWith('.sql', $run->upload_path);
+        Queue::assertPushed(ProcessDatabaseRestore::class);
+    }
+
+    /**
+     * Regression test for the disk-mismatch bug: the controller used to
+     * write via $file->storeAs(...), which resolves config('filesystems.
+     * default'). That agreed with BackupRestoreService's hardcoded
+     * Storage::disk('local') reads only by coincidence, because the app's
+     * default disk happens to be 'local' too. Flipping the default here
+     * proves the write is pinned to BackupRun::UPLOAD_DISK regardless of
+     * what the default disk is configured to.
+     */
+    public function test_the_upload_is_stored_on_the_upload_disk_regardless_of_the_default_disk(): void
+    {
+        Queue::fake();
+        Storage::fake('public');
+        Storage::fake('local');
+        config(['filesystems.default' => 'public']);
+
+        [$user, $database] = $this->setup_target();
+
+        $response = $this->actingAs($user)->postJson($this->url($database), [
+            'dump' => $this->gzDump(),
+            'target_database' => 'shop',
+            'overwrite' => '0',
+        ]);
+
+        $response->assertStatus(202);
+
+        $run = BackupRun::first();
+
+        Storage::disk(BackupRun::UPLOAD_DISK)->assertExists($run->upload_path);
+        Storage::disk('public')->assertMissing($run->upload_path);
+
+        // This is what BackupRestoreService actually calls to build the SFTP
+        // source path; proving it resolves is what proves the service could
+        // really read what the controller wrote.
+        $this->assertFileExists(Storage::disk(BackupRun::UPLOAD_DISK)->path($run->upload_path));
+    }
+
+    public function test_index_returns_restore_runs_for_the_database_newest_first(): void
+    {
+        [$user, $database] = $this->setup_target();
+
+        $older = BackupRun::factory()->create([
+            'database_id' => $database->id,
+            'status' => 'success',
+            'created_at' => now()->subHour(),
+        ]);
+        $newer = BackupRun::factory()->create([
+            'database_id' => $database->id,
+            'status' => 'success',
+            'created_at' => now(),
+        ]);
+
+        // A run for a different database must not leak into this list.
+        $otherDatabase = Database::factory()->create(['server_id' => $database->server_id]);
+        BackupRun::factory()->create(['database_id' => $otherDatabase->id]);
+
+        $response = $this->actingAs($user)->getJson($this->url($database));
+
+        $response->assertStatus(200);
+        $ids = collect($response->json('data'))->pluck('id');
+        $this->assertSame([$newer->id, $older->id], $ids->all());
+    }
+
+    public function test_index_guards_against_a_database_from_another_organization(): void
+    {
+        $outsider = User::factory()->create();
+        CurrentOrganization::set($outsider->currentOrganization, Organization::ROLE_OWNER);
+        $foreignDatabase = Database::factory()->create(['type' => 'postgresql']);
+        CurrentOrganization::forget();
+
+        $user = $this->createOrgUser();
+        $ownServer = Server::factory()->create();
+
+        $response = $this->actingAs($user)->getJson(
+            "/api/servers/{$ownServer->id}/databases/{$foreignDatabase->id}/restores"
+        );
+
+        $response->assertStatus(404);
+    }
+
+    public function test_store_returns_507_when_there_is_not_enough_disk_space(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        $this->app->bind(DatabaseRestoreController::class, DiskFullDatabaseRestoreController::class);
+        [$user, $database] = $this->setup_target();
+
+        $response = $this->actingAs($user)->postJson($this->url($database), [
+            'dump' => $this->gzDump(),
+            'target_database' => 'shop',
+            'overwrite' => '0',
+        ]);
+
+        $response->assertStatus(507);
+        $this->assertSame(0, BackupRun::count());
+        Queue::assertNothingPushed();
+    }
+}
+
+/**
+ * Forces the "not enough disk space" branch without touching a real
+ * filesystem: disk_free_space() is a raw PHP function Storage::fake()
+ * cannot intercept, so the only clean way to exercise that branch is to
+ * override the seam the controller calls it through and bind this in the
+ * container for the one test that needs it.
+ */
+class DiskFullDatabaseRestoreController extends DatabaseRestoreController
+{
+    protected function availableDiskSpace(string $path): int|float
+    {
+        return 0;
     }
 }

@@ -175,7 +175,7 @@ class BackupRestoreService
 
     private function push(BackupRun $run, Server $server, string $remotePath): void
     {
-        $localPath = Storage::disk('local')->path($run->upload_path);
+        $localPath = Storage::disk(BackupRun::UPLOAD_DISK)->path($run->upload_path);
 
         // Create the file with owner-only permissions before writing to it:
         // SFTP put reuses the existing inode and keeps its mode, and a dump
@@ -285,7 +285,7 @@ class BackupRestoreService
         }
 
         if ($run->upload_path) {
-            Storage::disk('local')->delete($run->upload_path);
+            Storage::disk(BackupRun::UPLOAD_DISK)->delete($run->upload_path);
         }
     }
 
