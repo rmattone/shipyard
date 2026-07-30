@@ -57,7 +57,7 @@ class BackupRunModelTest extends TestCase
         $this->travelTo(Carbon::parse('2026-01-01 00:00:00'));
 
         $run = BackupRun::factory()->create(['status' => 'pending']);
-        $run->markAsRunning();
+        $run->claim();
 
         $this->travel(45)->seconds();
         $run->markAsSuccess();
@@ -73,7 +73,7 @@ class BackupRunModelTest extends TestCase
         $this->travelTo(Carbon::parse('2026-01-01 00:00:00'));
 
         $run = BackupRun::factory()->create(['status' => 'pending']);
-        $run->markAsRunning();
+        $run->claim();
 
         $this->travel(30)->seconds();
         $run->markAsFailed('dump');
@@ -102,5 +102,66 @@ class BackupRunModelTest extends TestCase
         $run->markAsFailed();
 
         $this->assertNull($run->fresh()->duration_seconds);
+    }
+
+    public function test_claim_moves_a_pending_run_to_running(): void
+    {
+        $this->createOrgUser();
+        $this->travelTo(Carbon::parse('2026-01-01 00:00:00'));
+        $run = BackupRun::factory()->create(['status' => 'pending', 'started_at' => null]);
+
+        $this->assertTrue($run->claim());
+
+        $this->assertSame('running', $run->status);
+        $this->assertTrue($run->started_at->equalTo(now()));
+        $this->assertSame('running', $run->fresh()->status);
+    }
+
+    public function test_a_second_claim_on_the_same_run_loses_and_leaves_it_unchanged(): void
+    {
+        $this->createOrgUser();
+        $this->travelTo(Carbon::parse('2026-01-01 00:00:00'));
+        $run = BackupRun::factory()->create(['status' => 'pending', 'started_at' => null]);
+
+        // Two independent instances, as two deliveries of the same job would
+        // each load their own copy of the run.
+        $winner = BackupRun::find($run->id);
+        $loser = BackupRun::find($run->id);
+
+        $this->assertTrue($winner->claim());
+        $winnerStartedAt = $winner->started_at;
+
+        $this->travel(5)->seconds();
+        $this->assertFalse($loser->claim());
+
+        // The loser's failed UPDATE must not have touched the row at all: not
+        // the status, and not started_at with a second, later timestamp.
+        $fresh = $run->fresh();
+        $this->assertSame('running', $fresh->status);
+        $this->assertTrue($fresh->started_at->equalTo($winnerStartedAt));
+    }
+
+    public function test_claim_fails_for_a_run_already_running(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create(['status' => 'running']);
+
+        $this->assertFalse($run->claim());
+    }
+
+    public function test_claim_fails_for_a_run_already_succeeded(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create(['status' => 'success']);
+
+        $this->assertFalse($run->claim());
+    }
+
+    public function test_claim_fails_for_a_run_already_failed(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create(['status' => 'failed']);
+
+        $this->assertFalse($run->claim());
     }
 }
