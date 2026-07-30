@@ -1780,6 +1780,12 @@ git commit -m "Add ProcessDatabaseRestore job"
 - Modify: `backend/routes/api.php`
 - Test: `backend/tests/Feature/DatabaseRestoreUploadTest.php`
 
+### The endpoint must refuse a concurrent restore against the same database
+
+`BackupRun::claim()` (added in Task 6) makes one run's lifecycle safe against duplicate job delivery, but it does nothing about two DIFFERENT runs targeting the same database. A double-clicked dialog, or a second restore started while the first is still loading, creates two rows that each legitimately win their own claim and then run destructively against the same target at the same time. The second would drop the database out from under the first mid-load.
+
+So `store()` must refuse when a run for the same `database_id` is already `pending` or `running`, returning 409 with a message naming the in-flight run. Test it: a second upload while one is in flight is rejected, and one is accepted again once the first reaches a terminal state. Note this check and the row creation are not atomic on their own, so also consider whether a unique partial index or a transaction is warranted; a plain check-then-insert narrows the window to milliseconds but does not close it. Say which you chose and why.
+
 This task establishes a precedent rather than following one. Verified against the codebase: there is no `$request->file()` in any controller, no `storeAs` or `store` anywhere in `app/`, and no `UploadedFile` in any test. The only existing `Storage` calls are the ones Task 5 just added. So do not go looking for a local upload convention; there is none.
 
 Two environment facts, both verified rather than assumed:
