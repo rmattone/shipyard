@@ -2925,9 +2925,21 @@ git commit -m "Add restore database dialog component"
 
 - [ ] **Step 1: Read the remote databases section**
 
-Run: `grep -n "remote-databases\|listRemoteDatabases\|remoteDatabases" frontend/src/pages/servers/DatabaseDetail.tsx`
+The exact names, already confirmed against the file so the steps below can use them directly rather than guessing:
 
-Locate where each remote database row renders its actions. That row is where the Restore button goes.
+| What | Actual name |
+|---|---|
+| Route params | `const { id, databaseId } = useParams(...)` at line 61 |
+| Server id | `serverId`, already `parseInt`ed at line 63 |
+| Database id | **`dbId`**, already `parseInt`ed at line 64 (not `databaseId`, which is the raw string param) |
+| Remote database list | `remoteDatabases`, a `string[]` |
+| Row variable | `dbName`, from `remoteDatabases.map((dbName) => ...)` around line 364 |
+| Reload function | `loadRemoteDatabases()` |
+| Destructive action precedent | `onClick={() => setDbToDelete(dbName)}` in the same row |
+
+So the snippets below must NOT wrap the ids in `Number(...)`; `serverId` and `dbId` are already numbers. A `restoreTarget` state paired with `setRestoreTarget(dbName)` mirrors the existing `dbToDelete` pattern exactly.
+
+The row lives inside a `TabsContent` for the databases tab, using `Card`/`CardContent` and heroicons (`CircleStackIcon`, `TrashIcon`).
 
 - [ ] **Step 2: Add state and imports**
 
@@ -3065,6 +3077,16 @@ git commit -m "Wire database restore UI into the database detail page"
 ---
 
 ## Task 14: Full suite and manual verification on a real server
+
+- [ ] **Step 0: Migrate the development database**
+
+`backup_runs` exists only in the test database, which `RefreshDatabase` builds from scratch each run. The development database the Docker stack uses has never had this feature's migration applied, so run it before anything else:
+
+```bash
+docker compose exec app php artisan migrate
+```
+
+Verify with `docker compose exec app php artisan migrate:status | tail -5` that `2026_07_30_000001_create_backup_runs_table` shows as ran. Skipping this produces a confusing "Base table or view not found: backup_runs" the first time a real upload gets past format detection.
 
 - [ ] **Step 1: Run the whole backend suite**
 
