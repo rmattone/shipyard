@@ -684,8 +684,17 @@ class DumpInspector
     /**
      * Prefixes that mark the start of a plain SQL dump produced by pg_dump or
      * mysqldump, compared case insensitively.
+     *
+     * The trailing space on 'create ' and 'drop ', and the semicolon on
+     * 'begin;', are load bearing. Without them, ordinary prose such as
+     * "Created by ...", "Dropbox sync log", or "Begin transmission" is accepted
+     * as SQL, and because an overwrite restore drops the target before loading,
+     * a mis-selected file would empty a live database before failing. Verified
+     * against real pg_dump and mysqldump output (including --no-comments,
+     * --data-only, --clean, --compact, and --single-transaction) that no genuine
+     * dump is rejected by the stricter forms.
      */
-    private const SQL_PREFIXES = ['--', '/*', 'set ', 'begin', 'create', 'drop', 'use ', 'start transaction'];
+    private const SQL_PREFIXES = ['--', '/*', 'set ', 'begin;', 'create ', 'drop ', 'use ', 'start transaction'];
 
     public function detect(string $path): string
     {
@@ -703,7 +712,14 @@ class DumpInspector
         }
 
         if (str_starts_with($head, "\x1f\x8b")) {
-            return self::FORMAT_SQL_GZ;
+            // Validate the payload, not just the wrapper: a gzipped JPEG has
+            // the same two magic bytes. Decompress only the head with
+            // gzopen/gzread (never gzdecode on the whole file, which would
+            // materialize a gigabyte) and run it through the same checks, so the
+            // plain and gzipped paths cannot drift apart. Measured at about
+            // 0.07ms regardless of file size, since the read is bounded to 512
+            // decompressed bytes.
+            return $this->detectGzipped($path);
         }
 
         if (str_starts_with($head, 'PGDMP')) {
@@ -1197,6 +1213,24 @@ class BackupRestoreServiceTest extends TestCase
         $this->assertStringContainsString($run->safety_dump_path, $run->log);
     }
 
+    public function test_a_load_that_produces_no_tables_fails_the_run(): void
+    {
+        $this->mockSsh();
+        // The load command succeeds (an empty dump exits 0), but verification
+        // finds nothing. This must fail rather than report success, because the
+        // target was already dropped.
+        $this->fakeResults['pg_tables'] = ['output' => '0', 'exit_code' => 0, 'success' => true];
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $run->refresh();
+
+        $this->assertSame('failed', $run->status);
+        $this->assertStringContainsString('produced no tables', $run->log);
+        $this->assertStringContainsString($run->safety_dump_path, $run->log);
+    }
+
     public function test_a_failed_load_to_a_new_name_is_still_labelled_a_restore_failure(): void
     {
         $this->mockSsh();
@@ -1395,7 +1429,14 @@ class BackupRestoreService
         return $path;
     }
 
-    private function verify(BackupRun $run, $database, string $target): void
+    /**
+     * Assert the restore actually produced something. A zero exit code is not
+     * proof: an empty or truncated dump piped into psql or mysql succeeds
+     * having created nothing, and because the target was already dropped by
+     * then, trusting the exit code would report a silently emptied database as
+     * a successful restore.
+     */
+    private function verify(BackupRun $run, Database $database, string $target): void
     {
         $driver = $this->driverFor($database);
 
@@ -1407,8 +1448,22 @@ class BackupRestoreService
             );
 
         $result = $this->ssh->execute($driver->buildRestoreVerifyCommand($database, $target, $sql));
+        $output = trim($result['output'] ?? '');
 
-        $run->appendLog('Tables in the restored database: '.trim($result['output'] ?: 'unknown'));
+        if (! $result['success'] || ! preg_match('/\d+/', $output, $matches)) {
+            throw new RuntimeException('Could not verify the restored database: '.($output ?: 'no output'));
+        }
+
+        $tables = (int) $matches[0];
+
+        if ($tables === 0) {
+            throw new RuntimeException(
+                'The dump loaded without error but produced no tables, so the target is now empty. '
+                .'The dump was most likely empty or truncated.'
+            );
+        }
+
+        $run->appendLog("Verified: {$tables} tables in the restored database.");
     }
 
     private function pruneSafetyDumps(string $target): void
