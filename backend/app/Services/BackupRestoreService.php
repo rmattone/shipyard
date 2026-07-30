@@ -23,6 +23,30 @@ class BackupRestoreService
 
     private const SAFETY_DUMPS_KEPT = 3;
 
+    /**
+     * Per-command timeouts, public so ProcessDatabaseRestore's own $timeout
+     * can be derived from them instead of carrying an independently chosen
+     * number that can drift out of sync with what this service actually
+     * takes. On the overwrite path these two run sequentially (safety dump,
+     * then load), so the job timeout must cover their sum, not either one
+     * alone.
+     */
+    public const SAFETY_DUMP_TIMEOUT = 900;
+
+    public const LOAD_TIMEOUT = 1500;
+
+    /**
+     * Headroom for the remaining steps, none of which are given an explicit
+     * timeout and so fall back to SSHService::execute()'s 300s default:
+     * describe, drop, create, apply attributes, verify, prune, cleanup.
+     */
+    public const OVERHEAD_TIMEOUT = 300;
+
+    /**
+     * The job timeout must cover the whole sequence, not any single command.
+     */
+    public const MAX_RESTORE_SECONDS = self::SAFETY_DUMP_TIMEOUT + self::LOAD_TIMEOUT + self::OVERHEAD_TIMEOUT;
+
     public function __construct(
         private SSHService $ssh,
         private MySQLService $mysqlService,
@@ -88,7 +112,7 @@ class BackupRestoreService
             $run->appendLog('Loading the dump. This is the slow part.');
             $result = $this->ssh->execute(
                 $driver->buildRestoreCommand($database, $target, $remotePath, $gzipped),
-                1500
+                self::LOAD_TIMEOUT
             );
 
             if (! $result['success']) {
@@ -166,7 +190,7 @@ class BackupRestoreService
 
         $result = $this->ssh->execute(
             $driver->buildDumpCommand($run->database, $target, $path),
-            900
+            self::SAFETY_DUMP_TIMEOUT
         );
 
         if (! $result['success']) {
