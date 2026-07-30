@@ -347,10 +347,17 @@ class MySQLService implements DatabaseDriverInterface
         // createDatabase(), so there is nothing left to do here.
     }
 
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
+    public function buildTableCountCommand(Database $database, string $dbName): string
     {
-        // The verification query names its own schema, so there is no need to
-        // select a default database the way the PostgreSQL driver does.
+        // Names its own schema, so there is no need to select a default
+        // database the way the PostgreSQL driver does. escapeString(), not a
+        // hand-rolled str_replace: it also escapes backslashes, which a plain
+        // '\'' -> "''" substitution would miss.
+        $sql = sprintf(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s'",
+            $this->escapeString($dbName)
+        );
+
         return $this->buildCommand($database, $sql);
     }
 

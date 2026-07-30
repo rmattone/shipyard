@@ -87,8 +87,11 @@ interface DatabaseDriverInterface
     public function applyDatabaseAttributes(SSHService $ssh, Database $database, string $dbName, array $attributes): void;
 
     /**
-     * Shell command that runs a read-only query against $dbName and returns
-     * bare values, used for post-restore verification.
+     * Shell command that counts the tables in $dbName and returns a bare
+     * value, used for post-restore verification. The dialect-specific query
+     * (pg_tables vs information_schema.tables) and its escaping live here,
+     * not in the caller, matching every other engine-specific detail in this
+     * interface.
      */
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string;
+    public function buildTableCountCommand(Database $database, string $dbName): string;
 }

@@ -135,26 +135,24 @@ class DatabaseRestoreCommandTest extends TestCase
         $this->assertStringContainsString("| gzip > '/var/backups/shipyard/shop.sql.gz'", $pipeline);
     }
 
-    public function test_postgres_verify_command_targets_the_restored_database(): void
+    public function test_postgres_table_count_command_targets_the_restored_database(): void
     {
-        $command = (new PostgreSQLService)->buildRestoreVerifyCommand(
-            $this->pgConnection(), 'shop', 'SELECT count(*) FROM pg_tables'
-        );
+        $command = (new PostgreSQLService)->buildTableCountCommand($this->pgConnection(), 'shop');
 
         // Must run against the restored database, not the default postgres one,
         // and return a bare value the service can parse into an integer.
         $this->assertStringContainsString("-d 'shop'", $command);
         $this->assertStringContainsString('-t -A', $command);
+        $this->assertStringContainsString('pg_tables', $command);
     }
 
-    public function test_mysql_verify_command_is_built_for_the_connection(): void
+    public function test_mysql_table_count_command_queries_information_schema(): void
     {
-        $command = (new MySQLService)->buildRestoreVerifyCommand(
-            $this->mysqlConnection(), 'shop', 'SELECT count(*) FROM information_schema.tables'
-        );
+        $command = (new MySQLService)->buildTableCountCommand($this->mysqlConnection(), 'shop');
 
         $this->assertStringContainsString('mysql', $command);
         $this->assertStringContainsString('information_schema.tables', $command);
+        $this->assertStringContainsString("table_schema = 'shop'", $command);
     }
 
     public function test_postgres_restore_and_dump_commands_are_wrapped_with_bash_pipefail(): void

@@ -463,11 +463,13 @@ class PostgreSQLService implements DatabaseDriverInterface
         }
     }
 
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
+    public function buildTableCountCommand(Database $database, string $dbName): string
     {
+        $sql = "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'";
+
         // buildCommand's existing signature is
         // (Database, string $sql, bool $tupleOnly = false, ?string $dbName = null)
-        // at PostgreSQLService.php:354, so this asks for bare values against the
+        // at PostgreSQLService.php:357, so this asks for bare values against the
         // restored database rather than the default postgres database.
         return $this->buildCommand($database, $sql, true, $dbName);
     }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\BackupRun;
 use App\Models\Database;
+use App\Models\Server;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
@@ -50,12 +51,13 @@ class BackupRestoreService
             $this->ssh->connect($server);
 
             $run->appendLog('Uploading the dump to the server...');
-            $this->push($run, $remotePath);
+            $this->push($run, $server, $remotePath);
             $run->appendLog('Dump uploaded to '.$remotePath.'.');
 
             $attributes = ['owner' => null, 'charset' => null, 'collation' => null];
 
             if ($overwrite) {
+                $step = 'describe';
                 $attributes = $driver->describeDatabase($this->ssh, $database, $target);
                 $run->appendLog('Existing database attributes: '.json_encode($attributes));
 
@@ -63,11 +65,19 @@ class BackupRestoreService
                 $safetyPath = $this->safetyDump($run, $driver, $target);
                 $run->update(['safety_dump_path' => $safetyPath]);
 
+                // Load bearing: labels a dropDatabase() failure below as a
+                // restore failure rather than leaving it attributed to 'dump'.
                 $step = 'restore';
                 $run->appendLog("Dropping {$target}...");
                 $driver->dropDatabase($this->ssh, $database, $target);
             }
 
+            // Load bearing even though it looks redundant with the assignment
+            // above: when $overwrite is false, the whole block above never
+            // runs, so this is the only place $step gets set to 'restore' on
+            // that path. Collapsing the two into one assignment would leave
+            // a non-overwrite failure here mislabelled with whatever $step
+            // was last set to ('upload').
             $step = 'restore';
             $run->appendLog("Creating {$target}...");
             $driver->createDatabase(
@@ -98,8 +108,16 @@ class BackupRestoreService
             $run->appendLog('ERROR: '.$e->getMessage());
 
             if ($run->safety_dump_path) {
+                // Deliberately neutral rather than "may be partially loaded":
+                // that phrasing is only true for a failure during the load
+                // itself. If dropDatabase() succeeded but createDatabase()
+                // then failed, the target does not exist at all; if
+                // applyDatabaseAttributes() failed, it exists and is empty.
+                // "Unknown state" is honest on every path that reaches here,
+                // and the safety dump path is what actually matters for
+                // recovery regardless of which of those it was.
                 $run->appendLog(
-                    'The target database may be partially loaded. The pre-restore dump is at '
+                    'The target database is now in an unknown state. The pre-restore dump is at '
                     ."{$run->safety_dump_path} on the server."
                 );
             }
@@ -107,11 +125,18 @@ class BackupRestoreService
             $run->markAsFailed($step);
         } finally {
             $this->cleanup($run, $remotePath);
-            $this->ssh->disconnect();
+
+            try {
+                $this->ssh->disconnect();
+            } catch (Throwable $e) {
+                // The run row is already correctly marked and logged above;
+                // a disconnect failure on an already-dead connection must not
+                // surface as an unhandled exception out of the job.
+            }
         }
     }
 
-    private function push(BackupRun $run, string $remotePath): void
+    private function push(BackupRun $run, Server $server, string $remotePath): void
     {
         $localPath = Storage::disk('local')->path($run->upload_path);
 
@@ -121,13 +146,13 @@ class BackupRestoreService
         $quoted = escapeshellarg($remotePath);
         $this->ssh->execute("touch {$quoted} && chmod 600 {$quoted}");
 
-        $this->ssh->connectSftp($run->database->server);
+        $this->ssh->connectSftp($server);
 
         if (! $this->ssh->upload($localPath, $remotePath)) {
             throw new RuntimeException('Failed to upload the dump to the server.');
         }
 
-        $this->ssh->connect($run->database->server);
+        $this->ssh->connect($server);
     }
 
     private function safetyDump(BackupRun $run, DatabaseDriverInterface $driver, string $target): string
@@ -159,22 +184,26 @@ class BackupRestoreService
      * having created nothing, and because the target was already dropped by
      * then, trusting the exit code would report a silently emptied database as
      * a successful restore.
+     *
+     * The dialect-specific query lives on the driver (buildTableCountCommand),
+     * not here: this method only executes it and parses the number.
      */
     private function verify(BackupRun $run, Database $database, string $target): void
     {
         $driver = $this->driverFor($database);
 
-        $sql = $database->isPostgreSQL()
-            ? "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'"
-            : sprintf(
-                "SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s'",
-                str_replace("'", "''", $target)
-            );
-
-        $result = $this->ssh->execute($driver->buildRestoreVerifyCommand($database, $target, $sql));
+        $result = $this->ssh->execute($driver->buildTableCountCommand($database, $target));
         $output = trim($result['output'] ?? '');
 
-        if (! $result['success'] || ! preg_match('/\d+/', $output, $matches)) {
+        // Anchored at the start only, not both ends: MySQLService::buildCommand()
+        // appends 2>&1, so a client warning (e.g. a version banner containing
+        // digits) can trail the count in $output. Noise after the number is
+        // harmless because the real count is still what's parsed; noise
+        // BEFORE it is the dangerous case, since it would let something like a
+        // version number be misread as the table count and mask a genuinely
+        // empty restore as a success. Start-anchoring rejects that loudly
+        // instead of silently parsing the wrong digits.
+        if (! $result['success'] || ! preg_match('/^\d+/', $output, $matches)) {
             throw new RuntimeException('Could not verify the restored database: '.($output ?: 'no output'));
         }
 

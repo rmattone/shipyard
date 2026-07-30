@@ -23,7 +23,7 @@ return new class extends Migration
             $table->string('trigger', 10)->default('cron');   // cron | manual
             $table->string('source', 10)->nullable();         // s3 | upload
             $table->string('status', 20);                     // pending | running | success | failed
-            $table->string('failed_step', 20)->nullable();    // dump | upload | prune | restore
+            $table->string('failed_step', 20)->nullable();    // dump | upload | describe | prune | restore
             $table->string('database_name');
 
             $table->string('s3_key')->nullable();
