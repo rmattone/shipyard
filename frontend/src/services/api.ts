@@ -439,6 +439,14 @@ export const authApi = {
   },
   logout: () => api.post('/auth/logout'),
   getUser: () => api.get<User>('/auth/user'),
+  updateProfile: (data: { name: string; email: string }) =>
+    api.put<{ user: User }>('/auth/profile', data),
+  updatePassword: (data: {
+    current_password: string
+    password: string
+    password_confirmation: string
+  }) => api.put<{ message: string }>('/auth/password', data),
+  logoutOtherSessions: () => api.post<{ message: string }>('/auth/logout-others'),
 }
 
 // Organizations

@@ -26,12 +26,13 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { AccountSettings } from './AccountSettings'
 import { NotificationChannels } from './NotificationChannels'
 import { OrganizationGeneral } from './OrganizationGeneral'
 import { OrganizationMembers } from './OrganizationMembers'
 import { ServerTrash } from './ServerTrash'
 
-type SettingsSection = 'source-control' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
+type SettingsSection = 'account' | 'source-control' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -160,6 +161,7 @@ export default function Settings() {
   }
 
   const sidebarItems = [
+    { id: 'account' as const, label: 'Account' },
     { id: 'source-control' as const, label: 'Source Control' },
     { id: 'notifications' as const, label: 'Notifications' },
     { id: 'members' as const, label: 'Members' },
@@ -279,6 +281,8 @@ export default function Settings() {
             </CardContent>
           </Card>
         )}
+
+        {activeSection === 'account' && <AccountSettings />}
 
         {activeSection === 'notifications' && <NotificationChannels />}
 
