@@ -22,10 +22,18 @@ class ProcessDatabaseRestore implements ShouldQueue
     public int $tries = 1;
 
     /**
-     * Sized for a gigabyte load and kept under the queue worker's
-     * --max-time=3600, so the worker does not exit mid-restore.
+     * Derived from BackupRestoreService's own per-command budgets rather than
+     * a separately chosen number, so the two cannot drift apart again: an
+     * earlier version hardcoded 1800 here while the service's safety dump
+     * (900s) and load (1500s) run sequentially on the overwrite path, whose
+     * sum alone already exceeds 1800s. A large, well-behaved restore could
+     * therefore be killed mid-load without either command ever hitting its
+     * own timeout. At 2700s this stays under the queue worker's
+     * --max-time=3600, so the worker does not exit mid-restore; note
+     * --max-time only stops the worker from accepting new jobs; it would not
+     * have prevented that mid-restore kill on its own.
      */
-    public int $timeout = 1800;
+    public int $timeout = BackupRestoreService::MAX_RESTORE_SECONDS;
 
     /**
      * Takes the id and looks the run up with withoutGlobalScopes(), rather

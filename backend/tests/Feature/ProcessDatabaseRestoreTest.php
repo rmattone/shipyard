@@ -66,4 +66,26 @@ class ProcessDatabaseRestoreTest extends TestCase
         $this->assertSame('success', $run->fresh()->status);
         $this->assertStringNotContainsString('late failure', $run->fresh()->log);
     }
+
+    public function test_the_job_timeout_covers_the_services_full_sequential_budget(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create();
+
+        // The safety dump and the load run one after another on the overwrite
+        // path, not concurrently, so the job must survive their sum, not just
+        // whichever of the two is larger. A job timeout that only covered the
+        // bigger of the two would still get a well-behaved large restore
+        // killed mid-load. This is the assertion that would have caught the
+        // job carrying its own hardcoded 1800 while the service's budgets
+        // summed to more than that.
+        $sequentialBudget = BackupRestoreService::SAFETY_DUMP_TIMEOUT
+            + BackupRestoreService::LOAD_TIMEOUT
+            + BackupRestoreService::OVERHEAD_TIMEOUT;
+
+        $this->assertGreaterThanOrEqual(
+            $sequentialBudget,
+            (new ProcessDatabaseRestore($run->id, true))->timeout
+        );
+    }
 }
