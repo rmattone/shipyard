@@ -264,7 +264,7 @@ export function RestoreLogPanel({ runId, onComplete }: RestoreLogPanelProps) {
 
   const statusClassName =
     status === 'failed'
-      ? 'text-red-600'
+      ? 'text-destructive'
       : status === 'success'
         ? 'text-green-600'
         : 'text-muted-foreground'

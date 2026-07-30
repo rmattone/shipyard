@@ -164,8 +164,12 @@ export default function DatabaseDetail() {
       const inFlight = response.data.data.find(
         (run) => run.status === 'running' || run.status === 'pending'
       )
-      if (inFlight && activeRunId === null) {
-        setActiveRunId(inFlight.id)
+      if (inFlight) {
+        // Functional update: this closure can be stale (a slow mount-time
+        // fetch resolving after the user has already started a newer
+        // restore), so the decision must be made against live state rather
+        // than the `activeRunId` this function captured when it was created.
+        setActiveRunId((current) => (current === null ? inFlight.id : current))
       }
     } catch {
       // History is informational; a failure here must not break the page.
@@ -327,6 +331,12 @@ export default function DatabaseDetail() {
   }
 
   const privileges = database.type === 'mysql' ? MYSQL_PRIVILEGES : POSTGRESQL_PRIVILEGES
+
+  // Status of the run currently attached to the log card, sourced from the
+  // history list already in state rather than a new fetch. Falls back to
+  // 'running' when the attached run isn't in restoreHistory yet, which is the
+  // case right after onQueued and before the next history reload.
+  const activeRunStatus = restoreHistory.find((run) => run.id === activeRunId)?.status ?? 'running'
 
   return (
     <div className="space-y-6">
@@ -544,10 +554,18 @@ export default function DatabaseDetail() {
       {activeRunId && (
         <Card>
           <CardHeader>
-            <CardTitle>Restore in progress</CardTitle>
+            <CardTitle>
+              {activeRunStatus === 'success'
+                ? 'Restore completed'
+                : activeRunStatus === 'failed'
+                  ? 'Restore failed'
+                  : 'Restore in progress'}
+            </CardTitle>
             <CardDescription>
-              Follows the restore live. Safe to leave this page; the restore keeps running and you
-              can reattach to it from the history below.
+              {activeRunStatus === 'success' || activeRunStatus === 'failed'
+                ? 'Log from a finished restore, kept for reference.'
+                : 'Follows the restore live. Safe to leave this page; the restore keeps running and ' +
+                  'you can reattach to it from the history below.'}
             </CardDescription>
           </CardHeader>
           <CardContent>
