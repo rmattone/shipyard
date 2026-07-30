@@ -6,8 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\BackupRun;
 use App\Models\Organization;
 use App\Models\User;
+use App\Support\QueryTokenAuth;
 use Illuminate\Http\Request;
-use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -202,17 +202,7 @@ class BackupRunStreamController extends Controller
 
     private function resolveUser(Request $request): ?User
     {
-        $token = $request->query('token');
-
-        if ($token) {
-            $accessToken = PersonalAccessToken::findToken($token);
-
-            if ($accessToken && (! $accessToken->expires_at || $accessToken->expires_at->isFuture())) {
-                $request->setUserResolver(fn () => $accessToken->tokenable);
-            }
-        }
-
-        return $request->user();
+        return QueryTokenAuth::resolveUser($request);
     }
 
     private function refuse(int $status): StreamedResponse
