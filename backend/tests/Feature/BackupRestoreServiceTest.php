@@ -61,6 +61,17 @@ class BackupRestoreServiceTest extends TestCase
         return null;
     }
 
+    private function firstCommandContaining(string $needle): ?string
+    {
+        foreach ($this->executed as $command) {
+            if (str_contains($command, $needle)) {
+                return $command;
+            }
+        }
+
+        return null;
+    }
+
     private function makeRun(array $attributes = [], array $databaseAttributes = []): BackupRun
     {
         $this->createOrgUser();
@@ -81,6 +92,41 @@ class BackupRestoreServiceTest extends TestCase
             'upload_path' => 'restores/dump.sql.gz',
             'status' => 'pending',
         ], $attributes));
+    }
+
+    public function test_the_safety_dump_directory_is_owned_by_the_connecting_user(): void
+    {
+        $this->mockSsh();
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $mkdir = $this->firstCommandContaining('mkdir -p');
+
+        // The dump is written by a plain shell redirect as the SSH user, so a
+        // root-owned directory makes it fail with "Permission denied" before
+        // pg_dump runs. Caught only on a real server, never by a mock.
+        $this->assertNotNull($mkdir, 'expected the safety dump directory to be created');
+        $this->assertStringContainsString('chown "$(id -un)":"$(id -gn)"', $mkdir);
+        $this->assertStringContainsString('chmod 700', $mkdir);
+    }
+
+    public function test_pruning_does_not_need_sudo(): void
+    {
+        $this->mockSsh();
+        // Pruning only runs on the success path, and verification is assertive,
+        // so the table count has to come back non-zero to get there.
+        $this->fakeResults['pg_tables'] = ['output' => '5', 'exit_code' => 0, 'success' => true];
+        $run = $this->makeRun();
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $prune = $this->firstCommandContaining('tail -n +');
+
+        // The connecting user owns the directory and every dump in it, so
+        // elevating here would only mask an ownership mistake.
+        $this->assertNotNull($prune, 'expected a prune command');
+        $this->assertStringNotContainsString('sudo', $prune);
     }
 
     public function test_safety_dump_runs_before_the_drop(): void
