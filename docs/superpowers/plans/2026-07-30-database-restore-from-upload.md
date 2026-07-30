@@ -867,6 +867,28 @@ class DatabaseRestoreCommandTest extends TestCase
         $this->assertStringContainsString('mysqldump', $command);
         $this->assertStringContainsString("| gzip > '/var/backups/shipyard/shop.sql.gz'", $command);
     }
+
+    public function test_postgres_verify_command_targets_the_restored_database(): void
+    {
+        $command = (new PostgreSQLService)->buildRestoreVerifyCommand(
+            $this->pgConnection(), 'shop', 'SELECT count(*) FROM pg_tables'
+        );
+
+        // Must run against the restored database, not the default postgres one,
+        // and return a bare value the service can parse into an integer.
+        $this->assertStringContainsString("-d 'shop'", $command);
+        $this->assertStringContainsString('-t -A', $command);
+    }
+
+    public function test_mysql_verify_command_is_built_for_the_connection(): void
+    {
+        $command = (new MySQLService)->buildRestoreVerifyCommand(
+            $this->mysqlConnection(), 'shop', 'SELECT count(*) FROM information_schema.tables'
+        );
+
+        $this->assertStringContainsString('mysql', $command);
+        $this->assertStringContainsString('information_schema.tables', $command);
+    }
 }
 ```
 
@@ -905,6 +927,12 @@ Append to the interface in `backend/app/Services/DatabaseDriverInterface.php`, b
      * @param  array{owner: ?string, charset: ?string, collation: ?string}  $attributes
      */
     public function applyDatabaseAttributes(SSHService $ssh, Database $database, string $dbName, array $attributes): void;
+
+    /**
+     * Shell command that runs a read-only query against $dbName and returns
+     * bare values, used for post-restore verification.
+     */
+    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string;
 ```
 
 - [ ] **Step 4: Implement in PostgreSQLService**
@@ -980,6 +1008,15 @@ Append to `backend/app/Services/PostgreSQLService.php`, before `escapeName()`:
             throw new RuntimeException('Failed to set database owner: '.$result['output']);
         }
     }
+
+    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
+    {
+        // buildCommand's existing signature is
+        // (Database, string $sql, bool $tupleOnly = false, ?string $dbName = null)
+        // at PostgreSQLService.php:354, so this asks for bare values against the
+        // restored database rather than the default postgres database.
+        return $this->buildCommand($database, $sql, true, $dbName);
+    }
 ```
 
 `buildCommand()` in this class already takes a third `$tupleOnly` argument, which is what makes `describeDatabase` return bare values.
@@ -1043,6 +1080,13 @@ Append to `backend/app/Services/MySQLService.php`, before `escapeName()`:
     {
         // MySQL has no database owner. Charset and collation are applied by
         // createDatabase(), so there is nothing left to do here.
+    }
+
+    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
+    {
+        // The verification query names its own schema, so there is no need to
+        // select a default database the way the PostgreSQL driver does.
+        return $this->buildCommand($database, $sql);
     }
 ```
 
@@ -1503,45 +1547,13 @@ class BackupRestoreService
 }
 ```
 
-- [ ] **Step 4: Add the verify command to the interface and both drivers**
-
-`verify()` above needs one more driver method. Append to `backend/app/Services/DatabaseDriverInterface.php`:
-
-```php
-    /**
-     * Shell command that runs a read-only query against $dbName and returns
-     * bare values, used for post-restore verification.
-     */
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string;
-```
-
-Append to `backend/app/Services/PostgreSQLService.php`:
-
-```php
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
-    {
-        return $this->buildCommand($database, $sql, true, $dbName);
-    }
-```
-
-This matches the existing signature exactly: `buildCommand(Database $database, string $sql, bool $tupleOnly = false, ?string $dbName = null)` at `app/Services/PostgreSQLService.php:354`.
-
-Append to `backend/app/Services/MySQLService.php`:
-
-```php
-    public function buildRestoreVerifyCommand(Database $database, string $dbName, string $sql): string
-    {
-        return $this->buildCommand($database, $sql);
-    }
-```
-
-- [ ] **Step 5: Run tests to verify they pass**
+- [ ] **Step 4: Run tests to verify they pass**
 
 Run: `DB_HOST=127.0.0.1 DB_PORT=33061 DB_USERNAME=root DB_PASSWORD=testing php artisan test --filter=BackupRestoreServiceTest`
 
-Expected: PASS, 5 tests.
+Expected: PASS, 7 tests. `buildRestoreVerifyCommand` already exists on both drivers from Task 4, so this task only writes the service.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 ./vendor/bin/pint --dirty
