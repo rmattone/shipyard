@@ -230,8 +230,47 @@ class BackupRunModelTest extends TestCase
 
         $this->assertArrayNotHasKey('upload_path', $run->toArray());
     }
+
+    public function test_mark_as_success_records_positive_duration_since_start(): void
+    {
+        $this->createOrgUser();
+        $this->travelTo('2026-01-01 00:00:00');
+        $run = BackupRun::factory()->create();
+
+        $run->markAsRunning();
+        $this->travel(45)->seconds();
+        $run->markAsSuccess();
+
+        $this->assertSame(45, $run->fresh()->duration_seconds);
+    }
+
+    public function test_mark_as_failed_records_positive_duration_since_start(): void
+    {
+        $this->createOrgUser();
+        $this->travelTo('2026-01-01 00:00:00');
+        $run = BackupRun::factory()->create();
+
+        $run->markAsRunning();
+        $this->travel(30)->seconds();
+        $run->markAsFailed('dump');
+
+        $this->assertSame(30, $run->fresh()->duration_seconds);
+        $this->assertSame('dump', $run->fresh()->failed_step);
+    }
+
+    public function test_marking_a_run_that_never_started_leaves_duration_null(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create(['started_at' => null]);
+
+        $run->markAsSuccess();
+
+        $this->assertNull($run->fresh()->duration_seconds);
+    }
 }
 ```
+
+The duration tests exist because `durationSinceStart()` is the one place in this model where the obvious argument order is wrong. Without them, a future contributor "simplifying" it back to `now()->diffInSeconds($this->started_at)` would silently write negative durations and nothing would fail.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -399,28 +438,37 @@ class BackupRun extends Model
         }
     }
 
-    public function markRunning(): void
+    public function markAsRunning(): void
     {
         $this->update(['status' => 'running', 'started_at' => now()]);
     }
 
-    public function markSuccess(): void
+    public function markAsSuccess(): void
     {
         $this->update([
             'status' => 'success',
             'finished_at' => now(),
-            'duration_seconds' => $this->started_at ? now()->diffInSeconds($this->started_at) : null,
+            'duration_seconds' => $this->durationSinceStart(),
         ]);
     }
 
-    public function markFailed(?string $step = null): void
+    public function markAsFailed(?string $step = null): void
     {
         $this->update([
             'status' => 'failed',
             'failed_step' => $step,
             'finished_at' => now(),
-            'duration_seconds' => $this->started_at ? now()->diffInSeconds($this->started_at) : null,
+            'duration_seconds' => $this->durationSinceStart(),
         ]);
+    }
+
+    // started_at->diffInSeconds(now()), not the reverse: Carbon 3's
+    // diffInSeconds($other) returns $other - $this, so calling it on the
+    // later timestamp with the earlier one as the argument yields a
+    // negative duration.
+    private function durationSinceStart(): ?int
+    {
+        return $this->started_at ? $this->started_at->diffInSeconds(now()) : null;
     }
 }
 ```
@@ -455,7 +503,8 @@ class BackupRunFactory extends Factory
             'database_name' => 'shop',
             'original_filename' => 'dump.sql.gz',
             'format' => BackupRun::FORMAT_SQL_GZ,
-            'upload_path' => 'restores/'.$this->faker->uuid().'.sql.gz',
+            // This codebase's factories use the fake() helper, not $this->faker.
+            'upload_path' => 'restores/'.fake()->uuid().'.sql.gz',
             'size_bytes' => 1751020,
         ];
     }
@@ -1230,7 +1279,7 @@ class BackupRestoreService
         $gzipped = $run->format === BackupRun::FORMAT_SQL_GZ;
         $remotePath = '/var/tmp/shipyard-restore-'.$run->id.($gzipped ? '.sql.gz' : '.sql');
 
-        $run->markRunning();
+        $run->markAsRunning();
         $run->appendLog("Restoring {$run->original_filename} into {$target} on {$server->name}.");
 
         // Tracked explicitly rather than inferred afterwards, so failed_step
@@ -1286,7 +1335,7 @@ class BackupRestoreService
             $this->pruneSafetyDumps($target);
 
             $run->appendLog('Restore completed successfully.');
-            $run->markSuccess();
+            $run->markAsSuccess();
         } catch (Throwable $e) {
             $run->appendLog('ERROR: '.$e->getMessage());
 
@@ -1297,7 +1346,7 @@ class BackupRestoreService
                 );
             }
 
-            $run->markFailed($step);
+            $run->markAsFailed($step);
         } finally {
             $this->cleanup($run, $remotePath);
             $this->ssh->disconnect();
@@ -1597,7 +1646,7 @@ class ProcessDatabaseRestore implements ShouldQueue
         }
 
         $run->appendLog('ERROR: '.$exception->getMessage());
-        $run->markFailed('restore');
+        $run->markAsFailed('restore');
 
         // The service's own finally block did not get to run if the worker was
         // killed, so make sure the upload is not left behind.
@@ -1979,6 +2028,9 @@ git commit -m "Add database restore upload endpoint"
 - Create: `backend/app/Http/Controllers/Api/BackupRunStreamController.php`
 - Modify: `backend/routes/api.php`
 - Test: `backend/tests/Feature/BackupRunStreamTest.php`
+- Modify: `backend/tests/Feature/StreamAuthIsolationTest.php`
+
+Read `backend/tests/Feature/StreamAuthIsolationTest.php` first. It already asserts cross-organization rejection for the deployment and installation streams (`test_deployment_stream_rejects_users_from_another_organization` at line 54, `test_installation_stream_rejects_users_from_another_organization` at line 66) using `$response->streamedContent()`. Every SSE route belongs in that file, so add a matching case for `/api/backup-runs/{run}/stream` there in the same shape as the existing two. The dedicated `BackupRunStreamTest` still carries the admin-role and finished-run cases, which have no equivalent in the isolation test.
 
 - [ ] **Step 1: Write the failing test**
 
