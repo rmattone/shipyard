@@ -59,7 +59,11 @@ class DatabaseRestoreController extends Controller
 
         // storage_path('app') and the local disk root (storage/app/private)
         // are the same filesystem, so measuring the parent is sufficient.
-        if (disk_free_space(storage_path('app')) < $required) {
+        // Routed through availableDiskSpace() rather than calling
+        // disk_free_space() directly: Storage::fake() does not intercept a
+        // raw filesystem call, so a test cannot force this branch any other
+        // way than overriding the method (see DatabaseRestoreUploadTest).
+        if ($this->availableDiskSpace(storage_path('app')) < $required) {
             return response()->json([
                 'message' => 'Not enough disk space on the ShipYard host to accept this dump.',
             ], 507);
@@ -72,7 +76,14 @@ class DatabaseRestoreController extends Controller
         }
 
         $extension = $format === DumpInspector::FORMAT_SQL_GZ ? 'sql.gz' : 'sql';
-        $path = $file->storeAs('restores', Str::uuid().'.'.$extension);
+        $name = Str::uuid().'.'.$extension;
+
+        // Pinned to BackupRun::UPLOAD_DISK rather than the default disk:
+        // BackupRestoreService and ProcessDatabaseRestore both read/delete
+        // upload_path from that same named disk, so writing anywhere else
+        // (e.g. if FILESYSTEM_DISK were ever set to s3) would store the
+        // dump in one place while every later reader looked in another.
+        $path = Storage::disk(BackupRun::UPLOAD_DISK)->putFileAs('restores', $file, $name);
 
         // The concurrency refusal and the row creation must be evaluated
         // together, otherwise a second request can read "no active run" a
@@ -93,37 +104,48 @@ class DatabaseRestoreController extends Controller
         // task's file list; flagged for a follow-up rather than added here.
         $inFlight = null;
 
-        $run = DB::transaction(function () use ($database, $target, $format, $path, $file, $request, &$inFlight) {
-            $existing = BackupRun::where('database_id', $database->id)
-                ->whereIn('status', self::ACTIVE_STATUSES)
-                ->lockForUpdate()
-                ->first();
+        try {
+            $run = DB::transaction(function () use ($database, $target, $format, $path, $file, $request, &$inFlight) {
+                $existing = BackupRun::where('database_id', $database->id)
+                    ->whereIn('status', self::ACTIVE_STATUSES)
+                    ->lockForUpdate()
+                    ->first();
 
-            if ($existing) {
-                $inFlight = $existing;
+                if ($existing) {
+                    $inFlight = $existing;
 
-                return null;
-            }
+                    return null;
+                }
 
-            return BackupRun::create([
-                'database_id' => $database->id,
-                'user_id' => $request->user()->id,
-                'kind' => BackupRun::KIND_RESTORE,
-                'trigger' => 'manual',
-                'source' => BackupRun::SOURCE_UPLOAD,
-                'status' => 'pending',
-                'database_name' => $target,
-                'original_filename' => $file->getClientOriginalName(),
-                'format' => $format,
-                'upload_path' => $path,
-                'size_bytes' => $file->getSize(),
-            ]);
-        });
+                return BackupRun::create([
+                    'database_id' => $database->id,
+                    'user_id' => $request->user()->id,
+                    'kind' => BackupRun::KIND_RESTORE,
+                    'trigger' => BackupRun::TRIGGER_MANUAL,
+                    'source' => BackupRun::SOURCE_UPLOAD,
+                    'status' => 'pending',
+                    'database_name' => $target,
+                    'original_filename' => $file->getClientOriginalName(),
+                    'format' => $format,
+                    'upload_path' => $path,
+                    'size_bytes' => $file->getSize(),
+                ]);
+            });
+        } catch (\Throwable $e) {
+            // DB::transaction() makes one attempt by default, so a deadlock,
+            // lock-wait timeout, or dropped connection propagates out of it
+            // rather than retrying. Nothing else ever sweeps restores/, so
+            // without this the file stored just above would leak silently
+            // and permanently on any of those failures.
+            Storage::disk(BackupRun::UPLOAD_DISK)->delete($path);
+
+            throw $e;
+        }
 
         if ($inFlight) {
             // Nothing claimed this upload, so clean it up rather than leaving
             // an orphaned file with no BackupRun row pointing at it.
-            Storage::disk('local')->delete($path);
+            Storage::disk(BackupRun::UPLOAD_DISK)->delete($path);
 
             return response()->json([
                 'message' => "A restore (run #{$inFlight->id}) is already {$inFlight->status} for this database. Wait for it to finish before starting another.",
@@ -154,5 +176,18 @@ class DatabaseRestoreController extends Controller
     public function show(BackupRun $backupRun): JsonResponse
     {
         return response()->json(['data' => $backupRun->load('user:id,name')]);
+    }
+
+    /**
+     * Bytes free on the filesystem holding $path. Isolated behind a
+     * protected method, rather than calling disk_free_space() inline, so a
+     * test can force the "not enough room" branch: it is a raw filesystem
+     * call that Storage::fake() has no way to intercept, so overriding this
+     * method (via a test subclass bound in the container) is the only way
+     * to exercise that branch without actually filling a disk.
+     */
+    protected function availableDiskSpace(string $path): int|float
+    {
+        return disk_free_space($path) ?: 0;
     }
 }

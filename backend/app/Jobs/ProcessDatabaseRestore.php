@@ -95,7 +95,7 @@ class ProcessDatabaseRestore implements ShouldQueue
         // The service's own finally block did not get to run if the worker was
         // killed, so make sure the upload is not left behind.
         if ($run->upload_path) {
-            Storage::disk('local')->delete($run->upload_path);
+            Storage::disk(BackupRun::UPLOAD_DISK)->delete($run->upload_path);
         }
     }
 }
