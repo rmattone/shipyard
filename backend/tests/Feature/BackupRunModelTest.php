@@ -7,6 +7,7 @@ use App\Models\Organization;
 use App\Models\User;
 use App\Support\CurrentOrganization;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class BackupRunModelTest extends TestCase
@@ -48,5 +49,58 @@ class BackupRunModelTest extends TestCase
         $run = BackupRun::factory()->create(['upload_path' => 'restores/secret.sql.gz']);
 
         $this->assertArrayNotHasKey('upload_path', $run->toArray());
+    }
+
+    public function test_mark_as_success_records_positive_duration_since_start(): void
+    {
+        $this->createOrgUser();
+        $this->travelTo(Carbon::parse('2026-01-01 00:00:00'));
+
+        $run = BackupRun::factory()->create(['status' => 'pending']);
+        $run->markAsRunning();
+
+        $this->travel(45)->seconds();
+        $run->markAsSuccess();
+
+        $run->refresh();
+        $this->assertSame('success', $run->status);
+        $this->assertSame(45, $run->duration_seconds);
+    }
+
+    public function test_mark_as_failed_records_positive_duration_since_start(): void
+    {
+        $this->createOrgUser();
+        $this->travelTo(Carbon::parse('2026-01-01 00:00:00'));
+
+        $run = BackupRun::factory()->create(['status' => 'pending']);
+        $run->markAsRunning();
+
+        $this->travel(30)->seconds();
+        $run->markAsFailed('dump');
+
+        $run->refresh();
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('dump', $run->failed_step);
+        $this->assertSame(30, $run->duration_seconds);
+    }
+
+    public function test_mark_as_success_without_start_time_leaves_duration_null(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create(['status' => 'pending', 'started_at' => null]);
+
+        $run->markAsSuccess();
+
+        $this->assertNull($run->fresh()->duration_seconds);
+    }
+
+    public function test_mark_as_failed_without_start_time_leaves_duration_null(): void
+    {
+        $this->createOrgUser();
+        $run = BackupRun::factory()->create(['status' => 'pending', 'started_at' => null]);
+
+        $run->markAsFailed();
+
+        $this->assertNull($run->fresh()->duration_seconds);
     }
 }

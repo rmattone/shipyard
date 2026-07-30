@@ -99,31 +99,36 @@ class BackupRun extends Model
         }
     }
 
-    public function markRunning(): void
+    public function markAsRunning(): void
     {
         $this->update(['status' => 'running', 'started_at' => now()]);
     }
 
-    public function markSuccess(): void
+    public function markAsSuccess(): void
     {
         $this->update([
             'status' => 'success',
             'finished_at' => now(),
-            // started_at->diffInSeconds(now()), not the reverse: Carbon 3's
-            // diffInSeconds($other) returns $other - $this, so calling it on
-            // the later timestamp with the earlier one as the argument
-            // yields a negative duration.
-            'duration_seconds' => $this->started_at ? $this->started_at->diffInSeconds(now()) : null,
+            'duration_seconds' => $this->durationSinceStart(),
         ]);
     }
 
-    public function markFailed(?string $step = null): void
+    public function markAsFailed(?string $step = null): void
     {
         $this->update([
             'status' => 'failed',
             'failed_step' => $step,
             'finished_at' => now(),
-            'duration_seconds' => $this->started_at ? $this->started_at->diffInSeconds(now()) : null,
+            'duration_seconds' => $this->durationSinceStart(),
         ]);
+    }
+
+    // started_at->diffInSeconds(now()), not the reverse: Carbon 3's
+    // diffInSeconds($other) returns $other - $this, so calling it on the
+    // later timestamp with the earlier one as the argument yields a
+    // negative duration.
+    private function durationSinceStart(): ?int
+    {
+        return $this->started_at ? $this->started_at->diffInSeconds(now()) : null;
     }
 }
