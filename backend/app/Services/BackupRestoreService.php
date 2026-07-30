@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\BackupRun;
 use App\Models\Database;
 use App\Models\Server;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Throwable;
@@ -62,7 +63,18 @@ class BackupRestoreService
         $gzipped = $run->format === BackupRun::FORMAT_SQL_GZ;
         $remotePath = '/var/tmp/shipyard-restore-'.$run->id.($gzipped ? '.sql.gz' : '.sql');
 
-        $run->markAsRunning();
+        if (! $run->claim()) {
+            // Lost the race: some other delivery of this job already moved the
+            // run past pending (most likely still running it right now). This
+            // must be a silent no-op, not a second destructive restore. The
+            // log column is a read-modify-write that the winner is actively
+            // appending to, so it is deliberately left untouched here; the
+            // logger is the only record of the duplicate delivery.
+            Log::warning("BackupRun {$run->id}: claim lost, refusing to start a second restore.");
+
+            return;
+        }
+
         $run->appendLog("Restoring {$run->original_filename} into {$target} on {$server->name}.");
 
         // Tracked explicitly rather than inferred afterwards, so failed_step

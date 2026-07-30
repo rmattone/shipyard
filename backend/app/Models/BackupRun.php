@@ -99,9 +99,33 @@ class BackupRun extends Model
         }
     }
 
-    public function markAsRunning(): void
+    /**
+     * Atomically claims this run for processing: one conditional UPDATE flips
+     * status from pending to running, the same single-attach mutex pattern
+     * TerminalStreamController uses for session attach. A second delivery of
+     * the same job (e.g. a queue-reserved job reclaimed while the first
+     * attempt is still running) finds status already past pending and loses
+     * the race in the database, atomically, rather than in PHP: there is no
+     * read-then-write gap for two callers to both observe "pending".
+     *
+     * Returns true only for the caller that won, and only then refreshes
+     * this instance so it reflects the new row. A losing caller's copy is
+     * left exactly as it was; it must not proceed to do anything destructive.
+     */
+    public function claim(): bool
     {
-        $this->update(['status' => 'running', 'started_at' => now()]);
+        $claimed = static::query()
+            ->whereKey($this->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'running', 'started_at' => now()]);
+
+        if ($claimed !== 1) {
+            return false;
+        }
+
+        $this->refresh();
+
+        return true;
     }
 
     public function markAsSuccess(): void

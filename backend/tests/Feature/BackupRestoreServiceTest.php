@@ -376,6 +376,40 @@ class BackupRestoreServiceTest extends TestCase
         $this->assertStringContainsString($run->safety_dump_path, $run->log);
     }
 
+    public function test_a_lost_claim_never_touches_ssh_at_all(): void
+    {
+        $this->mockSsh();
+        // Already past pending, as if another delivery of the same job (e.g.
+        // one reclaimed from Redis's reserved queue while the first attempt
+        // is still running) had already claimed it.
+        $run = $this->makeRun(['status' => 'running']);
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        // This is the assertion that matters: not merely that the status is
+        // still 'running', but that nothing destructive was even attempted.
+        // Asserting on $this->executed being empty means removing the
+        // claim()/return-early guard would fail this test, because the
+        // service would go on to connect, upload, and (with overwrite: true)
+        // drop the target database.
+        $this->assertSame([], $this->executed);
+        $this->assertSame('running', $run->fresh()->status);
+    }
+
+    public function test_a_normal_pending_run_still_proceeds_through_the_claim(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['pg_tables'] = ['output' => '5', 'exit_code' => 0, 'success' => true];
+        $run = $this->makeRun();
+
+        $this->assertSame('pending', $run->status);
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+        $this->assertSame('success', $run->fresh()->status);
+        $this->assertNotNull($this->indexOfCommandContaining('DROP DATABASE'));
+    }
+
     public function test_a_failed_describe_is_labelled_a_describe_failure(): void
     {
         $this->mockSsh();
