@@ -4,7 +4,7 @@
 
 **Goal:** Let an admin upload a `.sql` or `.sql.gz` dump through the ShipYard UI and restore it into a MySQL or PostgreSQL database on a managed server, with a live log and a safety dump before anything destructive.
 
-**Architecture:** A multipart upload endpoint streams the dump to `storage/app/restores`, creates a `backup_runs` row with `kind = restore` and `source = upload`, and dispatches `ProcessDatabaseRestore`. The job pushes the file to the target server over SFTP, takes a safety dump when overwriting, recreates the database, pipes the dump into `psql` or `mysql`, verifies, and cleans up, appending to the run log at every step. The frontend uploads with axios progress events, then follows the run over SSE.
+**Architecture:** A multipart upload endpoint streams the dump to `storage/app/private/restores` (Laravel 12's default `local` disk root is `storage/app/private`, and this app does not publish `config/filesystems.php`), creates a `backup_runs` row with `kind = restore` and `source = upload`, and dispatches `ProcessDatabaseRestore`. The job pushes the file to the target server over SFTP, takes a safety dump when overwriting, recreates the database, pipes the dump into `psql` or `mysql`, verifies, and cleans up, appending to the run log at every step. The frontend uploads with axios progress events, then follows the run over SSE.
 
 **Tech Stack:** Laravel 12 (PHP 8.2), phpseclib via `SSHService`, Redis for log fan-out, React 18 with TypeScript and axios, Radix UI primitives.
 
@@ -1148,6 +1148,27 @@ class BackupRestoreServiceTest extends TestCase
         $this->assertStringContainsString($run->safety_dump_path, $run->log);
     }
 
+    public function test_a_failed_load_to_a_new_name_is_still_labelled_a_restore_failure(): void
+    {
+        $this->mockSsh();
+        $this->fakeResults['ON_ERROR_STOP'] = [
+            'output' => 'ERROR:  syntax error',
+            'exit_code' => 3,
+            'success' => false,
+        ];
+        $run = $this->makeRun(['database_name' => 'shop_copy']);
+
+        app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: false);
+
+        $run->refresh();
+
+        // This path never takes a safety dump, so failed_step must come from
+        // the tracked step rather than being inferred from its absence.
+        $this->assertSame('failed', $run->status);
+        $this->assertSame('restore', $run->failed_step);
+        $this->assertNull($run->safety_dump_path);
+    }
+
     public function test_the_uploaded_dump_is_removed_from_the_server_and_the_host(): void
     {
         $this->mockSsh();
@@ -1212,6 +1233,12 @@ class BackupRestoreService
         $run->markRunning();
         $run->appendLog("Restoring {$run->original_filename} into {$target} on {$server->name}.");
 
+        // Tracked explicitly rather than inferred afterwards, so failed_step
+        // stays truthful. Inferring it from safety_dump_path would label every
+        // failure on the restore-to-a-new-name path as a dump failure, since
+        // that path never takes a safety dump.
+        $step = 'upload';
+
         try {
             $this->ssh->connect($server);
 
@@ -1225,13 +1252,16 @@ class BackupRestoreService
                 $attributes = $driver->describeDatabase($this->ssh, $database, $target);
                 $run->appendLog('Existing database attributes: '.json_encode($attributes));
 
+                $step = 'dump';
                 $safetyPath = $this->safetyDump($run, $driver, $target);
                 $run->update(['safety_dump_path' => $safetyPath]);
 
+                $step = 'restore';
                 $run->appendLog("Dropping {$target}...");
                 $driver->dropDatabase($this->ssh, $database, $target);
             }
 
+            $step = 'restore';
             $run->appendLog("Creating {$target}...");
             $driver->createDatabase(
                 $this->ssh, $database, $target, $attributes['charset'], $attributes['collation']
@@ -1258,7 +1288,6 @@ class BackupRestoreService
             $run->appendLog('Restore completed successfully.');
             $run->markSuccess();
         } catch (Throwable $e) {
-            $step = $run->safety_dump_path ? 'restore' : 'dump';
             $run->appendLog('ERROR: '.$e->getMessage());
 
             if ($run->safety_dump_path) {
@@ -1847,6 +1876,8 @@ class DatabaseRestoreController extends Controller
         // stored one, so require headroom for both before committing.
         $required = $file->getSize() * 2;
 
+        // storage_path('app') and the local disk root (storage/app/private)
+        // are the same filesystem, so measuring the parent is sufficient.
         if (disk_free_space(storage_path('app')) < $required) {
             return response()->json([
                 'message' => 'Not enough disk space on the ShipYard host to accept this dump.',
@@ -2906,7 +2937,7 @@ Upload it. Expected: a 422 from the dump inspector (random bytes are not SQL), n
 - [ ] **Step 7: Confirm cleanup**
 
 ```bash
-docker compose exec app ls -la /var/www/html/storage/app/restores/
+docker compose exec app ls -la /var/www/html/storage/app/private/restores/
 ```
 
 Expected: empty, or absent. Every finished run deletes its upload.
