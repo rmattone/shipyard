@@ -165,6 +165,22 @@ docker compose exec app bash -c "cd /var/www/frontend && npm install && npm run 
 
 ---
 
+### Enabling HTTPS
+
+If a domain points at your server, ShipYard can obtain a free Let's Encrypt certificate and serve everything over HTTPS with automatic renewal. The installer offers this as an optional step. On an existing installation, run:
+
+```bash
+bash scripts/enable-https.sh yourdomain.com
+```
+
+Requirements: the domain's DNS A record must point at the server (a proxy such as Cloudflare in front is fine) and ShipYard must be reachable on port 80.
+
+The script obtains the certificate with a one time certbot run, switches nginx to HTTPS (plain HTTP then redirects, keeping only the certificate renewal path), updates `APP_URL`, and starts a certbot container that renews automatically. All of its state lives in `docker-compose.override.yml`, `docker/nginx/conf.d-generated/`, and `docker/certbot/`, none of which are tracked by git.
+
+Behind Cloudflare, switch the SSL/TLS encryption mode to Full (strict) right after enabling HTTPS. Flexible mode combined with the new redirect causes a redirect loop.
+
+To return to plain HTTP, delete `docker-compose.override.yml` and `docker/nginx/conf.d-generated/`, then run `docker compose up -d`.
+
 ## Usage
 
 ### Adding a Server
