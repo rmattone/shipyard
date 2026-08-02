@@ -24,5 +24,13 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/{{DOMAIN}}/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
 
+    # Renewal challenges can arrive over HTTPS when an edge proxy (for
+    # example Cloudflare with "Always Use HTTPS") redirects the plain-HTTP
+    # challenge. Serve them here too so the snippet's hidden-file deny rule
+    # does not 403 them.
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
     include /etc/nginx/snippets/shipyard-app.conf;
 }
