@@ -117,8 +117,8 @@ The server IP is auto-detected and ShipYard will be accessible at `http://YOUR_S
 
 ### Prerequisites
 
-- **Docker** and **Docker Compose** installed
 - **Git** installed
+- **Docker** and **Docker Compose** (if Docker is missing, the installer offers to install it for you using Docker's official install script)
 
 That's it! Node.js and all other dependencies run inside Docker.
 
