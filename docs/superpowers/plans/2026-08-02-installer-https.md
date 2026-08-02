@@ -385,9 +385,18 @@ services:
 EOF
 
 # --- Phase 1: obtain the certificate over HTTP ---
+PREVIOUS_CONFIG=""
 if [ -f "$CERTBOT_DIR/conf/live/$DOMAIN/fullchain.pem" ]; then
     info "Certificate for $DOMAIN already exists, skipping issuance."
 else
+    # On a re-run for a different domain, keep the working config around so a
+    # failed issuance can restore it instead of leaving the plain-HTTP ACME
+    # config on disk for the 6h reload loop to pick up.
+    if [ "$FRESH_SETUP" = false ] && [ -f "$GENERATED_DIR/default.conf" ]; then
+        PREVIOUS_CONFIG="$GENERATED_DIR/default.conf.bak"
+        cp "$GENERATED_DIR/default.conf" "$PREVIOUS_CONFIG"
+    fi
+
     info "Configuring nginx for the ACME challenge..."
     cp "$TEMPLATE_DIR/http-acme.conf.template" "$GENERATED_DIR/default.conf"
     $DOCKER_COMPOSE up -d nginx
@@ -399,6 +408,11 @@ else
         --email "$EMAIL" \
         --agree-tos --no-eff-email --non-interactive; then
         rollback
+        if [ -n "$PREVIOUS_CONFIG" ] && [ -f "$PREVIOUS_CONFIG" ]; then
+            warning "Restoring the previous HTTPS config..."
+            mv "$PREVIOUS_CONFIG" "$GENERATED_DIR/default.conf"
+            $DOCKER_COMPOSE exec -T nginx nginx -s reload || true
+        fi
         error "Certificate request failed. Common causes: DNS not propagated yet, a firewall blocking port 80, or Let's Encrypt rate limits.\nFix the cause, then run: bash scripts/enable-https.sh $DOMAIN"
     fi
 fi
@@ -406,6 +420,7 @@ fi
 # --- Phase 2: switch nginx to HTTPS ---
 info "Switching nginx to HTTPS..."
 sed "s/{{DOMAIN}}/$DOMAIN/g" "$TEMPLATE_DIR/https.conf.template" > "$GENERATED_DIR/default.conf"
+rm -f "$GENERATED_DIR/default.conf.bak"
 $DOCKER_COMPOSE up -d nginx certbot
 
 if ! $DOCKER_COMPOSE exec -T nginx nginx -t; then
