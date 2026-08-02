@@ -46,6 +46,7 @@ export default function ServerSettings() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deleting, setDeleting] = useState(false)
   const [activeSection, setActiveSection] = useState<SettingsSection>('general')
   const [formData, setFormData] = useState({
@@ -124,19 +125,26 @@ export default function ServerSettings() {
     }
   }
 
+  // Clear the typed confirmation whenever the dialog closes, so reopening it
+  // never starts out already confirmed.
+  const handleDeleteDialogChange = (open: boolean) => {
+    setShowDeleteDialog(open)
+    if (!open) setDeleteConfirmation('')
+  }
+
   const handleDelete = async () => {
-    if (!id) return
+    if (!id || !server || deleteConfirmation !== server.name) return
     setDeleting(true)
     try {
       await serversApi.delete(parseInt(id))
-      toast.success('Server deleted')
+      toast.success('Server moved to trash')
       navigate('/')
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
       toast.error(err.response?.data?.message || 'Failed to delete server')
     } finally {
       setDeleting(false)
-      setShowDeleteDialog(false)
+      handleDeleteDialogChange(false)
     }
   }
 
@@ -470,7 +478,8 @@ export default function ServerSettings() {
                 <div>
                   <p className="font-medium">Delete server</p>
                   <p className="text-sm text-muted-foreground">
-                    Permanently delete this server and all its applications.
+                    Move this server to the trash. It stays restorable for 30
+                    days before it is permanently deleted.
                   </p>
                   {(server.applications_count || 0) > 0 && (
                     <p className="text-sm text-destructive mt-1">
@@ -491,21 +500,35 @@ export default function ServerSettings() {
         )}
       </div>
 
-      {/* Delete Server Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      {/* Delete Server Confirmation Dialog. The name must be typed out: a
+          single misclick on a red button used to destroy the server. */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={handleDeleteDialogChange}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Server</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{server.name}"? This action cannot be undone.
+              This moves "{server.name}" to the trash. You can restore it from
+              Settings &rsaquo; Trash for 30 days, after which it is permanently
+              deleted along with its databases, daemons, and scheduled tasks.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="delete-confirmation">
+              Type <span className="font-mono font-semibold">{server.name}</span> to confirm
+            </Label>
+            <Input
+              id="delete-confirmation"
+              value={deleteConfirmation}
+              onChange={(e) => setDeleteConfirmation(e.target.value)}
+              autoComplete="off"
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={deleting}
+              disabled={deleting || deleteConfirmation !== server.name}
             >
               {deleting ? 'Deleting...' : 'Delete Server'}
             </AlertDialogAction>

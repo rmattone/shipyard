@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Server;
 use phpseclib3\Crypt\PublicKeyLoader;
+use phpseclib3\Exception\FileNotFoundException;
 use phpseclib3\Net\SFTP;
 use phpseclib3\Net\SSH2;
 use RuntimeException;
@@ -219,6 +220,14 @@ class SSHService
         return false;
     }
 
+    /**
+     * @throws FileNotFoundException if $localPath does not exist
+     *                               or is not a regular file. Streaming from disk (SFTP::SOURCE_LOCAL_FILE)
+     *                               surfaces this as an exception; the old string-based upload instead read
+     *                               $localPath with file_get_contents(), silently wrote a zero-byte remote
+     *                               file, and returned true. (A path that exists but is unreadable, e.g.
+     *                               permission denied, still returns false rather than throwing.)
+     */
     public function upload(string $localPath, string $remotePath): bool
     {
         if ($this->isLocal) {
@@ -238,7 +247,10 @@ class SSHService
             throw new RuntimeException('Not connected to any server');
         }
 
-        return $this->sftp->put($remotePath, file_get_contents($localPath));
+        // Stream from disk rather than buffering: restore dumps reach a
+        // gigabyte, and file_get_contents on one would exhaust memory_limit
+        // before anything reached the server.
+        return $this->sftp->put($remotePath, $localPath, SFTP::SOURCE_LOCAL_FILE);
     }
 
     public function uploadContent(string $content, string $remotePath): bool

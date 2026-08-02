@@ -23,6 +23,7 @@ import ServerDatabases from './pages/servers/ServerDatabases'
 import DatabaseDetail from './pages/servers/DatabaseDetail'
 import ServerScheduler from './pages/servers/ServerScheduler'
 import ServerDaemons from './pages/servers/ServerDaemons'
+import ServerTerminal from './pages/servers/ServerTerminal'
 import ServerSettings from './pages/servers/ServerSettings'
 import AppNew from './pages/apps/AppNew'
 
@@ -84,6 +85,7 @@ function AppRoutes() {
         <Route path="servers/:id/databases/:databaseId" element={<DatabaseDetail />} />
         <Route path="servers/:id/scheduler" element={<ServerScheduler />} />
         <Route path="servers/:id/daemons" element={<ServerDaemons />} />
+        <Route path="servers/:id/terminal" element={<ServerTerminal />} />
         <Route path="servers/:id/settings" element={<ServerSettings />} />
         <Route path="servers/:serverId/apps/new" element={<AppNew />} />
 

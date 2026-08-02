@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\Database;
+use App\Services\Concerns\WrapsShellPipeline;
 use RuntimeException;
 
 class MySQLService implements DatabaseDriverInterface
 {
+    use WrapsShellPipeline;
+
     protected array $systemDatabases = [
         'information_schema',
         'mysql',
@@ -24,13 +27,13 @@ class MySQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, 'SHOW DATABASES');
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to list databases: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to list databases: '.$result['output']);
         }
 
         $databases = array_filter(
             array_map('trim', explode("\n", trim($result['output']))),
-            fn($db) => !empty($db) && $db !== 'Database' && !in_array($db, $this->systemDatabases)
+            fn ($db) => ! empty($db) && $db !== 'Database' && ! in_array($db, $this->systemDatabases)
         );
 
         return array_values($databases);
@@ -42,7 +45,7 @@ class MySQLService implements DatabaseDriverInterface
         $collation = $collation ?? $database->collation ?? 'utf8mb4_unicode_ci';
 
         $sql = sprintf(
-            "CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET %s COLLATE %s",
+            'CREATE DATABASE IF NOT EXISTS `%s` CHARACTER SET %s COLLATE %s',
             $this->escapeName($name),
             $charset,
             $collation
@@ -51,8 +54,8 @@ class MySQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to create database: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to create database: '.$result['output']);
         }
 
         return true;
@@ -64,12 +67,12 @@ class MySQLService implements DatabaseDriverInterface
             throw new RuntimeException('Cannot drop system database');
         }
 
-        $sql = sprintf("DROP DATABASE IF EXISTS `%s`", $this->escapeName($name));
+        $sql = sprintf('DROP DATABASE IF EXISTS `%s`', $this->escapeName($name));
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to drop database: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to drop database: '.$result['output']);
         }
 
         return true;
@@ -81,8 +84,8 @@ class MySQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to list users: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to list users: '.$result['output']);
         }
 
         $lines = array_filter(explode("\n", trim($result['output'])));
@@ -115,8 +118,8 @@ class MySQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to create user: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to create user: '.$result['output']);
         }
 
         return true;
@@ -133,8 +136,8 @@ class MySQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to drop user: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to drop user: '.$result['output']);
         }
 
         return true;
@@ -153,11 +156,11 @@ class MySQLService implements DatabaseDriverInterface
             $this->escapeString($host)
         );
 
-        $command = $this->buildCommand($database, $sql . '; FLUSH PRIVILEGES');
+        $command = $this->buildCommand($database, $sql.'; FLUSH PRIVILEGES');
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to grant privileges: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to grant privileges: '.$result['output']);
         }
 
         return true;
@@ -176,11 +179,11 @@ class MySQLService implements DatabaseDriverInterface
             $this->escapeString($host)
         );
 
-        $command = $this->buildCommand($database, $sql . '; FLUSH PRIVILEGES');
+        $command = $this->buildCommand($database, $sql.'; FLUSH PRIVILEGES');
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to revoke privileges: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to revoke privileges: '.$result['output']);
         }
 
         return true;
@@ -197,8 +200,8 @@ class MySQLService implements DatabaseDriverInterface
         $command = $this->buildCommand($database, $sql);
         $result = $ssh->execute($command);
 
-        if (!$result['success']) {
-            throw new RuntimeException('Failed to get user privileges: ' . $result['output']);
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to get user privileges: '.$result['output']);
         }
 
         $grants = array_filter(explode("\n", trim($result['output'])));
@@ -224,10 +227,10 @@ class MySQLService implements DatabaseDriverInterface
             $command = $this->buildCommand($database, 'SELECT VERSION() AS version');
             $result = $ssh->execute($command);
 
-            if (!$result['success']) {
+            if (! $result['success']) {
                 return [
                     'success' => false,
-                    'message' => 'Connection failed: ' . $result['output'],
+                    'message' => 'Connection failed: '.$result['output'],
                 ];
             }
 
@@ -267,6 +270,95 @@ class MySQLService implements DatabaseDriverInterface
             escapeshellarg($database->admin_user),
             $escapedSql
         );
+    }
+
+    public function buildRestoreCommand(Database $database, string $dbName, string $dumpPath, bool $gzipped): string
+    {
+        $reader = $gzipped
+            ? 'gunzip -c '.escapeshellarg($dumpPath)
+            : 'cat '.escapeshellarg($dumpPath);
+
+        // The mysql client aborts on the first error unless --force is given,
+        // which is the behaviour a restore needs. The trailing 2>&1 that
+        // used to sit here is now redundant: withPipefail() wraps the whole
+        // pipeline in a `{ ...; } 2>&1` group that covers it.
+        $pipeline = sprintf(
+            '%s | MYSQL_PWD=%s mysql -h %s -P %d -u %s %s',
+            $reader,
+            escapeshellarg($database->admin_password),
+            escapeshellarg($database->host),
+            $database->port,
+            escapeshellarg($database->admin_user),
+            escapeshellarg($dbName)
+        );
+
+        return $this->withPipefail($pipeline);
+    }
+
+    public function buildDumpCommand(Database $database, string $dbName, string $outputPath): string
+    {
+        $pipeline = sprintf(
+            'MYSQL_PWD=%s mysqldump -h %s -P %d -u %s --single-transaction --routines --triggers %s | gzip > %s',
+            escapeshellarg($database->admin_password),
+            escapeshellarg($database->host),
+            $database->port,
+            escapeshellarg($database->admin_user),
+            escapeshellarg($dbName),
+            escapeshellarg($outputPath)
+        );
+
+        return $this->withPipefail($pipeline);
+    }
+
+    public function describeDatabase(SSHService $ssh, Database $database, string $dbName): array
+    {
+        $sql = sprintf(
+            'SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME FROM information_schema.SCHEMATA '
+            ."WHERE SCHEMA_NAME = '%s'",
+            $this->escapeString($dbName)
+        );
+
+        $result = $ssh->execute($this->buildCommand($database, $sql));
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to describe database: '.$result['output']);
+        }
+
+        // mysql -N batch output is tab-separated (no header), matching the
+        // convention listUsers() above already relies on; splitting on
+        // arbitrary whitespace would misparse a value containing a space.
+        // A blank/missing field parses to '' here, not the documented
+        // ?string null, so normalize it before returning.
+        $parts = array_map(
+            fn ($part) => $part === '' ? null : $part,
+            explode("\t", trim($result['output']))
+        );
+
+        return [
+            'owner' => null,
+            'charset' => $parts[0] ?? null,
+            'collation' => $parts[1] ?? null,
+        ];
+    }
+
+    public function applyDatabaseAttributes(SSHService $ssh, Database $database, string $dbName, array $attributes): void
+    {
+        // MySQL has no database owner. Charset and collation are applied by
+        // createDatabase(), so there is nothing left to do here.
+    }
+
+    public function buildTableCountCommand(Database $database, string $dbName): string
+    {
+        // Names its own schema, so there is no need to select a default
+        // database the way the PostgreSQL driver does. escapeString(), not a
+        // hand-rolled str_replace: it also escapes backslashes, which a plain
+        // '\'' -> "''" substitution would miss.
+        $sql = sprintf(
+            "SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s'",
+            $this->escapeString($dbName)
+        );
+
+        return $this->buildCommand($database, $sql);
     }
 
     protected function escapeName(string $name): string

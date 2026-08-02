@@ -82,6 +82,9 @@ Users belong to organizations (pivot `organization_user` with role owner/admin/m
 ### SSH Operations
 All server interactions go through `SSHService`. Never execute SSH commands directly. The service handles connections, key decryption, and error handling. Repeated `connect()` calls to the same server reuse the live session; `disconnect()` closes it. The service is resolved per injection (transient), so instances are not shared between services; always call `disconnect()` on your own instance when an operation finishes.
 
+### Server Soft Delete
+`servers` uses `SoftDeletes`. Deleting moves a server to the trash (Settings › Trash) where it stays restorable for `Server::TRASH_RETENTION_DAYS`; `servers:purge-trashed` force-deletes past that. The applications guard in `ServerController::destroy` stays: a server with applications is never trashed, so restore never has to reconcile orphaned apps. Child rows (databases, daemons, scheduled tasks, tags, ssh keys) cascade only on the force delete, which is what makes restore whole. `restore` and `force` bind `->withTrashed()`, bypassing the soft-delete scope but not `OrganizationScope`. Both are gated by `org.role:admin`; note `org.writes` already blocks members from every write, so that gate is defense-in-depth. Destructive server actions require typing the server name in the dialog.
+
 ### Deploy User Layout
 `servers.deploy_user` (nullable) selects the filesystem layout. Null means the legacy `/var/www/shipyard/{app}` defaults and the distro PHP-FPM socket. When set (provisioned via `ServerUserService`, home mode 711), new apps default to `/home/{deploy_user}/{app}`, `PhpFpmPoolService` installs a pool running as that user, and `NginxService` points vhosts at the ShipYard pool socket. Because the pool and socket decision is server-wide, assigning or changing `deploy_user` is refused while the server has applications outside the new user's home (`ServerUserService::assertNoApplicationsOutsideHome`); migrating existing apps is deliberately unsupported. Never hardcode either base path; use `Server::default_deploy_base` / `Application::generateDeployPath()`.
 
@@ -93,6 +96,9 @@ Generated dynamically by `NginxService`. Templates are built per-application and
 
 ### Real-time Logs
 Deployment logs stream via SSE (Server-Sent Events) to the frontend.
+
+### Web Terminal
+`TerminalStreamController` holds an interactive PTY (`TerminalService` + `App\Support\Ssh\InteractiveSSH2`, which adds the `window-change` request phpseclib 3.0 lacks) for the life of one SSE request; keystrokes arrive as POSTs that `LPUSH` onto `terminal:{session}:input` and the stream loop drains with `RPOP`. Never route terminal I/O through `SSHService`: it is exec-only and reuses/destroys sessions in ways a long-lived shell cannot tolerate. Each stream pins one php-fpm worker, hence the 3-session cap, the stale-session reaper (`last_seen_at` touched every 15s), the enlarged pool in `docker/php/zz-shipyard.conf`, and the dedicated unbuffered nginx location. Like the other SSE routes it sits outside `auth:sanctum`, so ownership, organization membership, and the admin role are all checked by hand in the controller.
 
 ## Configuration
 
