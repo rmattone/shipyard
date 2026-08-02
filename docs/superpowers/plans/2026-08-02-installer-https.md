@@ -23,7 +23,7 @@ The location blocks must be identical in HTTP and HTTPS modes, so they move to o
 
 - [ ] **Step 1: Create `docker/nginx/shipyard-app.conf`**
 
-The content is the body of the current `docker/nginx/default.conf` server block with `listen` and `server_name` removed and comments preserved:
+The content is the body of the current `docker/nginx/default.conf` server block with `listen` and `server_name` removed and comments preserved. Merge note: the unmerged branch `feature/database-restore-upload` adds two more location blocks (terminal SSE stream, restore uploads) to `default.conf`; when that branch merges, its blocks belong in this snippet, and the conflict on `default.conf` should be resolved that way.
 
 ```nginx
 # Shared ShipYard app routing. Included at server level by the tracked
@@ -44,37 +44,6 @@ location /api {
 # Sanctum routes
 location /sanctum {
     try_files $uri $uri/ /index.php?$query_string;
-}
-
-# Web terminal SSE stream: lives for hours and must not be buffered.
-# Declared before the generic PHP block so it wins the regex match.
-location ~ ^/api/terminal-sessions/[0-9]+/stream$ {
-    fastcgi_pass app:9000;
-    fastcgi_param SCRIPT_FILENAME $realpath_root/index.php;
-    fastcgi_param SCRIPT_NAME /index.php;
-    include fastcgi_params;
-    fastcgi_read_timeout 7300;  # above the 2h session cap
-    fastcgi_buffering off;
-}
-
-# Restore dumps reach a gigabyte. The cap stays at 100M everywhere else so
-# a single oversized route does not become the whole app's limit.
-#
-# This must fastcgi_pass directly rather than try_files into /index.php:
-# try_files performs an internal redirect, which re-matches the request
-# against the generic `\.php$` location below and reads the body under
-# THAT location's config, not this one. client_max_body_size set here
-# would silently never apply and the global 100M would still 413 the
-# upload. Mirrors the terminal SSE location above for the same reason.
-location ~ ^/api/servers/[0-9]+/databases/[0-9]+/restores$ {
-    client_max_body_size 1200M;
-    client_body_timeout 600s;
-
-    fastcgi_pass app:9000;
-    fastcgi_param SCRIPT_FILENAME $realpath_root/index.php;
-    fastcgi_param SCRIPT_NAME /index.php;
-    include fastcgi_params;
-    fastcgi_read_timeout 600s;  # PHP writes the upload to storage before responding
 }
 
 # PHP handling
