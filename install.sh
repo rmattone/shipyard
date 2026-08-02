@@ -53,30 +53,58 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Install Docker via the official convenience script (installs the engine
+# and the compose plugin on the major distros).
+install_docker() {
+    local sudo_cmd=""
+    [ "$(id -u)" -ne 0 ] && sudo_cmd="sudo"
+
+    command_exists curl || error "curl is required to install Docker.\nInstall curl, or install Docker manually (https://docs.docker.com/engine/install/) and re-run."
+
+    info "Installing Docker via https://get.docker.com ..."
+    if ! curl -fsSL https://get.docker.com | $sudo_cmd sh; then
+        error "Automatic Docker installation failed (unsupported distro?).\nInstall Docker manually (https://docs.docker.com/engine/install/) and re-run this installer."
+    fi
+
+    # The convenience script starts the daemon on systemd hosts; make sure it
+    # is enabled so Docker survives a reboot.
+    if command_exists systemctl; then
+        $sudo_cmd systemctl enable --now docker >/dev/null 2>&1 || true
+    fi
+}
+
 # Check prerequisites
 check_prerequisites() {
     info "Checking prerequisites..."
 
-    local missing=()
+    if ! command_exists git; then
+        error "git is required. Install it (for example: apt install git) and re-run."
+    fi
 
     if ! command_exists docker; then
-        missing+=("docker")
+        warning "Docker is not installed."
+        if [ "$(id -u)" -ne 0 ] && ! command_exists sudo; then
+            error "This user cannot install Docker (not root, no sudo).\nInstall Docker first (https://docs.docker.com/engine/install/) and re-run."
+        fi
+        local answer
+        answer=$(prompt_with_default "Install Docker now? (y/n)" "y")
+        if [[ ! "$answer" =~ ^[Yy] ]]; then
+            error "Docker is required. Install it (https://docs.docker.com/engine/install/) and re-run."
+        fi
+        install_docker
+        command_exists docker || error "Docker installation did not complete.\nInstall it manually (https://docs.docker.com/engine/install/) and re-run."
+        success "Docker installed."
     fi
 
     if ! command_exists docker-compose && ! docker compose version >/dev/null 2>&1; then
-        missing+=("docker-compose")
+        error "Docker is installed but Compose is missing.\nInstall the compose plugin (docker-compose-plugin) and re-run."
     fi
 
-    if ! command_exists git; then
-        missing+=("git")
-    fi
-
-    if [ ${#missing[@]} -gt 0 ]; then
-        error "Missing required dependencies: ${missing[*]}\nPlease install them and try again."
-    fi
-
-    # Check if Docker is running
+    # Check if Docker is running and reachable by this user
     if ! docker info >/dev/null 2>&1; then
+        if [ "$(id -u)" -ne 0 ]; then
+            error "Cannot talk to the Docker daemon as this user.\nEither re-run this installer as root, or add yourself to the docker group:\n  sudo usermod -aG docker \$USER\nthen log out and back in, and re-run."
+        fi
         error "Docker is not running. Please start Docker and try again."
     fi
 
