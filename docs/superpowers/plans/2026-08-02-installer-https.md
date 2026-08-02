@@ -303,6 +303,12 @@ if [ "$HTTP_PORT" != "80" ]; then
     error "HTTP_PORT is ${HTTP_PORT}. The Let's Encrypt HTTP challenge requires port 80."
 fi
 
+HTTPS_PORT=$(grep -E '^HTTPS_PORT=' .env 2>/dev/null | cut -d= -f2)
+HTTPS_PORT="${HTTPS_PORT:-443}"
+if [ "$HTTPS_PORT" != "443" ]; then
+    error "HTTPS_PORT is ${HTTPS_PORT}. HTTPS setup requires the default port 443 (the redirect targets it)."
+fi
+
 if ! $DOCKER_COMPOSE ps nginx 2>/dev/null | grep -qE "Up|running"; then
     error "The nginx container is not running. Start the stack first: $DOCKER_COMPOSE up -d"
 fi
