@@ -137,12 +137,20 @@ if [ -f "package.json" ]; then
     npm run build
 fi
 
-# Run Laravel optimizations
-php artisan optimize:clear
+# Only the config cache is cleared before migrating. optimize:clear also runs
+# cache:clear, which talks to the cache store, and with Laravel's default
+# database driver the cache table does not exist until migrate has run.
+php artisan config:clear
+
+# Run migrations, then rebuild the caches
 php artisan migrate --force
 php artisan optimize
 php artisan view:cache
 php artisan event:cache
+
+# Flush the application cache now that its store exists. Non-fatal: an
+# unreachable cache store should not fail an otherwise good deployment.
+php artisan cache:clear || true
 
 # Set permissions for the PHP runtime user (deploy user on home-layout servers)
 sudo chown -R $DEPLOY_OWNER:www-data storage bootstrap/cache 2>/dev/null || chown -R $DEPLOY_OWNER:www-data storage bootstrap/cache 2>/dev/null || true
@@ -254,12 +262,20 @@ fi
 # Create public/storage symlink (points to storage/app/public which is in shared)
 php artisan storage:link --force
 
-# Run Laravel optimizations
-php artisan optimize:clear
+# Only the config cache is cleared before migrating. optimize:clear also runs
+# cache:clear, which talks to the cache store, and with Laravel's default
+# database driver the cache table does not exist until migrate has run.
+php artisan config:clear
+
+# Run migrations, then rebuild the caches
 php artisan migrate --force
 php artisan optimize
 php artisan view:cache
 php artisan event:cache
+
+# Flush the application cache now that its store exists. Non-fatal: an
+# unreachable cache store should not fail an otherwise good deployment.
+php artisan cache:clear || true
 
 # Restart queue workers (if using)
 php artisan queue:restart

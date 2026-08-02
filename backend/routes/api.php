@@ -2,9 +2,11 @@
 
 use App\Http\Controllers\Api\ApplicationController;
 use App\Http\Controllers\Api\AuthController;
+use App\Http\Controllers\Api\BackupRunStreamController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\DatabaseController;
 use App\Http\Controllers\Api\DatabaseInstallationStreamController;
+use App\Http\Controllers\Api\DatabaseRestoreController;
 use App\Http\Controllers\Api\DatabaseUserController;
 use App\Http\Controllers\Api\DeploymentController;
 use App\Http\Controllers\Api\DeploymentStreamController;
@@ -28,6 +30,8 @@ use App\Http\Controllers\Api\SshdSettingsController;
 use App\Http\Controllers\Api\SSHKeyController;
 use App\Http\Controllers\Api\SystemController;
 use App\Http\Controllers\Api\TagController;
+use App\Http\Controllers\Api\TerminalController;
+use App\Http\Controllers\Api\TerminalStreamController;
 use App\Http\Controllers\Api\WebhookController;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +44,14 @@ Route::post('/webhook/{application}', [WebhookController::class, 'handle']);
 // SSE streaming routes (auth handled via query param token)
 Route::get('/deployments/{deployment}/stream', [DeploymentStreamController::class, 'stream']);
 Route::get('/database-installations/{installation}/stream', [DatabaseInstallationStreamController::class, 'stream']);
+Route::get('/terminal-sessions/{terminalSession}/stream', [TerminalStreamController::class, 'stream']);
+// ->missing() closes the existence oracle: without it, a nonexistent run
+// id 404s before the controller's own auth checks ever run, letting a
+// request with no credentials at all distinguish "id doesn't exist" (404)
+// from "id exists" (401) across every organization. Routing it through the
+// same refusal outcomes the controller uses removes that signal.
+Route::get('/backup-runs/{backupRun}/stream', [BackupRunStreamController::class, 'stream'])
+    ->missing(fn ($request) => app(BackupRunStreamController::class)->refuseMissing($request));
 
 // Invitation accept flow (public: the token is the shared secret)
 Route::middleware('throttle:login')->group(function () {
@@ -53,6 +65,9 @@ Route::middleware('throttle:login')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/auth/logout', [AuthController::class, 'logout']);
     Route::get('/auth/user', [AuthController::class, 'user']);
+    Route::put('/auth/profile', [AuthController::class, 'updateProfile']);
+    Route::put('/auth/password', [AuthController::class, 'updatePassword']);
+    Route::post('/auth/logout-others', [AuthController::class, 'logoutOthers']);
     Route::post('/organizations', [OrganizationController::class, 'store'])
         ->name('organizations.store');
 });
@@ -77,8 +92,10 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     // SSH Keys
     Route::post('/ssh-keys/generate', [SSHKeyController::class, 'generate']);
 
-    // Servers
-    Route::apiResource('servers', ServerController::class);
+    // Servers. The trash listing is declared ahead of the resource routes so
+    // /servers/trashed is not swallowed by /servers/{server}.
+    Route::get('/servers/trashed', [ServerController::class, 'trashed']);
+    Route::apiResource('servers', ServerController::class)->except(['destroy']);
     Route::post('/servers/test-connection', [ServerController::class, 'testConnectionAdhoc']);
     Route::post('/servers/{server}/test-connection', [ServerController::class, 'testConnection']);
     Route::get('/servers/{server}/node-versions', [ServerController::class, 'getNodeVersions']);
@@ -86,6 +103,18 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::post('/servers/{server}/node-versions/default', [ServerController::class, 'setDefaultNodeVersion']);
     Route::get('/servers/{server}/metrics', [ServerController::class, 'getMetrics']);
     Route::get('/servers/{server}/software', [ServerController::class, 'checkSoftware']);
+
+    // Destructive server lifecycle (admin or owner only). restore and force
+    // need withTrashed() bindings or they 404 on the very rows they act on;
+    // that bypasses the soft-delete scope but not the organization scope.
+    Route::middleware('org.role:admin')->group(function () {
+        Route::delete('/servers/{server}', [ServerController::class, 'destroy'])
+            ->name('servers.destroy');
+        Route::post('/servers/{server}/restore', [ServerController::class, 'restore'])
+            ->withTrashed();
+        Route::delete('/servers/{server}/force', [ServerController::class, 'forceDestroy'])
+            ->withTrashed();
+    });
 
     // Tags (server-scoped)
     Route::get('/servers/{server}/tags', [TagController::class, 'index']);
@@ -127,6 +156,17 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::post('/servers/{server}/firewall/disable', [FirewallController::class, 'disable']);
     Route::post('/servers/{server}/firewall/install', [FirewallController::class, 'install']);
 
+    // Web terminal (shell access: admin or owner only; the SSE stream
+    // route lives in the public section with the other streams)
+    Route::middleware('org.role:admin')->group(function () {
+        Route::post('/servers/{server}/terminal-sessions', [TerminalController::class, 'open']);
+        Route::post('/terminal-sessions/{terminalSession}/input', [TerminalController::class, 'input'])
+            ->withoutMiddleware('throttle:api') // 120/min would starve keystrokes
+            ->middleware('throttle:terminal-input');
+        Route::post('/terminal-sessions/{terminalSession}/resize', [TerminalController::class, 'resize']);
+        Route::post('/terminal-sessions/{terminalSession}/close', [TerminalController::class, 'close']);
+    });
+
     // Server users
     Route::get('/servers/{server}/users', [ServerUserController::class, 'index']);
     Route::post('/servers/{server}/users', [ServerUserController::class, 'store']);
@@ -145,6 +185,14 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::get('/servers/{server}/databases/{database}/remote-databases', [DatabaseController::class, 'listRemoteDatabases']);
     Route::post('/servers/{server}/databases/{database}/remote-databases', [DatabaseController::class, 'createRemoteDatabase']);
     Route::delete('/servers/{server}/databases/{database}/remote-databases', [DatabaseController::class, 'dropRemoteDatabase']);
+
+    // Database restores. The upload drops and recreates a database, so it
+    // sits behind the admin gate like the destructive server actions.
+    Route::get('/servers/{server}/databases/{database}/restores', [DatabaseRestoreController::class, 'index']);
+    Route::get('/backup-runs/{backupRun}', [DatabaseRestoreController::class, 'show']);
+    Route::middleware('org.role:admin')->group(function () {
+        Route::post('/servers/{server}/databases/{database}/restores', [DatabaseRestoreController::class, 'store']);
+    });
 
     // Database users
     Route::get('/servers/{server}/databases/{database}/users/remote', [DatabaseUserController::class, 'listRemoteUsers']);

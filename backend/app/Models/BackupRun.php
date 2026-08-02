@@ -1,0 +1,199 @@
+<?php
+
+namespace App\Models;
+
+use App\Models\Concerns\BelongsToOrganizationThroughParent;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Redis;
+
+class BackupRun extends Model
+{
+    use BelongsToOrganizationThroughParent, HasFactory;
+
+    public const KIND_BACKUP = 'backup';
+
+    public const KIND_RESTORE = 'restore';
+
+    public const SOURCE_S3 = 's3';
+
+    public const SOURCE_UPLOAD = 'upload';
+
+    public const FORMAT_SQL = 'sql';
+
+    public const FORMAT_SQL_GZ = 'sql_gz';
+
+    public const TRIGGER_MANUAL = 'manual';
+
+    /**
+     * The disk an uploaded dump is stored on and later read from, pinned
+     * here rather than left to follow config('filesystems.default'). The
+     * restore step (BackupRestoreService::push()) needs a real local
+     * filesystem path to hand to SFTP, so this deliberately does not follow
+     * whatever the app's default disk is configured to (e.g. s3): every
+     * site that writes, reads, or cleans up an upload_path must agree on
+     * the same disk, and naming it once here is what keeps them agreeing.
+     */
+    public const UPLOAD_DISK = 'local';
+
+    protected static function organizationParentRelation(): string
+    {
+        return 'database.server';
+    }
+
+    protected $fillable = [
+        'backup_config_id',
+        'database_id',
+        'user_id',
+        'kind',
+        'trigger',
+        'source',
+        'status',
+        'failed_step',
+        'database_name',
+        's3_key',
+        'original_filename',
+        'format',
+        'upload_path',
+        'safety_dump_path',
+        'size_bytes',
+        'duration_seconds',
+        'log',
+        'started_at',
+        'finished_at',
+    ];
+
+    protected $hidden = [
+        'upload_path',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'size_bytes' => 'integer',
+            'duration_seconds' => 'integer',
+            'started_at' => 'datetime',
+            'finished_at' => 'datetime',
+        ];
+    }
+
+    public function database(): BelongsTo
+    {
+        return $this->belongsTo(Database::class);
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    public function isComplete(): bool
+    {
+        return in_array($this->status, ['success', 'failed'], true);
+    }
+
+    public function appendLog(string $message): void
+    {
+        $timestamp = now()->format('Y-m-d H:i:s');
+        $formatted = "[{$timestamp}] {$message}\n";
+        $this->log = ($this->log ?? '').$formatted;
+        $this->save();
+
+        try {
+            Redis::publish("backup-run.{$this->id}.logs", json_encode([
+                'chunk' => $formatted,
+                'timestamp' => now()->toIso8601String(),
+                'is_complete' => false,
+            ]));
+        } catch (\Exception $e) {
+            // Redis being down must not fail a restore; the log is already
+            // persisted and the SSE stream falls back to polling the row.
+        }
+    }
+
+    /**
+     * Atomically claims this run for processing: one conditional UPDATE flips
+     * status from pending to running, the same single-attach mutex pattern
+     * TerminalStreamController uses for session attach. A second delivery of
+     * the same job (e.g. a queue-reserved job reclaimed while the first
+     * attempt is still running) finds status already past pending and loses
+     * the race in the database, atomically, rather than in PHP: there is no
+     * read-then-write gap for two callers to both observe "pending".
+     *
+     * Returns true only for the caller that won, and only then refreshes
+     * this instance so it reflects the new row. A losing caller's copy is
+     * left exactly as it was; it must not proceed to do anything destructive.
+     */
+    public function claim(): bool
+    {
+        $claimed = static::query()
+            ->whereKey($this->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'running', 'started_at' => now()]);
+
+        if ($claimed !== 1) {
+            return false;
+        }
+
+        $this->refresh();
+
+        return true;
+    }
+
+    public function markAsSuccess(): void
+    {
+        $this->update([
+            'status' => 'success',
+            'finished_at' => now(),
+            'duration_seconds' => $this->durationSinceStart(),
+        ]);
+    }
+
+    public function markAsFailed(?string $step = null): void
+    {
+        $this->update([
+            'status' => 'failed',
+            'failed_step' => $step,
+            'finished_at' => now(),
+            'duration_seconds' => $this->durationSinceStart(),
+        ]);
+    }
+
+    /**
+     * The one recovery line every failure path needs to say identically:
+     * where the pre-restore safety dump is, if one was taken. Extracted so
+     * BackupRestoreService's own catch block, ProcessDatabaseRestore::failed()
+     * (which runs instead of that catch block when a worker is killed or the
+     * job's own timeout fires mid-restore), and the stale-run reaper all say
+     * exactly the same thing rather than three wordings that can drift apart.
+     * A no-op when no safety dump was ever taken.
+     */
+    public function appendUnknownStateNote(): void
+    {
+        if (! $this->safety_dump_path) {
+            return;
+        }
+
+        // Deliberately neutral rather than "may be partially loaded": that
+        // phrasing is only true for a failure during the load itself. If
+        // dropDatabase() succeeded but createDatabase() then failed, the
+        // target does not exist at all; if applyDatabaseAttributes() failed,
+        // it exists and is empty. "Unknown state" is honest regardless of
+        // which of those it was, and the safety dump path is what actually
+        // matters for recovery either way.
+        $this->appendLog(
+            'The target database is now in an unknown state. The pre-restore dump is at '
+            ."{$this->safety_dump_path} on the server."
+        );
+    }
+
+    // started_at->diffInSeconds(now()), not the reverse: Carbon 3's
+    // diffInSeconds($other) returns $other - $this, so calling it on the
+    // later timestamp with the earlier one as the argument yields a
+    // negative duration.
+    private function durationSinceStart(): ?int
+    {
+        return $this->started_at ? $this->started_at->diffInSeconds(now()) : null;
+    }
+}

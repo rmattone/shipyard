@@ -251,7 +251,7 @@ export default function Layout() {
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full p-0 dark:hover:bg-zinc-800">
                   <div className="h-8 w-8 rounded-full bg-emerald-600 flex items-center justify-center text-sm font-semibold text-white">
-                    {user?.email?.charAt(0).toUpperCase() || 'U'}
+                    {(user?.name || user?.email)?.charAt(0).toUpperCase() || 'U'}
                   </div>
                 </Button>
               </DropdownMenuTrigger>
@@ -260,11 +260,11 @@ export default function Layout() {
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex items-center gap-3 py-1">
                     <div className="h-9 w-9 rounded-full bg-emerald-600 flex items-center justify-center text-sm font-semibold text-white flex-shrink-0">
-                      {user?.email?.charAt(0).toUpperCase() || 'U'}
+                      {(user?.name || user?.email)?.charAt(0).toUpperCase() || 'U'}
                     </div>
                     <div className="flex flex-col space-y-0.5 overflow-hidden">
                       <p className="text-sm font-medium leading-none truncate">
-                        {user?.email?.split('@')[0] || 'User'}
+                        {user?.name || user?.email?.split('@')[0] || 'User'}
                       </p>
                       <p className="text-xs text-muted-foreground truncate">
                         {user?.email}

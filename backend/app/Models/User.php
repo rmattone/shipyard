@@ -34,6 +34,22 @@ class User extends Authenticatable
         ];
     }
 
+    /**
+     * Issue the SPA login token. The expires_at column is stamped explicitly
+     * (not left to Sanctum's config-window check) because the SSE stream
+     * controllers authenticate query-string tokens by reading the column.
+     */
+    public function issueAuthToken(): string
+    {
+        $minutes = config('sanctum.expiration');
+
+        return $this->createToken(
+            'auth-token',
+            ['*'],
+            $minutes ? now()->addMinutes((int) $minutes) : null
+        )->plainTextToken;
+    }
+
     public function organizations(): BelongsToMany
     {
         return $this->belongsToMany(Organization::class)

@@ -24,7 +24,7 @@ These were settled during design review:
 
 ### 1. Nginx config refactor (shared include)
 
-The location blocks currently in `docker/nginx/default.conf` (API, Sanctum, PHP handling, SPA, root redirect, static files, hidden file deny, health check) move to a tracked snippet. Note: the unmerged branch `feature/database-restore-upload` adds terminal SSE and restore upload location blocks to `default.conf`; when it merges, those blocks belong in the snippet.
+The location blocks currently in `docker/nginx/default.conf` (API, Sanctum, PHP handling, SPA, root redirect, static files, hidden file deny, health check) move to a tracked snippet. Note: `feature/database-restore-upload` (merged to main as PR #2) added terminal SSE and restore upload location blocks to `default.conf`; those blocks now live in the snippet, resolved that way when main was merged into this branch.
 
 * `docker/nginx/shipyard-app.conf`, mounted at `/etc/nginx/snippets/shipyard-app.conf` (new mount in the base `docker-compose.yml`).
 

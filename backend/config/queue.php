@@ -21,6 +21,12 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
+            // Must exceed every job's own $timeout, including the database
+            // restore job (see BackupRestoreService::MAX_RESTORE_SECONDS): a
+            // lower value lets Redis reclaim a still-running job as abandoned
+            // and hand it to another worker while the first is still going.
+            // The 90 fallback below is only safe if REDIS_QUEUE_RETRY_AFTER is
+            // set in the environment; see backend/.env.example.
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
             'block_for' => null,
             'after_commit' => false,

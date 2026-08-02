@@ -4,8 +4,8 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\DatabaseInstallation;
+use App\Support\QueryTokenAuth;
 use Illuminate\Http\Request;
-use Laravel\Sanctum\PersonalAccessToken;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DatabaseInstallationStreamController extends Controller
@@ -13,19 +13,7 @@ class DatabaseInstallationStreamController extends Controller
     public function stream(Request $request, DatabaseInstallation $installation): StreamedResponse
     {
         // Authenticate via query param token (EventSource doesn't support headers)
-        $token = $request->query('token');
-        if ($token) {
-            $accessToken = PersonalAccessToken::findToken($token);
-            if ($accessToken) {
-                $isValid = ! $accessToken->expires_at || $accessToken->expires_at->isFuture();
-                if ($isValid) {
-                    $request->setUserResolver(fn () => $accessToken->tokenable);
-                }
-            }
-        }
-
-        // Check authentication
-        if (! $request->user()) {
+        if (! QueryTokenAuth::resolveUser($request)) {
             return new StreamedResponse(function () {
                 $this->sendEvent('error', ['message' => 'Unauthorized']);
             }, 401, ['Content-Type' => 'text/event-stream']);
@@ -34,8 +22,17 @@ class DatabaseInstallationStreamController extends Controller
         // Route is outside auth:sanctum: the binding resolved unscoped,
         // so enforce organization membership explicitly (see
         // DeploymentStreamController for rationale).
-        $ownerOrganizationId = $installation->server->organization_id;
-        if (! $request->user()->belongsToOrganization($ownerOrganizationId)) {
+        //
+        // Null-safe: the server can be soft-deleted (trashed) while this
+        // DatabaseInstallation row survives, since cascade deletion only
+        // fires on force-delete and trashing only guards against a server
+        // that still has applications, not a database-only one. ->server
+        // then resolves null for the whole trash retention window, and
+        // belongsToOrganization() is non-nullable, so passing null through
+        // it would throw a TypeError (a 500) instead of the 403 every other
+        // failure on this route produces.
+        $ownerOrganizationId = $installation->server?->organization_id;
+        if ($ownerOrganizationId === null || ! $request->user()->belongsToOrganization($ownerOrganizationId)) {
             return new StreamedResponse(function () {
                 $this->sendEvent('error', ['message' => 'Unauthorized']);
             }, 403, ['Content-Type' => 'text/event-stream']);
@@ -44,11 +41,6 @@ class DatabaseInstallationStreamController extends Controller
         $installationId = $installation->id;
 
         $response = new StreamedResponse(function () use ($installationId) {
-            // Disable output buffering for real-time streaming
-            while (ob_get_level()) {
-                ob_end_clean();
-            }
-
             // Set script execution time limit (10 minutes max)
             set_time_limit(600);
 
@@ -76,6 +68,16 @@ class DatabaseInstallationStreamController extends Controller
                 ]);
 
                 return;
+            }
+
+            // Disable output buffering for the long-lived polling loop.
+            // Deferred until after the early-complete return and guarded so
+            // it stops at the first buffer that refuses to close: draining
+            // unconditionally at the top destroys the buffer PHPUnit's
+            // TestResponse::streamedContent() sets up to capture this output
+            // (see BackupRunStreamController for the full rationale).
+            while (ob_get_level() > 0 && @ob_end_clean()) {
+                // keep draining
             }
 
             // Poll for updates every 500ms

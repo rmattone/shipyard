@@ -3,10 +3,13 @@
 namespace App\Services;
 
 use App\Models\Database;
+use App\Services\Concerns\WrapsShellPipeline;
 use RuntimeException;
 
 class PostgreSQLService implements DatabaseDriverInterface
 {
+    use WrapsShellPipeline;
+
     protected array $systemDatabases = [
         'postgres',
         'template0',
@@ -373,6 +376,102 @@ class PostgreSQLService implements DatabaseDriverInterface
             $options,
             $escapedSql
         );
+    }
+
+    public function buildRestoreCommand(Database $database, string $dbName, string $dumpPath, bool $gzipped): string
+    {
+        $reader = $gzipped
+            ? 'gunzip -c '.escapeshellarg($dumpPath)
+            : 'cat '.escapeshellarg($dumpPath);
+
+        // ON_ERROR_STOP=1 is what turns a broken dump into a failed restore
+        // instead of a silently half-loaded database. The trailing 2>&1
+        // that used to sit here is now redundant: withPipefail() wraps the
+        // whole pipeline in a `{ ...; } 2>&1` group that covers it.
+        $pipeline = sprintf(
+            '%s | PGPASSWORD=%s psql -h %s -p %d -U %s -d %s -v ON_ERROR_STOP=1 -q',
+            $reader,
+            escapeshellarg($database->admin_password),
+            escapeshellarg($database->host),
+            $database->port,
+            escapeshellarg($database->admin_user),
+            escapeshellarg($dbName)
+        );
+
+        return $this->withPipefail($pipeline);
+    }
+
+    public function buildDumpCommand(Database $database, string $dbName, string $outputPath): string
+    {
+        $pipeline = sprintf(
+            'PGPASSWORD=%s pg_dump -h %s -p %d -U %s %s | gzip > %s',
+            escapeshellarg($database->admin_password),
+            escapeshellarg($database->host),
+            $database->port,
+            escapeshellarg($database->admin_user),
+            escapeshellarg($dbName),
+            escapeshellarg($outputPath)
+        );
+
+        return $this->withPipefail($pipeline);
+    }
+
+    public function describeDatabase(SSHService $ssh, Database $database, string $dbName): array
+    {
+        $sql = sprintf(
+            'SELECT pg_get_userbyid(datdba), pg_encoding_to_char(encoding), datcollate '
+            ."FROM pg_database WHERE datname = '%s'",
+            $this->escapeString($dbName)
+        );
+
+        $result = $ssh->execute($this->buildCommand($database, $sql, true));
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to describe database: '.$result['output']);
+        }
+
+        // A blank/missing field parses to '' via explode()/trim(), not the
+        // documented ?string null, so normalize it before returning.
+        $parts = array_map(
+            fn ($part) => $part === '' ? null : $part,
+            array_map('trim', explode('|', trim($result['output'])))
+        );
+
+        return [
+            'owner' => $parts[0] ?? null,
+            'charset' => $parts[1] ?? null,
+            'collation' => $parts[2] ?? null,
+        ];
+    }
+
+    public function applyDatabaseAttributes(SSHService $ssh, Database $database, string $dbName, array $attributes): void
+    {
+        if (empty($attributes['owner'])) {
+            return;
+        }
+
+        $sql = sprintf(
+            'ALTER DATABASE "%s" OWNER TO "%s"',
+            $this->escapeName($dbName),
+            $this->escapeName($attributes['owner'])
+        );
+
+        $result = $ssh->execute($this->buildCommand($database, $sql));
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to set database owner: '.$result['output']);
+        }
+    }
+
+    public function buildTableCountCommand(Database $database, string $dbName): string
+    {
+        $sql = "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'";
+
+        // buildCommand's existing signature is
+        // (Database, string $sql, bool $tupleOnly = false, ?string $dbName = null)
+        // at PostgreSQLService.php:357, so this asks for bare values against the
+        // restored database rather than the default postgres database.
+        return $this->buildCommand($database, $sql, true, $dbName);
     }
 
     protected function escapeName(string $name): string
