@@ -7,7 +7,10 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Password;
 use Illuminate\Validation\ValidationException;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class AuthController extends Controller
 {
@@ -26,7 +29,7 @@ class AuthController extends Controller
             ]);
         }
 
-        $token = $user->createToken('auth-token')->plainTextToken;
+        $token = $user->issueAuthToken();
 
         return response()->json([
             'user' => $this->userPayload($user),
@@ -46,6 +49,74 @@ class AuthController extends Controller
     public function user(Request $request): JsonResponse
     {
         return response()->json($this->userPayload($request->user()));
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($user->id)],
+        ]);
+
+        $user->update($validated);
+
+        return response()->json([
+            'user' => $this->userPayload($user),
+        ]);
+    }
+
+    public function updatePassword(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'current_password' => 'required|string',
+            'password' => ['required', 'confirmed', Password::defaults()],
+        ]);
+
+        if (! Hash::check($request->current_password, $user->password)) {
+            throw ValidationException::withMessages([
+                'current_password' => ['The current password is incorrect.'],
+            ]);
+        }
+
+        // The hashed cast takes care of hashing the plaintext.
+        $user->update(['password' => $request->password]);
+
+        $this->deleteOtherTokens($request);
+
+        return response()->json([
+            'message' => 'Password updated. Other sessions have been signed out.',
+        ]);
+    }
+
+    public function logoutOthers(Request $request): JsonResponse
+    {
+        $this->deleteOtherTokens($request);
+
+        return response()->json([
+            'message' => 'Other sessions have been signed out.',
+        ]);
+    }
+
+    /**
+     * Revoke every token except the one authenticating this request. The
+     * guard matters: under cookie auth currentAccessToken() is a
+     * TransientToken with no id, in which case all rows go.
+     */
+    private function deleteOtherTokens(Request $request): void
+    {
+        $current = $request->user()->currentAccessToken();
+
+        $query = $request->user()->tokens();
+
+        if ($current instanceof PersonalAccessToken) {
+            $query->whereKeyNot($current->id);
+        }
+
+        $query->delete();
     }
 
     /**

@@ -84,6 +84,10 @@ export interface Server {
   default_deploy_base?: string
   applications_count?: number
   created_at: string
+  // Set only on trashed servers: when the server was deleted and when the
+  // purge command will permanently remove it.
+  deleted_at?: string | null
+  purges_at?: string | null
 }
 
 export interface Application {
@@ -352,6 +356,38 @@ export interface DetectedDatabase {
   default_port: number
 }
 
+// Backup/restore run. Shared by the (not-yet-built) backups feature and the
+// upload-restore feature here; only `kind: 'restore'` rows are relevant to
+// databaseRestoresApi. upload_path is intentionally absent: BackupRun::$hidden
+// hides it server-side because it's an internal storage path, not something
+// the client ever needs.
+export interface BackupRun {
+  id: number
+  backup_config_id: number | null
+  database_id: number
+  user_id: number | null
+  database_name: string
+  kind: 'backup' | 'restore'
+  trigger: 'cron' | 'manual'
+  source: 's3' | 'upload' | null
+  status: 'pending' | 'running' | 'success' | 'failed'
+  failed_step: string | null
+  s3_key: string | null
+  original_filename: string | null
+  format: 'sql' | 'sql_gz' | null
+  safety_dump_path: string | null
+  size_bytes: number | null
+  duration_seconds: number | null
+  log: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  updated_at: string
+  // Only loaded on the history list and single-run endpoints
+  // (DatabaseRestoreController::index/show eager-load 'user:id,name').
+  user?: { id: number; name: string } | null
+}
+
 export interface ServerMetrics {
   memory: {
     total: number
@@ -403,6 +439,14 @@ export const authApi = {
   },
   logout: () => api.post('/auth/logout'),
   getUser: () => api.get<User>('/auth/user'),
+  updateProfile: (data: { name: string; email: string }) =>
+    api.put<{ user: User }>('/auth/profile', data),
+  updatePassword: (data: {
+    current_password: string
+    password: string
+    password_confirmation: string
+  }) => api.put<{ message: string }>('/auth/password', data),
+  logoutOtherSessions: () => api.post<{ message: string }>('/auth/logout-others'),
 }
 
 // Organizations
@@ -452,7 +496,12 @@ export const serversApi = {
     api.post<Server>('/servers', data),
   update: (id: number, data: Partial<Server>) =>
     api.put<Server>('/servers/' + id, data),
+  // Moves the server to the trash; recoverable via restore until the purge
+  // command removes it.
   delete: (id: number) => api.delete('/servers/' + id),
+  trashed: () => api.get<Server[]>('/servers/trashed'),
+  restore: (id: number) => api.post<Server>('/servers/' + id + '/restore'),
+  forceDelete: (id: number) => api.delete('/servers/' + id + '/force'),
   testConnection: (id: number) =>
     api.post<{ success: boolean; message: string; system_info?: string }>(
       '/servers/' + id + '/test-connection'
@@ -472,6 +521,22 @@ export const serversApi = {
     api.get<ServerMetrics>('/servers/' + id + '/metrics'),
   checkSoftware: (id: number) =>
     api.get<ServerSoftware>('/servers/' + id + '/software'),
+}
+
+// Web terminal (SSE for output, POST for input)
+export const terminalApi = {
+  open: (serverId: number, cols: number, rows: number) =>
+    api.post<{ id: number }>('/servers/' + serverId + '/terminal-sessions', { cols, rows }),
+  input: (sessionId: number, base64Data: string) =>
+    api.post('/terminal-sessions/' + sessionId + '/input', { d: base64Data }),
+  resize: (sessionId: number, cols: number, rows: number) =>
+    api.post('/terminal-sessions/' + sessionId + '/resize', { cols, rows }),
+  close: (sessionId: number) =>
+    api.post('/terminal-sessions/' + sessionId + '/close'),
+  // EventSource can't send headers, so the token rides in the query string
+  // (same pattern as the deployment and installation log streams).
+  streamUrl: (sessionId: number, token: string) =>
+    '/api/terminal-sessions/' + sessionId + '/stream?token=' + encodeURIComponent(token),
 }
 
 // Tags (server-scoped)
@@ -658,6 +723,68 @@ export const databaseUsersApi = {
   }) => api.post<{ message: string; user: DatabaseUser }>(
     '/servers/' + serverId + '/databases/' + databaseId + '/users/' + userId + '/revoke', data
   ),
+}
+
+// Database restores (upload a .sql/.sql.gz dump, restore it on the server).
+// The upload endpoint returns 202 with the created BackupRun on success; the
+// caller is expected to follow it via RestoreLogPanel's SSE stream
+// (GET /backup-runs/{id}/stream), not by polling this module.
+export const databaseRestoresApi = {
+  // Newest first, capped at 20 server-side (DatabaseRestoreController::index).
+  list: (serverId: number, databaseId: number) =>
+    api.get<{ data: BackupRun[] }>(
+      '/servers/' + serverId + '/databases/' + databaseId + '/restores'
+    ),
+
+  // Single-run fetch, used both as the SSE fallback poll and to pull fields
+  // (like safety_dump_path) that the stream's "connected"/"complete" events
+  // don't carry.
+  get: (runId: number) => api.get<{ data: BackupRun }>('/backup-runs/' + runId),
+
+  // Multipart upload with real progress. The instance-level default
+  // 'Content-Type: application/json' (set above) must not survive into this
+  // request: axios's default transformRequest checks headers.getContentType()
+  // for 'application/json' BEFORE it ever looks at the adapter, and if that
+  // check matches, it runs the FormData through JSON.stringify(formDataToJSON(data))
+  // instead of sending it as-is, silently discarding the file. Setting
+  // 'Content-Type': undefined here clears the header before that check runs
+  // (verified against the installed axios 1.13.3: this is the same mechanism
+  // recommended by axios's own resolveConfig(), which does an equivalent
+  // headers.setContentType(undefined) for FormData bodies in a standard
+  // browser environment). With the header cleared, transformRequest leaves the
+  // FormData untouched, and the browser fills in the multipart boundary itself.
+  upload: (
+    serverId: number,
+    databaseId: number,
+    payload: {
+      dump: File
+      targetDatabase: string
+      overwrite: boolean
+      confirmName?: string
+    },
+    onProgress?: (percent: number) => void
+  ) => {
+    const form = new FormData()
+    form.append('dump', payload.dump)
+    form.append('target_database', payload.targetDatabase)
+    form.append('overwrite', payload.overwrite ? '1' : '0')
+    if (payload.confirmName) {
+      form.append('confirm_name', payload.confirmName)
+    }
+
+    return api.post<{ data: BackupRun }>(
+      '/servers/' + serverId + '/databases/' + databaseId + '/restores',
+      form,
+      {
+        headers: { 'Content-Type': undefined },
+        onUploadProgress: (event) => {
+          if (onProgress && event.total) {
+            onProgress(Math.round((event.loaded * 100) / event.total))
+          }
+        },
+      }
+    )
+  },
 }
 
 // Git Providers

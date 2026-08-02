@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Models\Application;
+use App\Models\BackupRun;
+use App\Models\Database;
 use App\Models\DatabaseInstallation;
 use App\Models\Deployment;
 use App\Models\Server;
@@ -27,6 +29,8 @@ class StreamAuthIsolationTest extends TestCase
 
     private DatabaseInstallation $installationB;
 
+    private BackupRun $backupRunB;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -40,6 +44,11 @@ class StreamAuthIsolationTest extends TestCase
         ]);
         $this->installationB = DatabaseInstallation::factory()->create([
             'server_id' => $serverB->id,
+            'status' => 'success',
+        ]);
+        $databaseB = Database::factory()->create(['server_id' => $serverB->id]);
+        $this->backupRunB = BackupRun::factory()->create([
+            'database_id' => $databaseB->id,
             'status' => 'success',
         ]);
 
@@ -68,6 +77,16 @@ class StreamAuthIsolationTest extends TestCase
         $token = $this->userA->createToken('test')->plainTextToken;
 
         $response = $this->get("/api/database-installations/{$this->installationB->id}/stream?token={$token}");
+
+        $response->assertStatus(403);
+        $this->assertStringContainsString('Unauthorized', $response->streamedContent());
+    }
+
+    public function test_backup_run_stream_rejects_users_from_another_organization(): void
+    {
+        $token = $this->userA->createToken('test')->plainTextToken;
+
+        $response = $this->get("/api/backup-runs/{$this->backupRunB->id}/stream?token={$token}");
 
         $response->assertStatus(403);
         $this->assertStringContainsString('Unauthorized', $response->streamedContent());
