@@ -418,7 +418,7 @@ EOF
     echo "If a domain already points at this server, ShipYard can obtain a free" >&2
     echo "Let's Encrypt certificate and serve over HTTPS with automatic renewal." >&2
     echo "Leave empty to skip. You can enable it any time later with:" >&2
-    echo "  bash scripts/enable-https.sh yourdomain.com" >&2
+    echo "  bash ${INSTALL_DIR}/scripts/enable-https.sh yourdomain.com" >&2
     echo "" >&2
 
     HTTPS_ENABLED=false
@@ -427,8 +427,8 @@ EOF
         if bash scripts/enable-https.sh "$HTTPS_DOMAIN"; then
             HTTPS_ENABLED=true
         else
-            warning "HTTPS setup failed. ShipYard keeps working over plain HTTP."
-            warning "Once the cause is fixed, run: bash scripts/enable-https.sh $HTTPS_DOMAIN"
+            warning "HTTPS setup did not complete."
+            warning "Once the cause is fixed, run: bash ${INSTALL_DIR}/scripts/enable-https.sh $HTTPS_DOMAIN"
         fi
     fi
 
@@ -461,10 +461,12 @@ EOF
     echo "" >&2
     echo -e "${BOLD}Custom domain:${NC}" >&2
     echo "  Point your domain's DNS A record to ${SERVER_IP}" >&2
-    echo "  Then run: bash scripts/enable-https.sh yourdomain.com" >&2
+    echo "  Then run: bash ${INSTALL_DIR}/scripts/enable-https.sh yourdomain.com" >&2
     echo "" >&2
     echo -e "${YELLOW}Security reminder:${NC}" >&2
-    echo "  - Set up SSL/TLS certificates for production use" >&2
+    if [ "$HTTPS_ENABLED" != true ]; then
+        echo "  - Set up SSL/TLS certificates for production use" >&2
+    fi
     echo "  - Configure your firewall to restrict access" >&2
     echo "  - Keep your system and Docker images updated" >&2
     echo "" >&2
