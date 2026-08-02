@@ -1,0 +1,13 @@
+# Rendered by scripts/enable-https.sh into docker/nginx/conf.d-generated/.
+# Phase 1 config: serve the app over HTTP and answer ACME challenges from
+# the shared certbot webroot while the first certificate is issued.
+server {
+    listen 80;
+    server_name _;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    include /etc/nginx/snippets/shipyard-app.conf;
+}
