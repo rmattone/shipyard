@@ -24,7 +24,7 @@ These were settled during design review:
 
 ### 1. Nginx config refactor (shared include)
 
-The location blocks currently in `docker/nginx/default.conf` (PHP handling, SPA, terminal SSE, restore upload, static files, hidden file deny, health check) move to a tracked snippet:
+The location blocks currently in `docker/nginx/default.conf` (API, Sanctum, PHP handling, SPA, root redirect, static files, hidden file deny, health check) move to a tracked snippet. Note: the unmerged branch `feature/database-restore-upload` adds terminal SSE and restore upload location blocks to `default.conf`; when it merges, those blocks belong in the snippet.
 
 * `docker/nginx/shipyard-app.conf`, mounted at `/etc/nginx/snippets/shipyard-app.conf` (new mount in the base `docker-compose.yml`).
 
@@ -43,7 +43,7 @@ Steps:
 2. Phase 1 (obtain certificate):
    * Render a temporary port 80 config that adds the ACME webroot location (`/.well-known/acme-challenge/` served from a shared volume) alongside the normal app config.
    * Reload nginx.
-   * Run one-shot `docker run certbot/certbot certonly --webroot` with the shared webroot. Certificates land in `./docker/certbot/conf` (gitignored), webroot in `./docker/certbot/www` (gitignored).
+   * Run one-shot certbot (`docker compose run --rm --entrypoint certbot certbot certonly --webroot`) with the shared webroot. Certificates land in `./docker/certbot/conf` (gitignored), webroot in `./docker/certbot/www` (gitignored).
 3. Phase 2 (switch to HTTPS):
    * Render the final config from the tracked template `docker/nginx/templates/https.conf.template`, substituting the domain. Port 80 serves only the ACME path and redirects everything else. Port 443 terminates TLS with the new certificate and includes the shared app snippet.
    * Write the rendered file to `docker/nginx/conf.d-generated/default.conf` (gitignored).
@@ -55,7 +55,7 @@ Steps:
    * Run `php artisan optimize:clear`, `php artisan config:cache`, `php artisan route:cache`, then restart app, queue, and scheduler containers.
 5. Verify by curling `https://{domain}/health` and print a summary. The summary includes a Cloudflare note: users behind the Cloudflare proxy must switch the SSL/TLS mode to Full (strict), because the new origin redirect makes Flexible mode loop.
 
-If certbot fails (DNS not propagated, firewall blocking, rate limits), the script restores the original plain HTTP config, prints certbot's error, and exits nonzero. The stack keeps working over HTTP.
+If certbot fails (DNS not propagated, firewall blocking, rate limits), the script prints certbot's error and exits nonzero. On a first run it removes the generated state, returning the stack to the tracked plain HTTP config. On a re-run it instead restores the previously working generated config, so an existing HTTPS setup survives a failed attempt for a new domain.
 
 ### 3. Renewal
 
