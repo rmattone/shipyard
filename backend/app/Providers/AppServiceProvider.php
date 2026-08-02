@@ -30,5 +30,13 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('login', function (Request $request) {
             return Limit::perMinute(5)->by($request->ip());
         });
+
+        // Terminal keystrokes: the client serializes to one in-flight POST
+        // at a time (roughly one per RTT), so 20/s is generous headroom
+        // while still stopping abuse. Replaces throttle:api on that route,
+        // which a typing burst would exhaust.
+        RateLimiter::for('terminal-input', function (Request $request) {
+            return Limit::perMinute(1200)->by('term:'.($request->user()?->id ?: $request->ip()));
+        });
     }
 }

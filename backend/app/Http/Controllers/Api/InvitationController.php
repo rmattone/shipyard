@@ -91,7 +91,7 @@ class InvitationController extends Controller
         // Mirror the login response so the frontend can sign in directly.
         return response()->json([
             'user' => $user,
-            'token' => $user->createToken('auth-token')->plainTextToken,
+            'token' => $user->issueAuthToken(),
             'organization' => ['id' => $organization->id, 'name' => $organization->name],
         ], 201);
     }
