@@ -260,24 +260,30 @@ class DatabaseInstallationService
         $installation->appendLog('Updating package lists...');
         $this->runCommand($installation, 'sudo DEBIAN_FRONTEND=noninteractive apt-get update -y', 120);
 
-        $installation->appendLog('Installing PHP and extensions...');
-        $packages = 'php php-fpm php-cli php-mysql php-pgsql php-mbstring php-xml php-curl php-zip php-bcmath php-gd php-intl php-redis';
+        // Apache has to be blocked before apt resolves a single PHP package.
+        // The phpX.Y metapackage depends on
+        // "libapache2-mod-phpX.Y | phpX.Y-fpm | phpX.Y-cgi" and apt takes the
+        // first alternative, so installing it pulls apache2 in even when
+        // php-fpm is on the same command line. apache2 then wins the race for
+        // port 80 on the next reboot and nginx dies with EADDRINUSE.
+        $this->blockApache($installation);
+
+        // 3. Resolve the concrete version, then install only versioned
+        // packages. Installing unversioned metapackages and asking the server
+        // afterwards is what let sury's php-redis drag a second, FPM-less PHP
+        // series onto a box provisioned for 8.4.
+        $phpVersion = $this->resolvePhpVersion($installation);
+
+        $installation->appendLog("Installing PHP {$phpVersion} and extensions...");
+        $packages = $this->phpPackages($phpVersion);
         $this->runCommand($installation, "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {$packages}", 600);
-
-        // 3. Detect installed PHP version and enable FPM service
-        $installation->appendLog('Detecting PHP version...');
-        $versionResult = $this->sshService->execute('php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;"', 15);
-        $phpVersion = trim($versionResult['output']);
-        if (empty($phpVersion)) {
-            $phpVersion = '8.3'; // Fallback
-        }
-
-        // Record the detected version so nginx configs template the right
-        // PHP-FPM socket path for this server
-        $installation->server->update(['php_version' => $phpVersion]);
 
         $installation->appendLog("Enabling and starting php{$phpVersion}-fpm service...");
         $this->runCommand($installation, "sudo systemctl enable php{$phpVersion}-fpm && sudo systemctl start php{$phpVersion}-fpm", 60);
+
+        // Record the installed version so nginx configs template the right
+        // PHP-FPM socket path for this server
+        $installation->server->update(['php_version' => $phpVersion]);
 
         // 4. Install Composer
         $installation->appendLog('Installing Composer...');
@@ -290,6 +296,20 @@ class DatabaseInstallationService
         $phpVersionResult = $this->sshService->execute('php --version 2>/dev/null | head -1', 15);
         if (! $phpVersionResult['success'] || empty(trim($phpVersionResult['output']))) {
             throw new RuntimeException('PHP installation verification failed.');
+        }
+
+        // A pre-existing PHP on the box can outrank ours in update-alternatives,
+        // so /usr/bin/php may not be the series we just installed. Not fatal
+        // (vhosts, daemons and scheduled tasks all use the versioned binary and
+        // socket) but worth surfacing, since it silently changes what a bare
+        // "php" runs in a deploy hook.
+        $defaultCli = $this->sshService->execute('php -r "echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;"', 15);
+        $defaultCliVersion = trim($defaultCli['output']);
+        if ($defaultCliVersion !== '' && $defaultCliVersion !== $phpVersion) {
+            $installation->appendLog(
+                "WARNING: the default `php` on this host is {$defaultCliVersion}, not the {$phpVersion} ShipYard installed. ".
+                "Deploy hooks that call a bare `php` will run {$defaultCliVersion}."
+            );
         }
 
         $installation->appendLog('Verifying Composer installation...');
@@ -385,6 +405,11 @@ class DatabaseInstallationService
             throw new RuntimeException('nginx service is not running after installation.');
         }
 
+        // "active" alone is not enough: another web server can already hold
+        // port 80, leaving nginx running but beaten to the socket on the next
+        // boot. Check who actually owns the port.
+        $this->assertNginxOwnsPortEighty($installation);
+
         // Detect installed version (nginx outputs to stderr)
         $versionResult = $this->sshService->execute('nginx -v 2>&1', 15);
         if ($versionResult['success']) {
@@ -411,6 +436,110 @@ class DatabaseInstallationService
         $version = trim($versionResult['output']);
         $installation->update(['version_installed' => $version]);
         $installation->appendLog("Certbot installed successfully: {$version}");
+    }
+
+    /**
+     * Ask apt which concrete PHP series the php-fpm metapackage points at,
+     * without installing anything. This reproduces the version apt would have
+     * chosen on its own, so the resolved number is deterministic and known
+     * before a single package lands.
+     */
+    private function resolvePhpVersion(DatabaseInstallation $installation): string
+    {
+        $installation->appendLog('Resolving the default PHP version from the configured apt sources...');
+
+        $result = $this->sshService->execute(
+            "apt-cache depends php-fpm 2>/dev/null | grep -oE 'php[0-9]+\.[0-9]+-fpm' | head -1 | grep -oE '[0-9]+\.[0-9]+'",
+            30
+        );
+
+        $version = trim($result['output']);
+
+        if (! preg_match('/^\d+\.\d+$/', $version)) {
+            throw new RuntimeException('Could not determine which PHP version to install from the configured apt sources.');
+        }
+
+        return $version;
+    }
+
+    /**
+     * Versioned package names only. The unversioned "php" metapackage pulls
+     * libapache2-mod-php, and unversioned extension packages track whatever
+     * series is newest in the repo, which is how a box provisioned for 8.4
+     * ended up with a half-installed 8.5 (cli but no fpm) beside it.
+     */
+    private function phpPackages(string $version): string
+    {
+        $extensions = ['fpm', 'cli', 'mysql', 'pgsql', 'mbstring', 'xml', 'curl', 'zip', 'bcmath', 'gd', 'intl', 'redis'];
+
+        return implode(' ', array_map(fn (string $ext): string => "php{$version}-{$ext}", $extensions));
+    }
+
+    /**
+     * ShipYard serves every site through nginx, so apache2 on the same host is
+     * only ever a port-80 conflict waiting for a reboot.
+     */
+    private function blockApache(DatabaseInstallation $installation): void
+    {
+        $installation->appendLog('Pinning apache2 out of apt...');
+
+        // Priority -1 makes apt refuse these outright, so the phpX.Y
+        // alternative group falls through to phpX.Y-fpm instead of resolving
+        // to libapache2-mod-phpX.Y. base64 keeps the quoting layers separate
+        // (see installMySQL).
+        $pin = "Package: apache2 apache2-bin apache2-data apache2-utils libapache2-mod-php*\nPin: release *\nPin-Priority: -1\n";
+        $this->runCommand($installation, sprintf(
+            'echo %s | base64 -d | sudo tee /etc/apt/preferences.d/shipyard-no-apache >/dev/null',
+            escapeshellarg(base64_encode($pin))
+        ), 30);
+
+        // Never yank a web server that is currently serving traffic. If apache2
+        // is live the operator has to make that call, so say so and move on;
+        // the nginx install refuses to pass its port-80 check anyway.
+        $active = $this->sshService->execute('systemctl is-active apache2 2>/dev/null || true', 15);
+        if (trim($active['output']) === 'active') {
+            $installation->appendLog(
+                'WARNING: apache2 is currently serving on this host, so ShipYard left it running. '.
+                'It will fight nginx for port 80 on the next reboot. Purge it before deploying sites.'
+            );
+
+            return;
+        }
+
+        // Masking survives a reinstall: even if apache2 arrives some other way,
+        // its postinst cannot start it and it cannot come back at boot.
+        $this->runCommand(
+            $installation,
+            'sudo systemctl disable --now apache2 >/dev/null 2>&1; sudo systemctl mask apache2 >/dev/null 2>&1; true',
+            60
+        );
+
+        $installation->appendLog('apache2 is pinned out of apt and masked in systemd.');
+    }
+
+    private function assertNginxOwnsPortEighty(DatabaseInstallation $installation): void
+    {
+        $installation->appendLog('Verifying nginx owns port 80...');
+
+        $result = $this->sshService->execute("sudo ss -ltnp 2>/dev/null | grep -E ':80[[:space:]]' || true", 15);
+        $listeners = trim($result['output']);
+
+        if ($listeners === '') {
+            throw new RuntimeException('Nothing is listening on port 80 after the nginx install.');
+        }
+
+        if (str_contains($listeners, 'apache2')) {
+            throw new RuntimeException(
+                'apache2 is listening on port 80 and will beat nginx to it on the next reboot. '.
+                'Purge apache2 (sudo apt-get purge apache2 apache2-bin apache2-data apache2-utils "libapache2-mod-php*") and re-run this install.'
+            );
+        }
+
+        if (! str_contains($listeners, 'nginx')) {
+            throw new RuntimeException("Port 80 is held by another process instead of nginx: {$listeners}");
+        }
+
+        $installation->appendLog('nginx owns port 80.');
     }
 
     private function nvmPrefix(): string

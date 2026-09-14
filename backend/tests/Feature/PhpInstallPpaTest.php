@@ -35,6 +35,9 @@ class PhpInstallPpaTest extends TestCase
                 $fakes = [
                     'ppa.launchpadcontent.net' => $ppaAvailable ? 'available' : 'unavailable',
                     'cat /etc/os-release' => 'ID=ubuntu VERSION_CODENAME=resolute',
+                    'apt-cache depends php-fpm' => '8.4',
+                    // must precede the generic is-active fake below
+                    'is-active apache2' => 'inactive',
                     'PHP_MAJOR_VERSION' => '8.4',
                     'is-active' => 'active',
                     'php --version' => 'PHP 8.4.2 (cli)',
