@@ -188,7 +188,14 @@ ShipYard updates itself from Settings > System. The page shows the installed ver
 Requirements for the in-app updater:
 
 - The install directory is a git checkout on `main` with no local modifications (the installer produces exactly this).
-- The checkout is mounted at `/var/www/shipyard` in the `app`, `queue`, and `scheduler` containers. `docker-compose.yml` already does this; installs created before it existed need `docker compose up -d` once on the host to pick it up.
+- The checkout is mounted at `/var/www/shipyard` in the `app`, `queue`, and `scheduler` containers. `docker-compose.yml` already does this. Installs created before it existed need this once on the host, after their first `bash update.sh`:
+
+  ```bash
+  docker compose up -d
+  docker compose restart nginx
+  ```
+
+  The first line recreates the containers with the new mount. The second loads the nginx configuration that resolves the PHP container at request time; without it, a recreated app container can leave nginx pointing at a stale address and every request returns 502.
 
 The same script works from the host:
 
@@ -197,11 +204,7 @@ cd /path/to/shipyard
 bash update.sh
 ```
 
-Changes to `docker-compose.yml` or `docker/` cannot be applied from inside a container. When an update touched them, the log ends with a notice to run this on the host:
-
-```bash
-docker compose up -d --build
-```
+Changes to `docker-compose.yml`, the Dockerfile, or the nginx configuration cannot be applied from inside a container. When an update touched them, the log ends with a notice naming the command to run on the host: `docker compose up -d --build` for container definitions, `docker compose restart nginx` for nginx configuration.
 
 Set `SHIPYARD_REPO` (owner/repo) and `SHIPYARD_BRANCH` in `backend/.env` to follow a fork or another branch.
 
