@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useSectionParam } from '@/hooks/useSectionParam'
 import { serversApi, tagsApi, Server, Tag, TagColor } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,7 @@ import SshSettingsSection from './settings/SshSettingsSection'
 import NetworkSettingsSection from './settings/NetworkSettingsSection'
 
 type SettingsSection = 'general' | 'users' | 'ssh' | 'network' | 'tags' | 'danger'
+const SECTIONS: readonly SettingsSection[] = ['general', 'users', 'ssh', 'network', 'tags', 'danger']
 
 export default function ServerSettings() {
   const { id } = useParams<{ id: string }>()
@@ -48,7 +50,7 @@ export default function ServerSettings() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deleting, setDeleting] = useState(false)
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+  const [activeSection, setActiveSection] = useSectionParam(SECTIONS, 'general')
   const [formData, setFormData] = useState({
     name: '',
     host: '',

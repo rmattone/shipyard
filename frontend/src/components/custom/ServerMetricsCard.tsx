@@ -87,6 +87,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
       setError(null)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
+      // Keep the last good sample on screen; the header marks it stale.
       setError(error.response?.data?.message || 'Failed to load metrics')
     } finally {
       setLoading(false)
@@ -116,7 +117,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
     return <MetricsSkeleton />
   }
 
-  if (error) {
+  if (error && !metrics) {
     return (
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
@@ -142,16 +143,21 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
       <div className="mb-4 flex items-center justify-between">
         <div>
           <h3 className="font-semibold">Server metrics</h3>
-          {updatedAt && (
+          {error && updatedAt ? (
+            <p className="flex items-center gap-1 text-xs tabular-nums text-amber-700 dark:text-amber-400" role="status">
+              <ExclamationTriangleIcon className="h-3.5 w-3.5" />
+              Stale, last sample {format(updatedAt, 'HH:mm:ss')}
+            </p>
+          ) : updatedAt ? (
             <p className="text-xs tabular-nums text-muted-foreground">Updated {format(updatedAt, 'HH:mm:ss')}</p>
-          )}
+          ) : null}
         </div>
         <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} aria-label="Refresh metrics">
           <ArrowPathIcon className={cn('h-4 w-4', refreshing && 'animate-spin')} />
         </Button>
       </div>
 
-      <div className="space-y-4">
+      <div className={cn('space-y-4 transition-opacity duration-200', error && 'opacity-70')}>
         <ProgressBar
           percentage={metrics.memory.percentage}
           label="Memory"

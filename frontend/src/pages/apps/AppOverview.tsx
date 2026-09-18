@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,8 +22,10 @@ import {
   ArrowPathIcon,
   GlobeAltIcon,
   LockClosedIcon,
+  ArrowTopRightOnSquareIcon,
+  CubeIcon,
 } from '@heroicons/react/24/outline'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, formatDistanceStrict, format } from 'date-fns'
 import { getAvatarColor } from '@/lib/utils'
 
 const statusColors: Record<string, { bg: string; text: string }> = {
@@ -116,18 +119,49 @@ export default function AppOverview() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <LoadingSpinner size="lg" />
+      <div className="space-y-6" role="status" aria-label="Loading application">
+        <Skeleton className="h-[104px] w-full rounded-xl" />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton className="h-64 w-full rounded-xl" />
+          </div>
+          <div className="space-y-6">
+            <Skeleton className="h-56 w-full rounded-xl" />
+            <Skeleton className="h-40 w-full rounded-xl" />
+          </div>
+        </div>
       </div>
     )
   }
 
-  if (!app) return null
+  if (!app) {
+    return (
+      <Card className="mx-auto max-w-md p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          <CubeIcon className="h-6 w-6" />
+        </div>
+        <h1 className="text-lg font-semibold">Application not found</h1>
+        <p className="mt-1 text-sm text-muted-foreground">It may have been deleted or belong to another organization.</p>
+        <Button variant="outline" className="mt-5" asChild>
+          <Link to="/">Back to servers</Link>
+        </Button>
+      </Card>
+    )
+  }
 
   const color = getAvatarColor(app.name)
   const successfulDeploys = deployments.filter(d => d.status === 'success').length
   const failedDeploys = deployments.filter(d => d.status === 'failed').length
   const lastDeploy = deployments[0]
+  // The release actually serving traffic is the most recent successful deployment.
+  const currentRelease = deployments.find(d => d.status === 'success')
+  const primaryDomain = app.domains?.find(d => d.is_primary) ?? app.domains?.[0]
+  const visitHost = primaryDomain?.domain || app.domain
+  const visitUrl = visitHost ? `${(primaryDomain?.ssl_enabled ?? app.ssl_enabled) ? 'https' : 'http'}://${visitHost}` : null
+  const releaseDuration = currentRelease?.started_at && currentRelease.finished_at
+    ? formatDistanceStrict(new Date(currentRelease.finished_at), new Date(currentRelease.started_at))
+    : null
 
   return (
     <div className="space-y-6">
@@ -142,15 +176,25 @@ export default function AppOverview() {
               <h1 className="break-all text-2xl font-semibold tracking-tight">{app.name}</h1>
               <StatusBadge status={app.status} />
               {!app.git_provider_id && (
-                <Badge variant="outline" className="text-amber-500 border-amber-500/40">
-                  Git provider not connected
-                </Badge>
+                <Link to={`/apps/${app.id}/settings`} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <Badge variant="outline" className="border-amber-500/40 text-amber-700 transition-colors hover:bg-amber-500/10 dark:text-amber-400">
+                    Connect a Git provider
+                  </Badge>
+                </Link>
               )}
             </div>
             <p className="font-mono text-sm text-muted-foreground">{app.domain}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {visitUrl && (
+            <Button variant="outline" asChild>
+              <a href={visitUrl} target="_blank" rel="noopener noreferrer">
+                <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                Visit
+              </a>
+            </Button>
+          )}
           {/* Split button: the primary action deploys, only the chevron opens
               the menu. A single button doing both used to fire a deployment
               AND open the menu, allowing a second concurrent deployment. */}
@@ -203,6 +247,69 @@ export default function AppOverview() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column - Deployments list */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Current release: what is serving traffic right now */}
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between border-b p-4">
+              <h2 className="font-semibold">Current release</h2>
+              {currentRelease && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to={`/apps/${app.id}/deployments/${currentRelease.id}`}>View output</Link>
+                </Button>
+              )}
+            </div>
+            {currentRelease ? (
+              <div className="p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-medium">{currentRelease.commit_message || 'Manual deployment'}</p>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-muted-foreground">
+                      {currentRelease.commit_hash && <span>{currentRelease.commit_hash.substring(0, 7)}</span>}
+                      <span>{app.branch}</span>
+                      {visitHost && <span className="truncate">{visitHost}</span>}
+                    </p>
+                  </div>
+                  <StatusBadge status="success" label="Live" />
+                </div>
+                <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Deployed</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums" title={format(new Date(currentRelease.finished_at ?? currentRelease.created_at), 'PPpp')}>
+                      {formatDistanceToNow(new Date(currentRelease.finished_at ?? currentRelease.created_at), { addSuffix: true })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Duration</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums">{releaseDuration ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Deployment</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums">#{currentRelease.id}</dd>
+                  </div>
+                </dl>
+                {lastDeploy && lastDeploy.id !== currentRelease.id && (
+                  <Link
+                    to={`/apps/${app.id}/deployments/${lastDeploy.id}`}
+                    className={`mt-5 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-muted/50 ${lastDeploy.status === 'failed' ? 'border-red-500/30 text-red-700 dark:text-red-400' : 'border-border text-muted-foreground'}`}
+                  >
+                    {getStatusIcon(lastDeploy.status)}
+                    <span className="flex-1 truncate">
+                      {lastDeploy.status === 'failed' ? 'Latest deployment failed; this release is still live' : 'A newer deployment is in progress'}
+                    </span>
+                    <span className="text-xs tabular-nums">#{lastDeploy.id}</span>
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <div className="p-8 text-center">
+                <RocketLaunchIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                <p className="font-medium">Nothing is live yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {lastDeploy ? 'The most recent deployment did not succeed. Fix the cause and deploy again.' : 'Use Deploy to publish the first release.'}
+                </p>
+              </div>
+            )}
+          </Card>
+
           {/* Recent deployments */}
           <Card>
             <div className="flex items-center justify-between p-4 border-b">
@@ -212,10 +319,8 @@ export default function AppOverview() {
               </Button>
             </div>
             {deployments.length === 0 ? (
-              <div className="p-8 text-center">
-                <RocketLaunchIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-4">No deployments yet</p>
-                <p className="text-sm text-muted-foreground">Use Deploy above to publish your first release.</p>
+              <div className="p-6 text-center">
+                <p className="text-sm text-muted-foreground">No deployments yet.</p>
               </div>
             ) : (
               <div className="divide-y">
