@@ -36,6 +36,7 @@ Representative screens are restyled and the motion foundation is in place, but s
 | URL-backed view state | Implemented | Settings sections (`?section=`) across all three scopes via `useSectionParam`; server list search and status (`?q=`, `?status=`) |
 | Stale metrics | Implemented | Failed refresh keeps the last sample visible at reduced opacity with a stale notice and time |
 | Help links | Implemented | Documentation and Report an issue in the user menu |
+| Server overview recomposition | Implemented | Single column, top to bottom: identity header (address line now `user@host:port · Added date`, Details card removed), four-tile vitals strip (CPU, Memory, Disk, Load with uptime, swap, freshness in its footer), full-width Applications card (counts moved into its header, tag filter as a toolbar row, Import in header and overflow menu), then one Resource history chart at 200px with a CPU/Memory/Disk/Load segmented control. Tapping a vital selects the chart metric. Replaces the 2/3 + 1/3 grid whose left column ran empty beside a count card, and the four stacked charts |
 
 ## Phase 1 open items
 
@@ -111,7 +112,7 @@ Documents: `new-gen-ui.md`, `new-gen-ui-status.md`
 Open follow-ups:
 
 - Confirm the minimum browser target. The row focus ring uses `:has()`, supported in all current evergreen browsers.
-- Run the browser review listed above, now also covering the current release card and inline connection result.
+- Run the browser review listed above, now also covering the current release card, inline connection result, and the recomposed server overview (vitals strip, single chart, tile-to-chart selection).
 
 ## Remaining roadmap
 
