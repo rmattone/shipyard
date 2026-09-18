@@ -16,6 +16,56 @@ interface ServerMetricsCardProps {
   /** When provided, tiles act as a selector for the history chart below. */
   selected?: MetricKey
   onSelect?: (metric: MetricKey) => void
+  /** `inline` renders a compact, unboxed row meant to sit inside a resource header. */
+  variant?: 'card' | 'inline'
+}
+
+function formatUptime(seconds: number): string {
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  if (days > 0) return `${days}d ${hours}h`
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
+}
+
+interface InlineVitalProps {
+  metric: MetricKey
+  label: string
+  value: string
+  percentage: number
+  detail: string
+  selected?: boolean
+  onSelect?: (metric: MetricKey) => void
+}
+
+/** Header-sized vital: label, number, hairline bar. The detail lives in the tooltip. */
+function InlineVital({ metric, label, value, percentage, detail, selected, onSelect }: InlineVitalProps) {
+  const interactive = Boolean(onSelect)
+  const Tag = interactive ? 'button' : 'div'
+  return (
+    <Tag
+      type={interactive ? 'button' : undefined}
+      onClick={interactive ? () => onSelect?.(metric) : undefined}
+      aria-pressed={interactive ? selected : undefined}
+      title={`${label}: ${value} (${detail})`}
+      className={cn(
+        'pressable flex w-[5.5rem] flex-col gap-1 rounded-md px-2.5 py-1.5 text-left',
+        interactive && 'hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        selected && 'bg-muted/60'
+      )}
+    >
+      <span className="flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+        <span className="text-sm font-semibold leading-none tabular-nums">{value}</span>
+      </span>
+      <span className="h-0.5 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(percentage, 100))}>
+        <span
+          className={cn('block h-full rounded-full transition-[width,background-color] duration-500 ease-out', barTone(percentage))}
+          style={{ width: `${Math.min(percentage, 100)}%` }}
+        />
+      </span>
+    </Tag>
+  )
 }
 
 function barTone(percentage: number): string {
@@ -89,7 +139,7 @@ function VitalsSkeleton() {
   )
 }
 
-export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterval = 30000, selected, onSelect }: ServerMetricsCardProps) {
+export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterval = 30000, selected, onSelect, variant = 'card' }: ServerMetricsCardProps) {
   const [metrics, setMetrics] = useState<ServerMetrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -123,7 +173,28 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
     return () => clearInterval(interval)
   }, [autoRefresh, refreshInterval, fetchMetrics])
 
-  if (loading) return <VitalsSkeleton />
+  if (loading) {
+    if (variant === 'inline') {
+      return (
+        <div className="flex items-center gap-1" role="status" aria-label="Loading metrics">
+          {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-10 w-[5.5rem] rounded-md" />)}
+        </div>
+      )
+    }
+    return <VitalsSkeleton />
+  }
+
+  if (error && !metrics && variant === 'inline') {
+    return (
+      <div className="flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+        <ExclamationTriangleIcon className="h-4 w-4 shrink-0" />
+        <span>Metrics unavailable</span>
+        <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => fetchMetrics(true)} disabled={refreshing} aria-label="Retry loading metrics">
+          <ArrowPathIcon className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+        </Button>
+      </div>
+    )
+  }
 
   if (error && !metrics) {
     return (
@@ -144,6 +215,35 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
 
   const cores = metrics.cpu.cores
   const loadPercent = cores > 0 ? (metrics.load.avg_1 / cores) * 100 : 0
+
+  if (variant === 'inline') {
+    const freshness = updatedAt
+      ? error ? `Stale, last sample ${format(updatedAt, 'HH:mm:ss')}` : `Updated ${format(updatedAt, 'HH:mm:ss')}`
+      : undefined
+    return (
+      <div className={cn('flex flex-wrap items-center gap-x-1 gap-y-2 transition-opacity duration-200', error && 'opacity-70')}>
+        <InlineVital metric="cpu" label="CPU" value={`${metrics.cpu.usage.toFixed(0)}%`} percentage={metrics.cpu.usage} detail={`${cores} ${cores === 1 ? 'core' : 'cores'}`} selected={selected === 'cpu'} onSelect={onSelect} />
+        <InlineVital metric="memory" label="Memory" value={`${metrics.memory.percentage.toFixed(0)}%`} percentage={metrics.memory.percentage} detail={`${formatBytes(metrics.memory.used)} of ${formatBytes(metrics.memory.total)}`} selected={selected === 'memory'} onSelect={onSelect} />
+        <InlineVital metric="disk" label="Disk" value={`${metrics.disk.percentage.toFixed(0)}%`} percentage={metrics.disk.percentage} detail={`${formatBytes(metrics.disk.used)} of ${formatBytes(metrics.disk.total)}`} selected={selected === 'disk'} onSelect={onSelect} />
+        <InlineVital metric="load" label="Load" value={metrics.load.avg_1.toFixed(2)} percentage={loadPercent} detail={`5m ${metrics.load.avg_5.toFixed(2)} · 15m ${metrics.load.avg_15.toFixed(2)}`} selected={selected === 'load'} onSelect={onSelect} />
+        <div className="ml-1 flex flex-col gap-1 px-2.5 py-1.5" title={metrics.uptime.formatted}>
+          <span className="text-[11px] font-medium text-muted-foreground">Uptime</span>
+          <span className="text-sm font-semibold leading-none tabular-nums">{formatUptime(metrics.uptime.seconds)}</span>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-7 w-7', error && 'text-amber-700 dark:text-amber-400')}
+          onClick={() => fetchMetrics(true)}
+          disabled={refreshing}
+          aria-label={freshness ? `Refresh metrics. ${freshness}` : 'Refresh metrics'}
+          title={freshness}
+        >
+          {error ? <ExclamationTriangleIcon className="h-3.5 w-3.5" /> : <ArrowPathIcon className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />}
+        </Button>
+      </div>
+    )
+  }
 
   return (
     <Card className="overflow-hidden p-0">
