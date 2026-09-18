@@ -4,20 +4,12 @@ import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
-import { cn } from '@/lib/utils'
+import { cn, formatBytes } from '@/lib/utils'
 
 interface ServerMetricsCardProps {
   serverId: number
   autoRefresh?: boolean
   refreshInterval?: number
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
 function getProgressColor(percentage: number): string {
@@ -158,10 +150,18 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
           detail={`${formatBytes(metrics.memory.used)} / ${formatBytes(metrics.memory.total)}`}
         />
 
+        {metrics.swap.total > 0 && (
+          <ProgressBar
+            percentage={metrics.swap.percentage}
+            label="Swap"
+            detail={`${formatBytes(metrics.swap.used)} / ${formatBytes(metrics.swap.total)}`}
+          />
+        )}
+
         <ProgressBar
           percentage={metrics.cpu.usage}
           label="CPU"
-          detail={`${metrics.cpu.usage.toFixed(1)}% usage`}
+          detail={`${metrics.cpu.usage.toFixed(1)}% of ${metrics.cpu.cores} ${metrics.cpu.cores === 1 ? 'core' : 'cores'}`}
         />
 
         <ProgressBar
@@ -178,7 +178,9 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
         </div>
 
         <div>
-          <div className="text-sm text-muted-foreground mb-1">Load Average</div>
+          <div className="text-sm text-muted-foreground mb-1">
+            Load Average <span className="text-xs">({metrics.cpu.cores} {metrics.cpu.cores === 1 ? 'core' : 'cores'})</span>
+          </div>
           <div className="flex gap-4 text-sm">
             <div>
               <span className="text-muted-foreground">1m:</span>{' '}

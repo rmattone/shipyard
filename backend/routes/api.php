@@ -102,6 +102,7 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::get('/servers/{server}/node-versions/remote', [ServerController::class, 'getRemoteNodeVersions']);
     Route::post('/servers/{server}/node-versions/default', [ServerController::class, 'setDefaultNodeVersion']);
     Route::get('/servers/{server}/metrics', [ServerController::class, 'getMetrics']);
+    Route::get('/servers/{server}/metrics/history', [ServerController::class, 'getMetricsHistory']);
     Route::get('/servers/{server}/software', [ServerController::class, 'checkSoftware']);
 
     // Destructive server lifecycle (admin or owner only). restore and force
