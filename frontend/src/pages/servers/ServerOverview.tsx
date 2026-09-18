@@ -172,6 +172,7 @@ export default function ServerOverview() {
     return (
       <div className="space-y-6" role="status" aria-label="Loading server">
         <Skeleton className="h-[104px] w-full rounded-xl" />
+        <Skeleton className="h-[108px] w-full rounded-xl" />
         <Skeleton className="h-56 w-full rounded-xl" />
         <Skeleton className="h-72 w-full rounded-xl" />
       </div>
@@ -204,7 +205,6 @@ export default function ServerOverview() {
     <div className="space-y-6">
       {/* Identity: who this server is, whether we can reach it, what to do next */}
       <div className="resource-header">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-8 gap-y-4">
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
             <ServerIcon className="h-6 w-6" />
@@ -231,10 +231,7 @@ export default function ServerOverview() {
             )}
           </div>
         </div>
-        {/* Vitals live in the header's spare width: the four numbers that say whether the box is healthy */}
-        <ServerMetricsCard serverId={parseInt(id!)} autoRefresh={true} selected={metric} onSelect={setMetric} variant="inline" />
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {!server.is_local && (
             <Button variant="outline" onClick={handleTestConnection} disabled={testing}>
               {testing ? <LoadingSpinner size="sm" /> : <SignalIcon className="h-4 w-4" />}
@@ -265,6 +262,9 @@ export default function ServerOverview() {
           </DropdownMenu>
         </div>
       </div>
+
+      {/* Vitals: the four numbers that answer "is this box healthy right now" */}
+      <ServerMetricsCard serverId={parseInt(id!)} autoRefresh={true} selected={metric} onSelect={setMetric} />
 
       {/* Applications: what this server is for */}
       <Card className="overflow-hidden">
