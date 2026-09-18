@@ -21,6 +21,12 @@ class ServerMetric extends Model
      */
     public const RETENTION_DAYS = 30;
 
+    /**
+     * Live reads from the overview also store a sample, but not more often
+     * than this, so parallel tabs do not multiply rows.
+     */
+    public const LIVE_SAMPLE_GUARD_SECONDS = 15;
+
     public $timestamps = false;
 
     protected $fillable = [
