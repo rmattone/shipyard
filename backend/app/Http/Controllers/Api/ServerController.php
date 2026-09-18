@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Server;
 use App\Services\NodeVersionService;
+use App\Services\ServerMetricsHistoryService;
 use App\Services\ServerMetricsService;
 use App\Services\SSHService;
 use Illuminate\Http\JsonResponse;
@@ -15,7 +16,8 @@ class ServerController extends Controller
     public function __construct(
         private SSHService $sshService,
         private NodeVersionService $nodeVersionService,
-        private ServerMetricsService $serverMetricsService
+        private ServerMetricsService $serverMetricsService,
+        private ServerMetricsHistoryService $serverMetricsHistoryService
     ) {}
 
     public function index(): JsonResponse
@@ -357,5 +359,16 @@ class ServerController extends Controller
                 'message' => $e->getMessage(),
             ], 422);
         }
+    }
+
+    public function getMetricsHistory(Request $request, Server $server): JsonResponse
+    {
+        $validated = $request->validate([
+            'range' => 'nullable|in:'.implode(',', ServerMetricsHistoryService::RANGES),
+        ]);
+
+        return response()->json(
+            $this->serverMetricsHistoryService->history($server, $validated['range'] ?? '7d')
+        );
     }
 }
