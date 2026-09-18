@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useSectionParam } from '@/hooks/useSectionParam'
 import { gitProvidersApi, systemApi, GitProvider, SystemVersion, UpdateStatus } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -33,6 +34,7 @@ import { OrganizationMembers } from './OrganizationMembers'
 import { ServerTrash } from './ServerTrash'
 
 type SettingsSection = 'account' | 'source-control' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
+const SECTIONS: readonly SettingsSection[] = ['account', 'source-control', 'notifications', 'members', 'general', 'trash', 'system']
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -40,7 +42,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [activeSection, setActiveSection] = useState<SettingsSection>('source-control')
+  const [activeSection, setActiveSection] = useSectionParam(SECTIONS, 'source-control')
 
   // System update state
   const [versionInfo, setVersionInfo] = useState<SystemVersion | null>(null)

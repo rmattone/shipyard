@@ -4,6 +4,7 @@ import { serversApi, applicationsApi, tagsApi, Server, Application, Deployment, 
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +20,9 @@ import {
   CubeIcon,
   XMarkIcon,
   ArrowDownTrayIcon,
+  CheckCircleIcon,
+  XCircleIcon,
+  SignalIcon,
 } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
 import { getAvatarColor } from '@/lib/utils'
@@ -37,6 +41,7 @@ export default function ServerOverview() {
   const [serverTags, setServerTags] = useState<Tag[]>([])
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [importing, setImporting] = useState(false)
+  const [connection, setConnection] = useState<{ ok: boolean; message: string; at: Date } | null>(null)
 
   const loadData = async () => {
     if (!id) return
@@ -113,14 +118,14 @@ export default function ServerOverview() {
 
     try {
       const response = await serversApi.testConnection(server.id)
-      if (response.data.success) {
-        toast.success('Connection successful')
-      } else {
-        toast.error(response.data.message)
-      }
+      setConnection({
+        ok: response.data.success,
+        message: response.data.success ? 'Connected' : (response.data.message || 'Connection failed'),
+        at: new Date(),
+      })
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Connection failed')
+      setConnection({ ok: false, message: err.response?.data?.message || 'Connection failed', at: new Date() })
     } finally {
       setTesting(false)
     }
@@ -162,14 +167,32 @@ export default function ServerOverview() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <LoadingSpinner size="lg" />
+      <div className="space-y-6" role="status" aria-label="Loading server">
+        <Skeleton className="h-[104px] w-full rounded-xl" />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <Skeleton className="h-72 w-full rounded-xl lg:col-span-2" />
+          <div className="space-y-6">
+            <Skeleton className="h-64 w-full rounded-xl" />
+            <Skeleton className="h-48 w-full rounded-xl" />
+          </div>
+        </div>
       </div>
     )
   }
 
   if (!server) {
-    return <div>Server not found</div>
+    return (
+      <Card className="mx-auto max-w-md p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          <ServerIcon className="h-6 w-6" />
+        </div>
+        <h1 className="text-lg font-semibold">Server not found</h1>
+        <p className="mt-1 text-sm text-muted-foreground">It may have been moved to the trash or belong to another organization.</p>
+        <Button variant="outline" className="mt-5" asChild>
+          <Link to="/">Back to servers</Link>
+        </Button>
+      </Card>
+    )
   }
 
   const activeApps = filteredApplications.filter(a => a.status === 'active').length
@@ -189,9 +212,25 @@ export default function ServerOverview() {
               <StatusBadge status={server.status} label={server.status === 'active' ? 'Connected' : 'Inactive'} />
             </div>
             <p className="font-mono text-sm text-muted-foreground">{server.host}:{server.port}</p>
+            {connection && (
+              <p
+                role="status"
+                className={`mt-1 flex items-center gap-1.5 text-xs animate-in fade-in-0 slide-in-from-top-1 duration-200 ${connection.ok ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}
+              >
+                {connection.ok ? <CheckCircleIcon className="h-3.5 w-3.5" /> : <XCircleIcon className="h-3.5 w-3.5" />}
+                <span>{connection.message}</span>
+                <span className="tabular-nums text-muted-foreground">· {connection.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
+              </p>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {!server.is_local && (
+            <Button variant="outline" onClick={handleTestConnection} disabled={testing}>
+              {testing ? <LoadingSpinner size="sm" /> : <SignalIcon className="h-4 w-4" />}
+              {testing ? 'Testing…' : 'Test connection'}
+            </Button>
+          )}
           <Button onClick={() => navigate(`/servers/${id}/apps/new`)}>
             <PlusIcon className="h-4 w-4" />
             New application
@@ -203,11 +242,11 @@ export default function ServerOverview() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={handleTestConnection} disabled={testing}>
-                {testing ? 'Testing connection…' : 'Test connection'}
+              <DropdownMenuItem asChild>
+                <Link to={`/servers/${id}/settings`}>Settings</Link>
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate(`/servers/${id}/settings`)}>
-                Settings
+              <DropdownMenuItem asChild>
+                <Link to={`/servers/${id}/terminal`}>Open terminal</Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

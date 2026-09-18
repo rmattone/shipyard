@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { serversApi, Server, getErrorMessage } from '../services/api'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -27,8 +27,22 @@ export default function Servers() {
   const [servers, setServers] = useState<Server[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [query, setQuery] = useState('')
-  const [status, setStatus] = useState('all')
+  // Search and filter live in the URL so refresh and Back keep the view.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const query = searchParams.get('q') ?? ''
+  const status = searchParams.get('status') ?? 'all'
+  const updateParams = (patch: Record<string, string>) => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      for (const [key, value] of Object.entries(patch)) {
+        if (!value || value === 'all') params.delete(key)
+        else params.set(key, value)
+      }
+      return params
+    }, { replace: true })
+  }
+  const setQuery = (value: string) => updateParams({ q: value })
+  const setStatus = (value: string) => updateParams({ status: value })
 
   const loadServers = () => {
     setLoading(true)

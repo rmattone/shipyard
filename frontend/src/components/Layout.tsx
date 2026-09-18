@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDown, Plus, Menu, Check } from 'lucide-react'
+import { ChevronDown, Plus, Menu, Check, BookOpen, Bug } from 'lucide-react'
 import { Sheet, SheetContent, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
@@ -302,6 +302,20 @@ export default function Layout() {
                     </div>
                   </div>
                 </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+
+                <DropdownMenuItem asChild className="cursor-pointer gap-2">
+                  <a href="https://github.com/rmattone/shipyard#readme" target="_blank" rel="noopener noreferrer">
+                    <BookOpen className="h-4 w-4" />
+                    Documentation
+                  </a>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild className="cursor-pointer gap-2">
+                  <a href="https://github.com/rmattone/shipyard/issues" target="_blank" rel="noopener noreferrer">
+                    <Bug className="h-4 w-4" />
+                    Report an issue
+                  </a>
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
 
                 {/* Sign out */}

@@ -431,7 +431,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
           <DialogHeader>
             <DialogTitle>New process</DialogTitle>
             <DialogDescription>
-              Installed as a systemd service on {serverName}. To change a daemon later,
+              Installed as a systemd service on {serverName}. To change a process later,
               delete and recreate it.
             </DialogDescription>
           </DialogHeader>

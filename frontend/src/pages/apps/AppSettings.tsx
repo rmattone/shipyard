@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useSectionParam } from '@/hooks/useSectionParam'
 import { applicationsApi, gitProvidersApi, envApi, serversApi, tagsApi, Application, GitProvider, Tag } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 
 type SettingsSection = 'general' | 'deployments' | 'environment' | 'webhook' | 'danger'
+const SECTIONS: readonly SettingsSection[] = ['general', 'deployments', 'environment', 'webhook', 'danger']
 
 export default function AppSettings() {
   const { id } = useParams<{ id: string }>()
@@ -44,7 +46,7 @@ export default function AppSettings() {
   const [deleting, setDeleting] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteFiles, setDeleteFiles] = useState(false)
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+  const [activeSection, setActiveSection] = useSectionParam(SECTIONS, 'general')
 
   // Form states
   const [deployScript, setDeployScript] = useState('')

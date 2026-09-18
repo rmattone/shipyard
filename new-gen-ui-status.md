@@ -2,7 +2,7 @@
 
 Design reference: [new-gen-ui.md](new-gen-ui.md).
 
-Last updated: 2026-09-18. All work below is uncommitted on top of `919bc6e`.
+Last updated: 2026-09-18. Work lives on branch `feature/new-gen-ui` (based on `919bc6e`). Commits: `a0b20c4` shell, list, overviews, motion foundation; second commit adds release-focused overview, inline connection test, URL state, and skeleton/not-found states.
 
 ## Current milestone
 
@@ -31,24 +31,30 @@ Representative screens are restyled and the motion foundation is in place, but s
 | Shared avatar tint and dark-aware accents | Implemented | Single `getAvatarColor` in `lib/utils` replaces three copies; light-only tints replaced with alpha tints that read in both themes; success/failure counts use tabular numerals |
 | Metrics card polish | Implemented | Bars animate width only on data change; "Updated HH:mm:ss" freshness label; progressbar roles and labels; tabular numerals |
 | Accessibility details | Implemented | Skip-to-content link; focusable main region; every icon-only menu labeled; switcher check marks are labeled icons; settings tabs expose `aria-current` |
+| Release-focused application overview | Implemented | Current release card (commit, branch, host, deployed, duration, Live badge), callout for a newer failed or running deployment, Visit button, Git provider badge links to settings, skeleton and not-found states |
+| Server overview feedback and states | Implemented | Inline Test connection with result and time under the address; overflow menu holds Settings and Open terminal; skeleton and not-found states |
+| URL-backed view state | Implemented | Settings sections (`?section=`) across all three scopes via `useSectionParam`; server list search and status (`?q=`, `?status=`) |
+| Stale metrics | Implemented | Failed refresh keeps the last sample visible at reduced opacity with a stale notice and time |
+| Help links | Implemented | Documentation and Report an issue in the user menu |
 
 ## Phase 1 open items
 
 Checked against new-gen-ui.md on 2026-09-18. Section numbers refer to that document.
 
 - [ ] Browser verification: baseline screenshots, light/dark, narrow/wide (§11 steps 1, 2, 6).
-- [ ] Application overview leads with the current release: commit, branch, result, domain, time (§7).
-- [ ] Visit application action when a valid domain exists (§7).
-- [ ] "Git provider not connected" links to the fix (§7).
-- [ ] Test connection with inline result feedback instead of a toast in an overflow menu (§6).
-- [ ] Metrics distinguish stale and unavailable from loading and error (§6).
-- [ ] Content-shaped skeletons on server and application overview initial loads (§8).
-- [ ] Designed not-found states for server and application (§8).
-- [ ] Settings sections linkable through URL state (§4).
-- [ ] Server list search and status filter kept in the URL (§9).
-- [ ] One icon family; Heroicons and Lucide currently coexist in 24 and 16 files (§3).
-- [ ] Compact help/docs menu to replace the removed footer links (§4).
-- [ ] Frontend test runner and focused regression coverage for changed routing (§13).
+- [x] Application overview leads with the current release: commit, branch, result, domain, time (§7). A "Current release" card shows the latest successful deployment with a Live badge, deployed time, duration, and a callout when a newer deployment failed or is running.
+- [x] Visit application action when a valid domain exists (§7). Uses the primary domain and its TLS flag to pick the scheme.
+- [x] "Git provider not connected" links to the fix (§7). Badge reads "Connect a Git provider" and links to application settings.
+- [x] Test connection with inline result feedback (§6). Outline button in the server header; result, time, and icon appear beneath the address. Hidden for local servers.
+- [x] Metrics distinguish stale from error (§6). A failed refresh keeps the last sample on screen at reduced opacity with a "Stale, last sample HH:mm:ss" notice. Unavailable (never collected) still shows the error card.
+- [x] Content-shaped skeletons on server and application overview initial loads (§8).
+- [x] Designed not-found states for server and application (§8).
+- [x] Settings sections linkable through URL state (§4). `?section=` via a shared `useSectionParam` hook; default section is kept out of the URL.
+- [x] Server list search and status filter kept in the URL (§9). `?q=` and `?status=`, written with history replace so typing does not spam Back.
+- [x] Compact help/docs menu (§4). Documentation and Report an issue links in the user menu, pointing at the GitHub README and issues.
+- [x] Process dialog wording fixed.
+- [ ] One icon family. Heroicons is imported in 24 files and Lucide in 16; the shell and ui/ primitives use Lucide. Consolidating on Lucide is a mechanical but wide change best done with a browser open.
+- [ ] Frontend test runner and focused regression coverage for changed routing (§13). No runner is installed; adding one is a dependency decision.
 
 ## Fluid-interface review (2026-09-18)
 
@@ -84,9 +90,9 @@ Highest-value items for the first browser review:
 - Drawer open/close feel at 300/200ms.
 - Settings grid at phone width.
 
-## Uncommitted work
+## Files touched
 
-23 frontend files modified, 2 untracked documents, no backend changes.
+All committed on `feature/new-gen-ui`. No backend changes.
 
 Foundation: `frontend/src/index.css`, `frontend/tailwind.config.js`, `frontend/src/lib/utils.ts`, `frontend/src/contexts/ThemeContext.tsx`
 
@@ -98,13 +104,14 @@ Custom components: `frontend/src/components/custom/StatusBadge.tsx`, `ServerMetr
 
 Pages: `frontend/src/pages/Servers.tsx`, `apps/AppOverview.tsx`, `apps/AppSettings.tsx`, `servers/ServerOverview.tsx`, `servers/ServerSettings.tsx`, `settings/Settings.tsx`
 
-Untracked: `new-gen-ui.md`, `new-gen-ui-status.md`
+Hooks: `frontend/src/hooks/useSectionParam.ts` (new)
 
-Follow-ups before commit:
+Documents: `new-gen-ui.md`, `new-gen-ui-status.md`
 
-- Fix the remaining "daemon" wording in the new process dialog description.
+Open follow-ups:
+
 - Confirm the minimum browser target. The row focus ring uses `:has()`, supported in all current evergreen browsers.
-- Run the browser review listed above.
+- Run the browser review listed above, now also covering the current release card and inline connection result.
 
 ## Remaining roadmap
 
