@@ -48,14 +48,16 @@ function Vital({ metric, label, value, percentage, detail, selected, onSelect }:
       onClick={interactive ? () => onSelect?.(metric) : undefined}
       aria-pressed={interactive ? selected : undefined}
       className={cn(
-        'pressable relative flex min-w-0 flex-col gap-2 px-5 py-4 text-left',
+        'pressable relative flex min-w-0 flex-col gap-1.5 px-4 py-3 text-left',
         interactive && 'hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
         selected && 'bg-muted/40'
       )}
     >
-      {selected && <span aria-hidden className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-primary" />}
-      <span className="text-xs font-medium text-muted-foreground">{label}</span>
-      <span className="text-2xl font-semibold tabular-nums tracking-tight">{value}</span>
+      {selected && <span aria-hidden className="absolute inset-x-4 bottom-0 h-0.5 rounded-full bg-primary" />}
+      <span className="flex items-baseline justify-between gap-3">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="text-lg font-semibold leading-none tabular-nums tracking-tight">{value}</span>
+      </span>
       <span className="h-1 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(percentage, 100))}>
         <span
           className={cn('block h-full rounded-full transition-[width,background-color] duration-500 ease-out', barTone(percentage))}
@@ -72,15 +74,14 @@ function VitalsSkeleton() {
     <Card className="overflow-hidden p-0">
       <div className="grid grid-cols-2 divide-x divide-y sm:divide-y-0 lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="space-y-3 px-5 py-4">
-            <Skeleton className="h-3 w-14" />
-            <Skeleton className="h-7 w-20" />
+          <div key={i} className="space-y-2 px-4 py-3">
+            <div className="flex justify-between"><Skeleton className="h-3 w-14" /><Skeleton className="h-4 w-12" /></div>
             <Skeleton className="h-1 w-full rounded-full" />
             <Skeleton className="h-3 w-28" />
           </div>
         ))}
       </div>
-      <div className="flex items-center justify-between border-t px-5 py-2.5">
+      <div className="flex items-center justify-between border-t px-4 py-1.5">
         <Skeleton className="h-3 w-40" />
         <Skeleton className="h-3 w-24" />
       </div>
@@ -184,7 +185,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
           onSelect={onSelect}
         />
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t px-5 py-2 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t px-4 py-1 text-xs text-muted-foreground">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 tabular-nums">
           <span>Up {metrics.uptime.formatted}</span>
           {metrics.swap.total > 0 && (
@@ -200,7 +201,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
           ) : updatedAt ? (
             <span>Updated {format(updatedAt, 'HH:mm:ss')}</span>
           ) : null}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fetchMetrics(true)} disabled={refreshing} aria-label="Refresh metrics">
+          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => fetchMetrics(true)} disabled={refreshing} aria-label="Refresh metrics">
             <ArrowPathIcon className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
           </Button>
         </div>
