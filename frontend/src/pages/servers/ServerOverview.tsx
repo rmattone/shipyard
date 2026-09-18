@@ -16,32 +16,15 @@ import {
   PlusIcon,
   EllipsisHorizontalIcon,
   ServerIcon,
-  ChevronDownIcon,
   CubeIcon,
   XMarkIcon,
   ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
+import { getAvatarColor } from '@/lib/utils'
 
 interface AppWithLastDeploy extends Application {
   last_deployment?: Deployment | null
-}
-
-const avatarColors = [
-  { bg: 'bg-emerald-100', text: 'text-emerald-600' },
-  { bg: 'bg-blue-100', text: 'text-blue-600' },
-  { bg: 'bg-purple-100', text: 'text-purple-600' },
-  { bg: 'bg-orange-100', text: 'text-orange-600' },
-  { bg: 'bg-pink-100', text: 'text-pink-600' },
-  { bg: 'bg-cyan-100', text: 'text-cyan-600' },
-]
-
-function getAvatarColor(name: string) {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return avatarColors[Math.abs(hash) % avatarColors.length]
 }
 
 export default function ServerOverview() {
@@ -195,43 +178,33 @@ export default function ServerOverview() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="resource-header">
         <div className="flex items-center gap-4">
-          <div className="h-12 w-12 rounded-lg bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-foreground">
             <ServerIcon className="h-6 w-6" />
           </div>
           <div>
             <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">{server.name}</h1>
-              <StatusBadge status={server.status === 'active' ? 'success' : 'inactive'} />
+              <h1 className="break-all text-2xl font-semibold tracking-tight">{server.name}</h1>
+              <StatusBadge status={server.status} label={server.status === 'active' ? 'Connected' : 'Inactive'} />
             </div>
-            <p className="text-muted-foreground">{server.host}:{server.port}</p>
+            <p className="font-mono text-sm text-muted-foreground">{server.host}:{server.port}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button onClick={() => navigate(`/servers/${id}/apps/new`)}>
+            <PlusIcon className="h-4 w-4" />
+            New application
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button>
-                <PlusIcon className="h-4 w-4 mr-2" />
-                New site
-                <ChevronDownIcon className="h-4 w-4 ml-2" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              <DropdownMenuItem onClick={() => navigate(`/servers/${id}/apps/new`)}>
-                Add Application
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label="Server actions">
                 <EllipsisHorizontalIcon className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem onClick={handleTestConnection} disabled={testing}>
-                {testing ? 'Testing...' : 'Test Connection'}
+                {testing ? 'Testing connection…' : 'Test connection'}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => navigate(`/servers/${id}/settings`)}>
                 Settings
@@ -275,7 +248,7 @@ export default function ServerOverview() {
           <Card>
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold">
-                Recent sites
+                Applications
                 {selectedTagIds.length > 0 && (
                   <span className="ml-2 text-sm font-normal text-muted-foreground">
                     ({filteredApplications.length} of {applications.length})
@@ -319,15 +292,14 @@ export default function ServerOverview() {
                   return (
                     <div
                       key={app.id}
-                      className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer"
-                      onClick={() => navigate(`/apps/${app.id}`)}
+                      className="row-link group flex items-center gap-4 p-4"
                     >
-                      <div className={`h-10 w-10 rounded-full ${color.bg} ${color.text} flex items-center justify-center font-medium`}>
+                      <div className={`h-10 w-10 shrink-0 rounded-xl ${color.bg} ${color.text} flex items-center justify-center font-medium`}>
                         {app.name.charAt(0).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium">{app.domain || app.name}</span>
+                          <Link to={`/apps/${app.id}`} className="row-cover truncate font-medium">{app.domain || app.name}</Link>
                           {app.tags && app.tags.length > 0 && (
                             <div className="flex gap-1">
                               {app.tags.map((tag) => (
@@ -341,18 +313,18 @@ export default function ServerOverview() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm text-muted-foreground">
+                        <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
                           {app.last_deployment
                             ? `Deployed ${formatDistanceToNow(new Date(app.last_deployment.created_at), { addSuffix: false })} ago`
                             : 'Never deployed'}
                         </span>
                         {app.last_deployment?.status === 'failed' && (
-                          <StatusBadge status="failed" />
+                          <StatusBadge status="failed" label="Deploy failed" />
                         )}
                       </div>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon">
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="row-action" aria-label={`Actions for ${app.name}`}>
                             <EllipsisHorizontalIcon className="h-5 w-5" />
                           </Button>
                         </DropdownMenuTrigger>
@@ -382,7 +354,7 @@ export default function ServerOverview() {
 
           <Card className="p-6">
             <h3 className="font-semibold mb-4">Details</h3>
-            <dl className="space-y-3">
+            <dl className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">ID</dt>
                 <dd className="font-medium">{server.id}</dd>
@@ -418,7 +390,7 @@ export default function ServerOverview() {
 
           <Card className="p-6">
             <h3 className="font-semibold mb-4">Applications</h3>
-            <dl className="space-y-3">
+            <dl className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Total</dt>
                 <dd className="font-medium">
@@ -429,12 +401,12 @@ export default function ServerOverview() {
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Active</dt>
-                <dd className="font-medium text-emerald-600">{activeApps}</dd>
+                <dd className="font-medium tabular-nums text-emerald-700 dark:text-emerald-400">{activeApps}</dd>
               </div>
               {failedApps > 0 && (
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Failed</dt>
-                  <dd className="font-medium text-red-600">{failedApps}</dd>
+                  <dd className="font-medium tabular-nums text-red-700 dark:text-red-400">{failedApps}</dd>
                 </div>
               )}
             </dl>

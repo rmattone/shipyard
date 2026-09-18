@@ -179,21 +179,20 @@ export default function Settings() {
   }
 
   return (
-    <div className="relative flex gap-10 lg:gap-16">
-      {/* Sidebar; hangs in the left gutter on wide screens so the content
-          column matches the centered layout of the other tabs */}
-      <div className="w-56 flex-shrink-0 min-[1650px]:absolute min-[1650px]:top-0 min-[1650px]:right-full min-[1650px]:mr-12">
-        <h1 className="text-2xl font-bold mb-8">Settings</h1>
-        <nav className="space-y-1">
+    <div className="settings-layout">
+      <div className="settings-sidebar">
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <nav aria-label="Settings sections">
           {sidebarItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
+              aria-current={activeSection === item.id ? 'page' : undefined}
               className={cn(
-                'w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors',
+                'settings-tab',
                 activeSection === item.id
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  ? 'settings-tab-active'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               {item.label}
@@ -304,7 +303,7 @@ export default function Settings() {
               <CardContent>
                 <div>
                   {/* Version Info */}
-                  <div className="flex items-start justify-between py-6 border-b">
+                  <div className="settings-row border-b">
                     <div>
                       <p className="font-medium">Current Version</p>
                       <p className="text-sm text-muted-foreground">
@@ -328,7 +327,7 @@ export default function Settings() {
                   </div>
 
                   {/* Update Status */}
-                  <div className="flex items-start justify-between py-6">
+                  <div className="settings-row">
                     <div>
                       <p className="font-medium">Updates</p>
                       {versionInfo?.update_available ? (

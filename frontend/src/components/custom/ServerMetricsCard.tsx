@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { cn, formatBytes } from '@/lib/utils'
+import { format } from 'date-fns'
 
 interface ServerMetricsCardProps {
   serverId: number
@@ -23,15 +24,15 @@ function ProgressBar({ percentage, label, detail }: { percentage: number; label:
     <div className="space-y-1">
       <div className="flex justify-between text-sm">
         <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium">{percentage.toFixed(1)}%</span>
+        <span className="font-medium tabular-nums">{percentage.toFixed(1)}%</span>
       </div>
-      <div className="h-2 bg-muted rounded-full overflow-hidden">
+      <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percentage)}>
         <div
-          className={cn('h-full rounded-full transition-all', getProgressColor(percentage))}
+          className={cn('h-full rounded-full transition-[width,background-color] duration-500 ease-out', getProgressColor(percentage))}
           style={{ width: `${Math.min(percentage, 100)}%` }}
         />
       </div>
-      <div className="text-xs text-muted-foreground">{detail}</div>
+      <div className="text-xs tabular-nums text-muted-foreground">{detail}</div>
     </div>
   )
 }
@@ -72,6 +73,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
   const fetchMetrics = useCallback(async (showRefreshing = false) => {
     if (showRefreshing) {
@@ -81,6 +83,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
     try {
       const response = await serversApi.getMetrics(serverId)
       setMetrics(response.data)
+      setUpdatedAt(new Date())
       setError(null)
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } }
@@ -117,8 +120,8 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
     return (
       <Card className="p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">Server Metrics</h3>
-          <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing}>
+          <h3 className="font-semibold">Server metrics</h3>
+          <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} aria-label="Retry loading metrics">
             <ArrowPathIcon className={cn('h-4 w-4', refreshing && 'animate-spin')} />
           </Button>
         </div>
@@ -136,9 +139,14 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
 
   return (
     <Card className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Server Metrics</h3>
-        <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing}>
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold">Server metrics</h3>
+          {updatedAt && (
+            <p className="text-xs tabular-nums text-muted-foreground">Updated {format(updatedAt, 'HH:mm:ss')}</p>
+          )}
+        </div>
+        <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} aria-label="Refresh metrics">
           <ArrowPathIcon className={cn('h-4 w-4', refreshing && 'animate-spin')} />
         </Button>
       </div>
@@ -173,7 +181,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
         <div className="pt-2 border-t">
           <div className="flex justify-between text-sm">
             <span className="text-muted-foreground">Uptime</span>
-            <span className="font-medium">{metrics.uptime.formatted}</span>
+            <span className="font-medium tabular-nums">{metrics.uptime.formatted}</span>
           </div>
         </div>
 
@@ -181,7 +189,7 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
           <div className="text-sm text-muted-foreground mb-1">
             Load Average <span className="text-xs">({metrics.cpu.cores} {metrics.cpu.cores === 1 ? 'core' : 'cores'})</span>
           </div>
-          <div className="flex gap-4 text-sm">
+          <div className="flex gap-4 text-sm tabular-nums">
             <div>
               <span className="text-muted-foreground">1m:</span>{' '}
               <span className="font-medium">{metrics.load.avg_1.toFixed(2)}</span>
