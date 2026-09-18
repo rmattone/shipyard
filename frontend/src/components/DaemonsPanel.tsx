@@ -314,7 +314,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Daemons</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Processes</h1>
           <p className="text-muted-foreground">
             {application
               ? `Background processes for ${application.name}`
@@ -331,7 +331,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
           </Button>
           <Button onClick={openAddDialog}>
             <PlusIcon className="h-4 w-4 mr-2" />
-            New Daemon
+            New process
           </Button>
         </div>
       </div>
@@ -340,7 +340,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <CogIcon className="h-12 w-12 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No daemons</h3>
+            <h3 className="text-lg font-medium mb-2">No processes configured</h3>
             <p className="text-muted-foreground text-center mb-4">
               {application?.type === 'laravel'
                 ? 'Run queue workers or Horizon as always-on processes that restart with every deploy.'
@@ -348,7 +348,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
             </p>
             <Button onClick={openAddDialog}>
               <PlusIcon className="h-4 w-4 mr-2" />
-              New Daemon
+              New process
             </Button>
           </CardContent>
         </Card>
@@ -429,9 +429,9 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
       <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>New Daemon</DialogTitle>
+            <DialogTitle>New process</DialogTitle>
             <DialogDescription>
-              Installed as a systemd service on {serverName}. To change a daemon later,
+              Installed as a systemd service on {serverName}. To change a process later,
               delete and recreate it.
             </DialogDescription>
           </DialogHeader>
@@ -574,7 +574,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
             </Button>
             <Button onClick={handleCreate} disabled={saving}>
               {saving ? <LoadingSpinner size="sm" className="mr-2" /> : null}
-              Create Daemon
+              Create process
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -584,7 +584,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
       <Dialog open={!!outputDaemon} onOpenChange={(open) => { if (!open) setOutputDaemon(null) }}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Daemon Logs</DialogTitle>
+            <DialogTitle>Process logs</DialogTitle>
             <DialogDescription className="font-mono text-xs truncate">
               {outputDaemon?.command}
             </DialogDescription>
@@ -628,7 +628,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
       <AlertDialog open={!!daemonToRestart} onOpenChange={() => setDaemonToRestart(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Restart Daemon</AlertDialogTitle>
+            <AlertDialogTitle>Restart process</AlertDialogTitle>
             <AlertDialogDescription>
               Restarts all {daemonToRestart?.processes} process(es). In-flight work receives
               SIGTERM and has up to 30 seconds to finish.
@@ -647,7 +647,7 @@ export function DaemonsPanel({ serverId, serverName, serverPhpVersion, serverDep
       <AlertDialog open={!!daemonToDelete} onOpenChange={() => setDaemonToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove Daemon</AlertDialogTitle>
+            <AlertDialogTitle>Remove process</AlertDialogTitle>
             <AlertDialogDescription>
               Stops all processes and removes the systemd unit from the server.
             </AlertDialogDescription>

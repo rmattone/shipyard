@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useSectionParam } from '@/hooks/useSectionParam'
 import { gitProvidersApi, systemApi, GitProvider, SystemVersion, UpdateStatus } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,7 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { StatusBadge, LoadingSpinner } from '@/components/custom'
-import { PlusIcon, TrashIcon, ArrowPathIcon, CheckCircleIcon, ExclamationCircleIcon } from '@heroicons/react/24/outline'
+import { PlusIcon, TrashIcon, ArrowPathIcon } from '@heroicons/react/24/outline'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,6 +34,7 @@ import { OrganizationMembers } from './OrganizationMembers'
 import { ServerTrash } from './ServerTrash'
 
 type SettingsSection = 'account' | 'source-control' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
+const SECTIONS: readonly SettingsSection[] = ['account', 'source-control', 'notifications', 'members', 'general', 'trash', 'system']
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -40,7 +42,7 @@ export default function Settings() {
   const [loading, setLoading] = useState(true)
   const [deleteId, setDeleteId] = useState<number | null>(null)
   const [deleting, setDeleting] = useState(false)
-  const [activeSection, setActiveSection] = useState<SettingsSection>('source-control')
+  const [activeSection, setActiveSection] = useSectionParam(SECTIONS, 'source-control')
 
   // System update state
   const [versionInfo, setVersionInfo] = useState<SystemVersion | null>(null)
@@ -54,16 +56,25 @@ export default function Settings() {
     loadProviders()
   }, [])
 
-  // Load version info when switching to system section
+  // Load version info when switching to system section, and resume watching
+  // an update that is already running (for example after a page reload).
   useEffect(() => {
     if (activeSection === 'system') {
       checkVersion()
+      systemApi.getUpdateStatus()
+        .then((response) => {
+          if (response.data.status === 'running') {
+            setUpdateStatus(response.data)
+            setUpdating(true)
+            beginPolling()
+          } else if (response.data.status !== 'idle') {
+            setUpdateStatus(response.data)
+          }
+        })
+        .catch(() => { /* not fatal; the section still renders */ })
     }
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-    }
+    return () => stopPolling()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSection])
 
   const loadProviders = async () => {
@@ -105,10 +116,10 @@ export default function Settings() {
     }
   }
 
-  const checkVersion = async () => {
+  const checkVersion = async (refresh = false) => {
     setCheckingVersion(true)
     try {
-      const response = await systemApi.getVersion()
+      const response = await systemApi.getVersion(refresh)
       setVersionInfo(response.data)
     } catch {
       toast.error('Failed to check for updates')
@@ -117,44 +128,58 @@ export default function Settings() {
     }
   }
 
+  const stopPolling = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current)
+      pollIntervalRef.current = null
+    }
+  }
+
+  const beginPolling = () => {
+    stopPolling()
+    const startedAt = Date.now()
+    pollIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await systemApi.getUpdateStatus()
+        setUpdateStatus(response.data)
+
+        if (logRef.current) {
+          logRef.current.scrollTop = logRef.current.scrollHeight
+        }
+
+        const finished = response.data.status === 'completed' || response.data.status === 'failed'
+        // "idle" after we started means the state was lost (cache cleared);
+        // give the job a moment to be picked up before treating it as gone.
+        const lost = response.data.status === 'idle' && Date.now() - startedAt > 15000
+        if (finished || lost) {
+          stopPolling()
+          setUpdating(false)
+          if (response.data.status === 'completed') {
+            toast.success('Update completed. Reload to use the new version.')
+            checkVersion(true)
+          } else if (response.data.status === 'failed') {
+            toast.error(response.data.message || 'Update failed. Check the log for details.')
+          } else {
+            toast.error('Lost track of the update. Check the queue worker logs.')
+          }
+        }
+      } catch {
+        // The app is in maintenance mode or restarting; keep polling.
+      }
+    }, 2000)
+  }
+
   const startUpdate = async () => {
     setUpdating(true)
-    setUpdateStatus({ running: true, status: 'running', log: 'Starting update...\n' })
+    setUpdateStatus({ running: true, status: 'running', log: 'Queueing update...\n', exit_code: null, started_at: null, finished_at: null, message: null })
 
     try {
       await systemApi.startUpdate()
-
-      // Start polling for status
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const response = await systemApi.getUpdateStatus()
-          setUpdateStatus(response.data)
-
-          // Auto-scroll log
-          if (logRef.current) {
-            logRef.current.scrollTop = logRef.current.scrollHeight
-          }
-
-          // Stop polling when complete
-          if (response.data.status === 'completed' || response.data.status === 'failed') {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-            }
-            setUpdating(false)
-
-            if (response.data.status === 'completed') {
-              toast.success('Update completed successfully!')
-              checkVersion() // Refresh version info
-            } else {
-              toast.error('Update failed. Check the log for details.')
-            }
-          }
-        } catch {
-          // Ignore polling errors (app might be restarting)
-        }
-      }, 2000)
-    } catch {
-      toast.error('Failed to start update')
+      beginPolling()
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Failed to start update')
+      setUpdateStatus(null)
       setUpdating(false)
       setUpdateStatus(null)
     }
@@ -179,21 +204,20 @@ export default function Settings() {
   }
 
   return (
-    <div className="relative flex gap-10 lg:gap-16">
-      {/* Sidebar; hangs in the left gutter on wide screens so the content
-          column matches the centered layout of the other tabs */}
-      <div className="w-56 flex-shrink-0 min-[1650px]:absolute min-[1650px]:top-0 min-[1650px]:right-full min-[1650px]:mr-12">
-        <h1 className="text-2xl font-bold mb-8">Settings</h1>
-        <nav className="space-y-1">
+    <div className="settings-layout">
+      <div className="settings-sidebar">
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <nav aria-label="Settings sections">
           {sidebarItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
+              aria-current={activeSection === item.id ? 'page' : undefined}
               className={cn(
-                'w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors',
+                'settings-tab',
                 activeSection === item.id
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  ? 'settings-tab-active'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               {item.label}
@@ -304,79 +328,113 @@ export default function Settings() {
               <CardContent>
                 <div>
                   {/* Version Info */}
-                  <div className="flex items-start justify-between py-6 border-b">
+                  <div className="settings-row border-b">
                     <div>
-                      <p className="font-medium">Current Version</p>
+                      <p className="font-medium">Installed version</p>
                       <p className="text-sm text-muted-foreground">
-                        The version of ShipYard you're running.
+                        {versionInfo?.version_source === 'fallback'
+                          ? 'The VERSION file is not reachable from the container, so this is the built-in default.'
+                          : 'Read from the checkout: version file, commit, and branch.'}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      {checkingVersion ? (
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      {checkingVersion && !versionInfo ? (
                         <LoadingSpinner size="sm" />
                       ) : (
                         <>
-                          <Badge variant="outline" className="font-mono">
-                            v{versionInfo?.current_version || '...'}
-                          </Badge>
-                          <Button variant="ghost" size="sm" onClick={checkVersion}>
-                            <ArrowPathIcon className="h-4 w-4" />
-                          </Button>
+                          <Badge variant="outline" className="font-mono">v{versionInfo?.current_version || '…'}</Badge>
+                          {versionInfo?.current_commit && (
+                            <Badge variant="outline" className="font-mono" title={versionInfo.current_commit}>
+                              {versionInfo.current_commit.slice(0, 7)}
+                            </Badge>
+                          )}
+                          {versionInfo?.branch && (
+                            <Badge variant={versionInfo.on_target_branch ? 'secondary' : 'destructive'} className="font-mono">
+                              {versionInfo.branch}
+                            </Badge>
+                          )}
                         </>
                       )}
                     </div>
                   </div>
 
                   {/* Update Status */}
-                  <div className="flex items-start justify-between py-6">
+                  <div className="settings-row">
                     <div>
                       <p className="font-medium">Updates</p>
-                      {versionInfo?.update_available ? (
-                        <p className="text-sm text-green-600">
-                          New version available: v{versionInfo.latest_version}
+                      {!versionInfo ? (
+                        <p className="text-sm text-muted-foreground">Checking…</p>
+                      ) : !versionInfo.updater_available ? (
+                        <p className="text-sm text-red-700 dark:text-red-400">
+                          The update script is not reachable from the containers. Mount the checkout at /var/www/shipyard and recreate the containers (see README, Updating).
+                        </p>
+                      ) : !versionInfo.on_target_branch ? (
+                        <p className="text-sm text-amber-700 dark:text-amber-400">
+                          This checkout is on {versionInfo.branch}. The updater only runs on {versionInfo.target_branch}.
+                        </p>
+                      ) : versionInfo.comparison === 'unknown' ? (
+                        <p className="text-sm text-amber-700 dark:text-amber-400">
+                          Could not check {versionInfo.repo}: {versionInfo.check_error || 'no response'}.
+                        </p>
+                      ) : versionInfo.update_available ? (
+                        <p className="text-sm text-emerald-700 dark:text-emerald-400">
+                          Update available: v{versionInfo.latest_version}
+                          {versionInfo.latest_commit && <> at <span className="font-mono">{versionInfo.latest_commit.slice(0, 7)}</span></>}
+                          {' '}on {versionInfo.repo} {versionInfo.target_branch}.
                         </p>
                       ) : (
                         <p className="text-sm text-muted-foreground">
-                          You're running the latest version.
+                          Up to date with {versionInfo.repo} {versionInfo.target_branch}. Checked {new Date(versionInfo.checked_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
                         </p>
                       )}
                     </div>
-                    <Button
-                      onClick={startUpdate}
-                      disabled={updating || checkingVersion}
-                    >
-                      {updating ? (
-                        <>
-                          <LoadingSpinner size="sm" className="mr-2" />
-                          Updating...
-                        </>
-                      ) : (
-                        <>
-                          <ArrowPathIcon className="h-4 w-4 mr-2" />
-                          {versionInfo?.update_available ? 'Update Now' : 'Check & Update'}
-                        </>
-                      )}
-                    </Button>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      <Button variant="outline" onClick={() => checkVersion(true)} disabled={checkingVersion || updating}>
+                        <ArrowPathIcon className={cn('h-4 w-4', checkingVersion && 'animate-spin')} />
+                        Check for updates
+                      </Button>
+                      <Button
+                        variant={versionInfo?.update_available ? 'default' : 'secondary'}
+                        onClick={startUpdate}
+                        disabled={updating || checkingVersion || !versionInfo?.updater_available || !versionInfo?.on_target_branch}
+                      >
+                        {updating ? (
+                          <>
+                            <LoadingSpinner size="sm" />
+                            Updating…
+                          </>
+                        ) : versionInfo?.update_available ? 'Update now' : 'Run update anyway'}
+                      </Button>
+                    </div>
                   </div>
 
                   {/* Update Log */}
                   {updateStatus && (
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-sm">Update Log</p>
+                    <div className="mt-2 space-y-2 border-t pt-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">Update log</p>
+                          <StatusBadge status={updateStatus.status} />
+                          {updateStatus.exit_code !== null && updateStatus.status === 'failed' && (
+                            <span className="text-xs tabular-nums text-muted-foreground">exit {updateStatus.exit_code}</span>
+                          )}
+                        </div>
                         {updateStatus.status === 'completed' && (
-                          <CheckCircleIcon className="h-4 w-4 text-green-600" />
-                        )}
-                        {updateStatus.status === 'failed' && (
-                          <ExclamationCircleIcon className="h-4 w-4 text-red-600" />
+                          <Button size="sm" onClick={() => window.location.reload()}>Reload to use the new version</Button>
                         )}
                       </div>
+                      {updateStatus.message && updateStatus.status === 'failed' && (
+                        <p className="text-sm text-red-700 dark:text-red-400">{updateStatus.message}</p>
+                      )}
                       <pre
                         ref={logRef}
-                        className="bg-muted p-4 rounded-lg text-xs font-mono overflow-auto max-h-64 whitespace-pre-wrap"
+                        className="max-h-72 overflow-auto whitespace-pre-wrap rounded-lg bg-muted p-4 font-mono text-xs"
                       >
-                        {updateStatus.log || 'Waiting for output...'}
+                        {updateStatus.log || 'Waiting for output…'}
                       </pre>
+                      <p className="text-xs text-muted-foreground">
+                        The update runs in the queue container. Changes to container definitions need <span className="font-mono">docker compose up -d --build</span> on the host afterwards; the log says so when that applies.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -398,7 +456,7 @@ export default function Settings() {
                   </div>
                   <div className="flex justify-between py-2 border-b">
                     <span className="text-muted-foreground">Version</span>
-                    <span className="font-mono">{versionInfo?.current_version || '...'}</span>
+                    <span className="font-mono">{versionInfo?.current_version || '…'}{versionInfo?.current_commit ? ` (${versionInfo.current_commit.slice(0, 7)})` : ''}</span>
                   </div>
                   <div className="flex justify-between py-2">
                     <span className="text-muted-foreground">Documentation</span>

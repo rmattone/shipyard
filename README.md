@@ -181,6 +181,30 @@ Behind Cloudflare, switch the SSL/TLS encryption mode to Full (strict) right aft
 
 To return to plain HTTP, delete `docker-compose.override.yml` and `docker/nginx/conf.d-generated/`, then run `docker compose up -d --remove-orphans` (this also stops the certbot container). Finally, set `APP_URL` back to your server address in `backend/.env` and refresh it with `docker compose exec app php artisan config:cache`.
 
+### Updating
+
+ShipYard updates itself from Settings > System. The page shows the installed version, commit, and branch, compares the commit with the tip of `main` on GitHub, and offers Update now when they differ. The update runs as a queued job in the `queue` container, which pulls `main` (fast-forward only), installs PHP dependencies, runs migrations, rebuilds the frontend, clears caches, and restarts the queue worker. The app is in maintenance mode while it runs and the page streams the log.
+
+Requirements for the in-app updater:
+
+- The install directory is a git checkout on `main` with no local modifications (the installer produces exactly this).
+- The checkout is mounted at `/var/www/shipyard` in the `app`, `queue`, and `scheduler` containers. `docker-compose.yml` already does this; installs created before it existed need `docker compose up -d` once on the host to pick it up.
+
+The same script works from the host:
+
+```bash
+cd /path/to/shipyard
+bash update.sh
+```
+
+Changes to `docker-compose.yml` or `docker/` cannot be applied from inside a container. When an update touched them, the log ends with a notice to run this on the host:
+
+```bash
+docker compose up -d --build
+```
+
+Set `SHIPYARD_REPO` (owner/repo) and `SHIPYARD_BRANCH` in `backend/.env` to follow a fork or another branch.
+
 ## Usage
 
 ### Adding a Server

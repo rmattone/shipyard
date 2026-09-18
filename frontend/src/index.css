@@ -4,26 +4,31 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 220 14% 95%;
+    --foreground: 224 24% 14%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
+    --primary: 231 72% 53%;
     --primary-foreground: 210 40% 98%;
     --secondary: 210 40% 96.1%;
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 20% 98%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 220 14% 96%;
+    --muted-foreground: 220 10% 43%;
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --border: 220 14% 88%;
+    --input: 220 14% 82%;
+    --ring: 231 72% 53%;
     --radius: 0.5rem;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+    --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+    --duration-fast: 120ms;
+    --duration-base: 160ms;
+    --duration-slow: 240ms;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 240 5.9% 10%;
@@ -35,26 +40,26 @@
   }
 
   .dark {
-    --background: 0 0% 12%;
-    --foreground: 0 0% 95%;
-    --card: 0 0% 12%;
-    --card-foreground: 0 0% 95%;
-    --popover: 0 0% 14%;
-    --popover-foreground: 0 0% 95%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 18%;
+    --background: 216 28% 7%;
+    --foreground: 216 28% 95%;
+    --card: 216 25% 11%;
+    --card-foreground: 216 28% 95%;
+    --popover: 216 25% 14%;
+    --popover-foreground: 216 28% 95%;
+    --primary: 218 90% 68%;
+    --primary-foreground: 218 50% 9%;
+    --secondary: 216 22% 17%;
     --secondary-foreground: 0 0% 95%;
-    --muted: 0 0% 18%;
-    --muted-foreground: 0 0% 64%;
-    --accent: 0 0% 18%;
+    --muted: 216 22% 15%;
+    --muted-foreground: 216 16% 68%;
+    --accent: 216 22% 19%;
     --accent-foreground: 0 0% 95%;
-    --destructive: 0 62.8% 30.6%;
+    --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 95%;
-    --border: 0 0% 20%;
-    --input: 0 0% 20%;
-    --ring: 0 0% 83.9%;
-    --sidebar-background: 0 0% 4%;
+    --border: 216 20% 20%;
+    --input: 216 20% 25%;
+    --ring: 218 90% 68%;
+    --sidebar-background: 216 28% 9%;
     --sidebar-foreground: 0 0% 95%;
     --sidebar-primary: 142 76% 36%;
     --sidebar-primary-foreground: 0 0% 100%;
@@ -70,7 +75,35 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  h1, h2, h3 {
+    @apply tracking-tight;
+    text-wrap: balance;
+  }
+
+  .text-2xl, .text-3xl {
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  /* Theme switches ease instead of jumping between brightness levels */
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: background-color var(--duration-slow) var(--ease-in-out), color var(--duration-slow) var(--ease-in-out), border-color var(--duration-slow) var(--ease-in-out) !important;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 3px;
+  }
+
+  ::selection {
+    background: hsl(var(--primary) / 0.25);
   }
 
   /* Custom scrollbar styles */
@@ -101,5 +134,173 @@
 
   *::-webkit-scrollbar-corner {
     background: transparent;
+  }
+}
+
+@layer components {
+  .resource-header {
+    @apply flex flex-wrap items-center justify-between gap-5 rounded-xl border bg-card p-5 sm:p-6;
+  }
+
+  .settings-layout {
+    @apply mx-auto flex w-full min-w-0 max-w-[1040px] flex-col gap-6;
+  }
+
+  .settings-sidebar {
+    @apply w-full min-w-0 shrink-0;
+  }
+
+  .settings-sidebar nav {
+    @apply mt-5 flex gap-6 overflow-x-auto border-b;
+  }
+
+  .settings-tab {
+    @apply shrink-0 border-b-2 border-transparent px-0 pb-3 pt-1 text-sm font-medium transition-colors;
+  }
+
+  .settings-tab-active {
+    @apply border-primary text-primary;
+  }
+
+  .settings-row {
+    @apply grid min-w-0 grid-cols-1 items-start gap-3 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)] sm:gap-8;
+  }
+
+  .settings-row > div:first-child > p:first-child {
+    @apply text-sm font-medium;
+  }
+
+  .settings-row > div:first-child > p + p {
+    @apply mt-1 text-xs leading-relaxed;
+  }
+
+  /* A list row whose primary link covers the whole row: real link semantics
+     for keyboard and new-tab, whole-row target for touch and pointer. Nested
+     actions opt out with .row-action so they stay above the cover. */
+  .row-link {
+    @apply relative transition-colors duration-150 hover:bg-muted/50 active:bg-muted/70;
+  }
+
+  .row-link:has(a.row-cover:focus-visible) {
+    @apply ring-2 ring-inset ring-ring;
+  }
+
+  .row-cover::after {
+    content: "";
+    @apply absolute inset-0 z-0;
+  }
+
+  .row-cover:focus-visible {
+    outline: none;
+  }
+
+  .row-action {
+    @apply relative z-10;
+  }
+
+  .row-hint {
+    @apply text-muted-foreground/60 transition-[transform,color] duration-150 ease-out group-hover:translate-x-0.5 group-hover:text-foreground;
+  }
+
+  .page-enter {
+    animation: page-enter var(--duration-slow) var(--ease-out) both;
+  }
+
+  .header-edge {
+    @apply border-b border-transparent transition-[border-color,box-shadow] duration-200;
+  }
+
+  .header-edge[data-scrolled="true"] {
+    @apply border-border/70 shadow-[0_1px_0_0_hsl(var(--border)/0.4),0_8px_24px_-16px_rgb(0_0_0/0.25)];
+  }
+
+  .status-dot {
+    @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-current;
+  }
+
+  .status-dot-live {
+    animation: status-pulse 1.6s var(--ease-in-out) infinite;
+  }
+
+  .pressable {
+    @apply transition-[transform,background-color,color,border-color,box-shadow] duration-150 ease-out active:scale-[0.98];
+  }
+
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-md focus:bg-card focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow-lg focus:ring-2 focus:ring-ring;
+  }
+}
+
+@keyframes page-enter {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.8); }
+}
+
+/* Reduced motion keeps feedback but removes travel: entrances cross-fade,
+   nothing slides, scales, or pulses. Spinners stay slow so they still read
+   as "working" rather than strobing. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 150ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 100ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-in, .animate-out {
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-enter-scale: 1 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+    --tw-exit-scale: 1 !important;
+  }
+
+  .animate-spin {
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
+
+  .animate-pulse {
+    animation: none !important;
+    opacity: 0.6;
+  }
+
+  .status-dot-live {
+    animation: none !important;
+  }
+
+  .page-enter {
+    animation: none !important;
+  }
+
+  .pressable:active {
+    transform: none !important;
+  }
+}
+
+/* Translucent chrome falls back to solid surfaces when the user asks for it */
+@media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background-color: hsl(var(--card)) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --border: 220 14% 70%;
+    --input: 220 14% 55%;
+  }
+
+  .dark {
+    --border: 216 20% 38%;
+    --input: 216 20% 48%;
   }
 }

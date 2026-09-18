@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\CollectServerMetrics;
 use App\Models\Server;
+use App\Models\ServerMetric;
 use App\Models\User;
 use App\Services\ServerMetricsService;
 use App\Services\SSHService;
@@ -93,5 +94,21 @@ class CollectServerMetricsJobTest extends TestCase
             ->assertJsonPath('cpu.cores', 4)
             ->assertJsonPath('swap.total', 1073741824)
             ->assertJsonPath('swap.percentage', 25);
+    }
+
+    public function test_live_metrics_read_stores_a_sample_once_per_guard_window(): void
+    {
+        $this->mockSsh();
+        $server = Server::factory()->create();
+
+        $this->actingAs($this->user)->getJson("/api/servers/{$server->id}/metrics")->assertOk();
+        $this->actingAs($this->user)->getJson("/api/servers/{$server->id}/metrics")->assertOk();
+
+        $this->assertSame(1, ServerMetric::where('server_id', $server->id)->count());
+
+        $this->travel(ServerMetric::LIVE_SAMPLE_GUARD_SECONDS + 1)->seconds();
+        $this->actingAs($this->user)->getJson("/api/servers/{$server->id}/metrics")->assertOk();
+
+        $this->assertSame(2, ServerMetric::where('server_id', $server->id)->count());
     }
 }

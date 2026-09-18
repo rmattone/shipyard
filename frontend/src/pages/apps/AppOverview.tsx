@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { applicationsApi, Application, Deployment } from '../../services/api'
 import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,31 +22,17 @@ import {
   ArrowPathIcon,
   GlobeAltIcon,
   LockClosedIcon,
+  ArrowTopRightOnSquareIcon,
+  CubeIcon,
 } from '@heroicons/react/24/outline'
-import { formatDistanceToNow } from 'date-fns'
-
-const avatarColors = [
-  { bg: 'bg-emerald-100', text: 'text-emerald-600' },
-  { bg: 'bg-blue-100', text: 'text-blue-600' },
-  { bg: 'bg-purple-100', text: 'text-purple-600' },
-  { bg: 'bg-orange-100', text: 'text-orange-600' },
-  { bg: 'bg-pink-100', text: 'text-pink-600' },
-  { bg: 'bg-cyan-100', text: 'text-cyan-600' },
-]
-
-function getAvatarColor(name: string) {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return avatarColors[Math.abs(hash) % avatarColors.length]
-}
+import { formatDistanceToNow, formatDistanceStrict, format } from 'date-fns'
+import { getAvatarColor } from '@/lib/utils'
 
 const statusColors: Record<string, { bg: string; text: string }> = {
-  success: { bg: 'bg-emerald-100', text: 'text-emerald-600' },
-  failed: { bg: 'bg-red-100', text: 'text-red-600' },
-  running: { bg: 'bg-blue-100', text: 'text-blue-600' },
-  pending: { bg: 'bg-yellow-100', text: 'text-yellow-600' },
+  success: { bg: 'bg-emerald-500/15', text: 'text-emerald-700 dark:text-emerald-400' },
+  failed: { bg: 'bg-red-500/15', text: 'text-red-700 dark:text-red-400' },
+  running: { bg: 'bg-primary/15', text: 'text-primary' },
+  pending: { bg: 'bg-amber-500/15', text: 'text-amber-700 dark:text-amber-400' },
 }
 
 function getStatusIcon(status: string) {
@@ -64,7 +51,6 @@ function getStatusIcon(status: string) {
 
 export default function AppOverview() {
   const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
   const [app, setApp] = useState<Application | null>(null)
   const [deployments, setDeployments] = useState<Deployment[]>([])
   const [loading, setLoading] = useState(true)
@@ -133,41 +119,82 @@ export default function AppOverview() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <LoadingSpinner size="lg" />
+      <div className="space-y-6" role="status" aria-label="Loading application">
+        <Skeleton className="h-[104px] w-full rounded-xl" />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton className="h-64 w-full rounded-xl" />
+          </div>
+          <div className="space-y-6">
+            <Skeleton className="h-56 w-full rounded-xl" />
+            <Skeleton className="h-40 w-full rounded-xl" />
+          </div>
+        </div>
       </div>
     )
   }
 
-  if (!app) return null
+  if (!app) {
+    return (
+      <Card className="mx-auto max-w-md p-8 text-center">
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-muted-foreground">
+          <CubeIcon className="h-6 w-6" />
+        </div>
+        <h1 className="text-lg font-semibold">Application not found</h1>
+        <p className="mt-1 text-sm text-muted-foreground">It may have been deleted or belong to another organization.</p>
+        <Button variant="outline" className="mt-5" asChild>
+          <Link to="/">Back to servers</Link>
+        </Button>
+      </Card>
+    )
+  }
 
   const color = getAvatarColor(app.name)
   const successfulDeploys = deployments.filter(d => d.status === 'success').length
   const failedDeploys = deployments.filter(d => d.status === 'failed').length
   const lastDeploy = deployments[0]
+  // The release actually serving traffic is the most recent successful deployment.
+  const currentRelease = deployments.find(d => d.status === 'success')
+  const primaryDomain = app.domains?.find(d => d.is_primary) ?? app.domains?.[0]
+  const visitHost = primaryDomain?.domain || app.domain
+  const visitUrl = visitHost ? `${(primaryDomain?.ssl_enabled ?? app.ssl_enabled) ? 'https' : 'http'}://${visitHost}` : null
+  const releaseDuration = currentRelease?.started_at && currentRelease.finished_at
+    ? formatDistanceStrict(new Date(currentRelease.finished_at), new Date(currentRelease.started_at))
+    : null
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="resource-header">
         <div className="flex items-center gap-4">
-          <div className={`h-12 w-12 rounded-lg ${color.bg} ${color.text} flex items-center justify-center text-xl font-bold`}>
+          <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl ${color.bg} ${color.text} text-xl font-semibold`}>
             {app.name.charAt(0).toUpperCase()}
           </div>
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-bold">{app.name}</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="break-all text-2xl font-semibold tracking-tight">{app.name}</h1>
               <StatusBadge status={app.status} />
               {!app.git_provider_id && (
-                <Badge variant="outline" className="text-amber-500 border-amber-500/40">
-                  Git provider not connected
-                </Badge>
+                <Link to={`/apps/${app.id}/settings`} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                  <Badge variant="outline" className="border-amber-500/40 text-amber-700 transition-colors hover:bg-amber-500/10 dark:text-amber-400">
+                    Connect a Git provider
+                  </Badge>
+                </Link>
               )}
             </div>
-            <p className="text-muted-foreground">{app.domain}</p>
+            <p className="font-mono text-sm text-muted-foreground">{app.domain}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {visitUrl && (
+            <Button variant="outline" asChild>
+              <a href={visitUrl} target="_blank" rel="noopener noreferrer">
+                <ArrowTopRightOnSquareIcon className="h-4 w-4" />
+                Visit
+              </a>
+            </Button>
+          )}
           {/* Split button: the primary action deploys, only the chevron opens
               the menu. A single button doing both used to fire a deployment
               AND open the menu, allowing a second concurrent deployment. */}
@@ -200,13 +227,13 @@ export default function AppOverview() {
           </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon">
+              <Button variant="ghost" size="icon" aria-label="Application actions">
                 <EllipsisHorizontalIcon className="h-5 w-5" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem asChild>
-                <Link to={`/apps/${app.id}/domains`}>Domains</Link>
+                <Link to={`/apps/${app.id}/domains`}>Domains & TLS</Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to={`/apps/${app.id}/settings`}>Settings</Link>
@@ -220,23 +247,80 @@ export default function AppOverview() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left column - Deployments list */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Current release: what is serving traffic right now */}
+          <Card className="overflow-hidden">
+            <div className="flex items-center justify-between border-b p-4">
+              <h2 className="font-semibold">Current release</h2>
+              {currentRelease && (
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to={`/apps/${app.id}/deployments/${currentRelease.id}`}>View output</Link>
+                </Button>
+              )}
+            </div>
+            {currentRelease ? (
+              <div className="p-5">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-base font-medium">{currentRelease.commit_message || 'Manual deployment'}</p>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-muted-foreground">
+                      {currentRelease.commit_hash && <span>{currentRelease.commit_hash.substring(0, 7)}</span>}
+                      <span>{app.branch}</span>
+                      {visitHost && <span className="truncate">{visitHost}</span>}
+                    </p>
+                  </div>
+                  <StatusBadge status="success" label="Live" />
+                </div>
+                <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Deployed</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums" title={format(new Date(currentRelease.finished_at ?? currentRelease.created_at), 'PPpp')}>
+                      {formatDistanceToNow(new Date(currentRelease.finished_at ?? currentRelease.created_at), { addSuffix: true })}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Duration</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums">{releaseDuration ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Deployment</dt>
+                    <dd className="mt-0.5 font-medium tabular-nums">#{currentRelease.id}</dd>
+                  </div>
+                </dl>
+                {lastDeploy && lastDeploy.id !== currentRelease.id && (
+                  <Link
+                    to={`/apps/${app.id}/deployments/${lastDeploy.id}`}
+                    className={`mt-5 flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors hover:bg-muted/50 ${lastDeploy.status === 'failed' ? 'border-red-500/30 text-red-700 dark:text-red-400' : 'border-border text-muted-foreground'}`}
+                  >
+                    {getStatusIcon(lastDeploy.status)}
+                    <span className="flex-1 truncate">
+                      {lastDeploy.status === 'failed' ? 'Latest deployment failed; this release is still live' : 'A newer deployment is in progress'}
+                    </span>
+                    <span className="text-xs tabular-nums">#{lastDeploy.id}</span>
+                  </Link>
+                )}
+              </div>
+            ) : (
+              <div className="p-8 text-center">
+                <RocketLaunchIcon className="mx-auto mb-3 h-10 w-10 text-muted-foreground" />
+                <p className="font-medium">Nothing is live yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {lastDeploy ? 'The most recent deployment did not succeed. Fix the cause and deploy again.' : 'Use Deploy to publish the first release.'}
+                </p>
+              </div>
+            )}
+          </Card>
+
           {/* Recent deployments */}
           <Card>
             <div className="flex items-center justify-between p-4 border-b">
               <h2 className="font-semibold">Recent deployments</h2>
-              <Button variant="ghost" size="sm" onClick={handleDeploy} disabled={deploying}>
-                <RocketLaunchIcon className="h-4 w-4 mr-2" />
-                Deploy
+              <Button variant="ghost" size="sm" asChild>
+                <Link to={`/apps/${app.id}/deployments`}>View history</Link>
               </Button>
             </div>
             {deployments.length === 0 ? (
-              <div className="p-8 text-center">
-                <RocketLaunchIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground mb-4">No deployments yet</p>
-                <Button onClick={handleDeploy} disabled={deploying}>
-                  <RocketLaunchIcon className="h-4 w-4 mr-2" />
-                  Deploy Now
-                </Button>
+              <div className="p-6 text-center">
+                <p className="text-sm text-muted-foreground">No deployments yet.</p>
               </div>
             ) : (
               <div className="divide-y">
@@ -245,16 +329,15 @@ export default function AppOverview() {
                   return (
                     <div
                       key={deployment.id}
-                      className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer"
-                      onClick={() => navigate(`/apps/${appId}/deployments/${deployment.id}`)}
+                      className="row-link group flex items-center gap-4 p-4"
                     >
-                      <div className={`h-10 w-10 rounded-full ${colors.bg} ${colors.text} flex items-center justify-center`}>
+                      <div className={`h-10 w-10 shrink-0 rounded-xl ${colors.bg} ${colors.text} flex items-center justify-center`}>
                         {getStatusIcon(deployment.status)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="font-medium truncate">
+                        <Link to={`/apps/${appId}/deployments/${deployment.id}`} className="row-cover block truncate font-medium">
                           {deployment.commit_message || 'Manual deployment'}
-                        </div>
+                        </Link>
                         <div className="text-sm text-muted-foreground truncate">
                           #{deployment.id}
                           {deployment.commit_hash && (
@@ -263,20 +346,20 @@ export default function AppOverview() {
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span className="text-sm text-muted-foreground">
+                        <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
                           {formatDistanceToNow(new Date(deployment.created_at), { addSuffix: true })}
                         </span>
                         <StatusBadge status={deployment.status} />
                       </div>
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                          <Button variant="ghost" size="icon">
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="row-action" aria-label={`Actions for deployment ${deployment.id}`}>
                             <EllipsisHorizontalIcon className="h-5 w-5" />
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem asChild>
-                            <Link to={`/apps/${appId}/deployments/${deployment.id}`}>View Log</Link>
+                            <Link to={`/apps/${appId}/deployments/${deployment.id}`}>View output</Link>
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -290,7 +373,7 @@ export default function AppOverview() {
           {/* Domains */}
           <Card>
             <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="font-semibold">Domains</h2>
+              <h2 className="font-semibold">Domains & TLS</h2>
               <Button variant="ghost" size="icon" asChild>
                 <Link to={`/apps/${app.id}/domains`}>
                   <GlobeAltIcon className="h-4 w-4" />
@@ -300,12 +383,12 @@ export default function AppOverview() {
             <div className="divide-y">
               {app.domains && app.domains.length > 0 ? (
                 app.domains.map((domain) => (
-                  <div
+                  <Link
                     key={domain.id}
-                    className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer"
-                    onClick={() => navigate(`/apps/${app.id}/domains`)}
+                    to={`/apps/${app.id}/domains`}
+                    className="row-link flex items-center gap-4 p-4"
                   >
-                    <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                       {domain.ssl_enabled ? (
                         <LockClosedIcon className="h-5 w-5" />
                       ) : (
@@ -313,29 +396,29 @@ export default function AppOverview() {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-medium">{domain.domain}</div>
+                      <div className="truncate font-medium">{domain.domain}</div>
                       <div className="text-sm text-muted-foreground">
                         {domain.is_primary && 'Primary · '}
-                        {domain.ssl_enabled ? 'SSL enabled' : 'No SSL'}
+                        {domain.ssl_enabled ? 'TLS enabled' : 'No TLS'}
                       </div>
                     </div>
-                  </div>
+                  </Link>
                 ))
               ) : (
-                <div
-                  className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer"
-                  onClick={() => navigate(`/apps/${app.id}/domains`)}
+                <Link
+                  to={`/apps/${app.id}/domains`}
+                  className="row-link flex items-center gap-4 p-4"
                 >
-                  <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <GlobeAltIcon className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium">{app.domain}</div>
+                    <div className="truncate font-medium">{app.domain}</div>
                     <div className="text-sm text-muted-foreground">
-                      Primary · {app.ssl_enabled ? 'SSL enabled' : 'No SSL'}
+                      Primary · {app.ssl_enabled ? 'TLS enabled' : 'No TLS'}
                     </div>
                   </div>
-                </div>
+                </Link>
               )}
             </div>
           </Card>
@@ -345,7 +428,7 @@ export default function AppOverview() {
         <div className="space-y-6">
           <Card className="p-6">
             <h3 className="font-semibold mb-4">Details</h3>
-            <dl className="space-y-3">
+            <dl className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">ID</dt>
                 <dd className="font-medium">{app.id}</dd>
@@ -364,7 +447,7 @@ export default function AppOverview() {
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Branch</dt>
-                <dd className="font-medium">{app.branch}</dd>
+                <dd className="font-mono text-sm font-medium">{app.branch}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Created</dt>
@@ -381,7 +464,7 @@ export default function AppOverview() {
 
           <Card className="p-6">
             <h3 className="font-semibold mb-4">Repository</h3>
-            <dl className="space-y-3">
+            <dl className="space-y-3 text-sm">
               <div>
                 <dt className="text-muted-foreground text-sm">URL</dt>
                 <dd className="font-mono text-sm break-all mt-1">{app.repository_url ? getRepoName(app.repository_url) : 'Not connected'}</dd>
@@ -395,19 +478,19 @@ export default function AppOverview() {
 
           <Card className="p-6">
             <h3 className="font-semibold mb-4">Deployments</h3>
-            <dl className="space-y-3">
+            <dl className="space-y-3 text-sm">
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Total</dt>
                 <dd className="font-medium">{deployments.length}</dd>
               </div>
               <div className="flex justify-between">
                 <dt className="text-muted-foreground">Successful</dt>
-                <dd className="font-medium text-emerald-600">{successfulDeploys}</dd>
+                <dd className="font-medium tabular-nums text-emerald-700 dark:text-emerald-400">{successfulDeploys}</dd>
               </div>
               {failedDeploys > 0 && (
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Failed</dt>
-                  <dd className="font-medium text-red-600">{failedDeploys}</dd>
+                  <dd className="font-medium tabular-nums text-red-700 dark:text-red-400">{failedDeploys}</dd>
                 </div>
               )}
               {lastDeploy && (

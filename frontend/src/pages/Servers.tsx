@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useNavigate, Link } from 'react-router-dom'
-import { serversApi, Server } from '../services/api'
+import { useNavigate, Link, useSearchParams } from 'react-router-dom'
+import { serversApi, Server, getErrorMessage } from '../services/api'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Search, ChevronRight } from 'lucide-react'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { getAvatarColor } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import {
@@ -9,7 +14,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { StatusBadge, LoadingSpinner } from '@/components/custom'
+import { StatusBadge } from '@/components/custom'
 import {
   PlusIcon,
   EllipsisHorizontalIcon,
@@ -17,38 +22,50 @@ import {
 } from '@heroicons/react/24/outline'
 import { formatDistanceToNow } from 'date-fns'
 
-const avatarColors = [
-  { bg: 'bg-emerald-100 dark:bg-emerald-950', text: 'text-emerald-600 dark:text-emerald-400' },
-  { bg: 'bg-blue-100 dark:bg-blue-950', text: 'text-blue-600 dark:text-blue-400' },
-  { bg: 'bg-purple-100 dark:bg-purple-950', text: 'text-purple-600 dark:text-purple-400' },
-  { bg: 'bg-orange-100 dark:bg-orange-950', text: 'text-orange-600 dark:text-orange-400' },
-  { bg: 'bg-pink-100 dark:bg-pink-950', text: 'text-pink-600 dark:text-pink-400' },
-  { bg: 'bg-cyan-100 dark:bg-cyan-950', text: 'text-cyan-600 dark:text-cyan-400' },
-]
-
-function getAvatarColor(name: string) {
-  let hash = 0
-  for (let i = 0; i < name.length; i++) {
-    hash = name.charCodeAt(i) + ((hash << 5) - hash)
-  }
-  return avatarColors[Math.abs(hash) % avatarColors.length]
-}
-
 export default function Servers() {
   const navigate = useNavigate()
   const [servers, setServers] = useState<Server[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  // Search and filter live in the URL so refresh and Back keep the view.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const query = searchParams.get('q') ?? ''
+  const status = searchParams.get('status') ?? 'all'
+  const updateParams = (patch: Record<string, string>) => {
+    setSearchParams((current) => {
+      const params = new URLSearchParams(current)
+      for (const [key, value] of Object.entries(patch)) {
+        if (!value || value === 'all') params.delete(key)
+        else params.set(key, value)
+      }
+      return params
+    }, { replace: true })
+  }
+  const setQuery = (value: string) => updateParams({ q: value })
+  const setStatus = (value: string) => updateParams({ status: value })
 
-  useEffect(() => {
+  const loadServers = () => {
+    setLoading(true)
+    setError(null)
     serversApi.list()
       .then((res) => setServers(res.data))
+      .catch((err) => setError(getErrorMessage(err, 'Unable to load servers')))
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { loadServers() }, [])
+
+  const filteredServers = servers.filter(server =>
+    `${server.name} ${server.host}`.toLowerCase().includes(query.toLowerCase()) &&
+    (status === 'all' || server.status === status)
+  )
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" />
+      <div className="space-y-6" aria-label="Loading servers" role="status">
+        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton className="h-12 w-full rounded-xl" />
+        {[0, 1, 2].map(row => <Skeleton key={row} className="h-20 w-full rounded-xl" />)}
       </div>
     )
   }
@@ -56,16 +73,45 @@ export default function Servers() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Servers</h1>
+      <div className="resource-header">
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">Infrastructure</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Servers</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Your infrastructure, in one place.</p>
+        </div>
         <Button onClick={() => navigate('/servers/new')}>
           <PlusIcon className="h-4 w-4 mr-2" />
           New server
         </Button>
       </div>
 
+      {error ? (
+        <Card className="p-6" role="alert">
+          <p className="font-medium">Couldn't load your servers</p>
+          <p className="mt-1 text-sm text-muted-foreground">{error}</p>
+          <Button variant="outline" className="mt-4" onClick={loadServers}>Try again</Button>
+        </Card>
+      ) : <>
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+          <Input aria-label="Search servers" placeholder="Search by name or address…" value={query} onChange={event => setQuery(event.target.value)} className="bg-card pl-9" />
+        </div>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger aria-label="Filter by server status" className="w-auto min-w-[9.5rem] gap-2">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All statuses</SelectItem>
+            {Array.from(new Set(servers.map(server => server.status))).map(value => (
+              <SelectItem key={value} value={value} className="capitalize">{value}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <span className="text-xs tabular-nums text-muted-foreground" aria-live="polite">{filteredServers.length} of {servers.length} servers</span>
+      </div>
       {/* Servers list */}
-      <Card>
+      <Card className="overflow-hidden">
         {servers.length === 0 ? (
           <div className="p-8 text-center">
             <ServerIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -75,34 +121,41 @@ export default function Servers() {
               Add your first server
             </Button>
           </div>
+        ) : filteredServers.length === 0 ? (
+          <div className="p-10 text-center">
+            <p className="font-medium">No matching servers</p>
+            <p className="mt-1 text-sm text-muted-foreground">Try a different name, address, or status.</p>
+            <Button variant="outline" className="mt-4" onClick={() => { setQuery(''); setStatus('all') }}>Clear filters</Button>
+          </div>
         ) : (
           <div className="divide-y">
-            {servers.map((server) => {
+            {filteredServers.map((server) => {
               const color = getAvatarColor(server.name)
               return (
                 <div
                   key={server.id}
-                  className="flex items-center gap-4 p-4 hover:bg-muted/50 cursor-pointer"
-                  onClick={() => navigate(`/servers/${server.id}`)}
+                  className="row-link group flex items-center gap-3 p-4 sm:gap-4 sm:p-5"
                 >
-                  <div className={`h-10 w-10 rounded-full ${color.bg} ${color.text} flex items-center justify-center font-medium`}>
-                    {server.name.charAt(0).toUpperCase()}
+                  <div className={`hidden h-10 w-10 shrink-0 rounded-xl ${color.bg} ${color.text} sm:flex items-center justify-center font-medium`}>
+                    <ServerIcon className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="font-medium">{server.name}</div>
-                    <div className="text-sm text-muted-foreground truncate">
-                      {server.host}:{server.port} · {server.applications_count || 0} apps
+                    <Link to={`/servers/${server.id}`} className="row-cover block truncate font-medium">{server.name}</Link>
+                    <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
+                      {server.host}:{server.port}
                     </div>
+                    <p className="mt-1 text-xs tabular-nums text-muted-foreground">{server.applications_count || 0} {server.applications_count === 1 ? 'application' : 'applications'}</p>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted-foreground">
+                    <span className="hidden text-xs tabular-nums text-muted-foreground xl:inline">
                       Added {formatDistanceToNow(new Date(server.created_at), { addSuffix: false })} ago
                     </span>
                     <StatusBadge status={server.status} />
                   </div>
+                  <ChevronRight className="row-hint hidden h-4 w-4 sm:block" aria-hidden />
                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                      <Button variant="ghost" size="icon">
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="row-action" aria-label={`Actions for ${server.name}`}>
                         <EllipsisHorizontalIcon className="h-5 w-5" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -121,6 +174,7 @@ export default function Servers() {
           </div>
         )}
       </Card>
+      </>}
     </div>
   )
 }
