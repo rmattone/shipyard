@@ -324,7 +324,7 @@ export default function AppOverview() {
               </div>
             ) : (
               <div className="divide-y">
-                {deployments.slice(0, 10).map((deployment) => {
+                {deployments.slice(0, 5).map((deployment) => {
                   const colors = statusColors[deployment.status] || { bg: 'bg-gray-100', text: 'text-gray-600' }
                   return (
                     <div
