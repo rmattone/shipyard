@@ -172,7 +172,7 @@ export default function ServerOverview() {
     return (
       <div className="space-y-6" role="status" aria-label="Loading server">
         <Skeleton className="h-[104px] w-full rounded-xl" />
-        <Skeleton className="h-[148px] w-full rounded-xl" />
+        <Skeleton className="h-[108px] w-full rounded-xl" />
         <Skeleton className="h-56 w-full rounded-xl" />
         <Skeleton className="h-72 w-full rounded-xl" />
       </div>
