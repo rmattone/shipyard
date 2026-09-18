@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useSectionParam } from '@/hooks/useSectionParam'
 import { serversApi, tagsApi, Server, Tag, TagColor } from '../../services/api'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -37,6 +38,7 @@ import SshSettingsSection from './settings/SshSettingsSection'
 import NetworkSettingsSection from './settings/NetworkSettingsSection'
 
 type SettingsSection = 'general' | 'users' | 'ssh' | 'network' | 'tags' | 'danger'
+const SECTIONS: readonly SettingsSection[] = ['general', 'users', 'ssh', 'network', 'tags', 'danger']
 
 export default function ServerSettings() {
   const { id } = useParams<{ id: string }>()
@@ -48,7 +50,7 @@ export default function ServerSettings() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deleting, setDeleting] = useState(false)
-  const [activeSection, setActiveSection] = useState<SettingsSection>('general')
+  const [activeSection, setActiveSection] = useSectionParam(SECTIONS, 'general')
   const [formData, setFormData] = useState({
     name: '',
     host: '',
@@ -238,21 +240,20 @@ export default function ServerSettings() {
   ]
 
   return (
-    <div className="relative flex gap-10 lg:gap-16">
-      {/* Sidebar; hangs in the left gutter on wide screens so the content
-          column matches the centered layout of the other tabs */}
-      <div className="w-56 flex-shrink-0 min-[1650px]:absolute min-[1650px]:top-0 min-[1650px]:right-full min-[1650px]:mr-12">
-        <h1 className="text-2xl font-bold mb-8">Settings</h1>
-        <nav className="space-y-1">
+    <div className="settings-layout">
+      <div className="settings-sidebar">
+        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <nav aria-label="Settings sections">
           {sidebarItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setActiveSection(item.id)}
+              aria-current={activeSection === item.id ? 'page' : undefined}
               className={cn(
-                'w-full text-left px-4 py-2.5 rounded-md text-sm font-medium transition-colors',
+                'settings-tab',
                 activeSection === item.id
-                  ? 'bg-muted text-foreground'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  ? 'settings-tab-active'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
               {item.label}
@@ -288,7 +289,7 @@ export default function ServerSettings() {
               )}
 
               {/* Name */}
-              <div className="flex items-start justify-between py-6 border-b">
+              <div className="settings-row border-b">
                 <div>
                   <p className="font-medium">Name</p>
                   <p className="text-sm text-muted-foreground">
@@ -298,14 +299,14 @@ export default function ServerSettings() {
                 <Input
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-80"
+                  className="w-full min-w-0"
                 />
               </div>
 
               {!server.is_local && (
                 <>
                   {/* IP Address */}
-                  <div className="flex items-start justify-between py-6 border-b">
+                  <div className="settings-row border-b">
                     <div>
                       <p className="font-medium">IP address</p>
                       <p className="text-sm text-muted-foreground">
@@ -315,12 +316,12 @@ export default function ServerSettings() {
                     <Input
                       value={formData.host}
                       onChange={(e) => setFormData({ ...formData, host: e.target.value })}
-                      className="w-80"
+                      className="w-full min-w-0"
                     />
                   </div>
 
                   {/* SSH Port */}
-                  <div className="flex items-start justify-between py-6 border-b">
+                  <div className="settings-row border-b">
                     <div>
                       <p className="font-medium">SSH port</p>
                       <p className="text-sm text-muted-foreground">
@@ -331,12 +332,12 @@ export default function ServerSettings() {
                       type="number"
                       value={formData.port}
                       onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 22 })}
-                      className="w-80"
+                      className="w-full min-w-0"
                     />
                   </div>
 
                   {/* SSH Username */}
-                  <div className="flex items-start justify-between py-6 border-b">
+                  <div className="settings-row border-b">
                     <div>
                       <p className="font-medium">SSH username</p>
                       <p className="text-sm text-muted-foreground">
@@ -346,12 +347,12 @@ export default function ServerSettings() {
                     <Input
                       value={formData.username}
                       onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                      className="w-80"
+                      className="w-full min-w-0"
                     />
                   </div>
 
                   {/* SSH Private Key */}
-                  <div className="flex items-start justify-between py-6 border-b">
+                  <div className="settings-row border-b">
                     <div>
                       <p className="font-medium">SSH private key</p>
                       <p className="text-sm text-muted-foreground">
@@ -362,7 +363,7 @@ export default function ServerSettings() {
                       value={formData.private_key}
                       onChange={(e) => setFormData({ ...formData, private_key: e.target.value })}
                       placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                      className="w-64 font-mono text-xs"
+                      className="w-full min-w-0 font-mono text-xs"
                       rows={4}
                     />
                   </div>
@@ -370,7 +371,7 @@ export default function ServerSettings() {
               )}
 
               {/* Status */}
-              <div className="flex items-start justify-between py-6">
+              <div className="settings-row">
                 <div>
                   <p className="font-medium">{server.is_local ? 'Local execution' : 'Connection status'}</p>
                   <p className="text-sm text-muted-foreground">
@@ -474,7 +475,7 @@ export default function ServerSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-start justify-between py-6">
+              <div className="settings-row">
                 <div>
                   <p className="font-medium">Delete server</p>
                   <p className="text-sm text-muted-foreground">

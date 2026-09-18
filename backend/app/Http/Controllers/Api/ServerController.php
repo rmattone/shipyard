@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Server;
+use App\Models\ServerMetric;
 use App\Services\NodeVersionService;
 use App\Services\ServerMetricsHistoryService;
 use App\Services\ServerMetricsService;
@@ -347,10 +348,17 @@ class ServerController extends Controller
         }
     }
 
+    /**
+     * Live metrics for the overview. The sample is also stored, so history
+     * gets denser while someone is actually looking at the server instead of
+     * only the five-minute scheduler tick.
+     */
     public function getMetrics(Server $server): JsonResponse
     {
         try {
             $metrics = $this->serverMetricsService->getMetrics($server);
+
+            $this->recordLiveSample($server, $metrics);
 
             return response()->json($metrics);
         } catch (\Exception $e) {
@@ -358,6 +366,27 @@ class ServerController extends Controller
                 'error' => 'Failed to collect metrics',
                 'message' => $e->getMessage(),
             ], 422);
+        }
+    }
+
+    /**
+     * Two tabs polling every 30s, or React remounting, would otherwise write
+     * near-duplicate rows; anything within the guard window is skipped.
+     * Storage must never break the live read, so failures are only reported.
+     */
+    private function recordLiveSample(Server $server, array $metrics): void
+    {
+        try {
+            $recent = ServerMetric::query()
+                ->where('server_id', $server->id)
+                ->where('collected_at', '>=', now()->subSeconds(ServerMetric::LIVE_SAMPLE_GUARD_SECONDS))
+                ->exists();
+
+            if (! $recent) {
+                ServerMetric::fromSnapshot($server, $metrics)->save();
+            }
+        } catch (\Throwable $e) {
+            report($e);
         }
     }
 

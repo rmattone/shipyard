@@ -1114,14 +1114,29 @@ export const serverUsersApi = {
 // System
 export interface SystemVersion {
   current_version: string
+  current_commit: string | null
+  branch: string | null
+  version_source: 'file' | 'fallback'
   latest_version: string
+  latest_commit: string | null
   update_available: boolean
+  comparison: 'commit' | 'version' | 'unknown'
+  repo: string
+  target_branch: string
+  checked_at: string
+  check_error: string | null
+  updater_available: boolean
+  on_target_branch: boolean
 }
 
 export interface UpdateStatus {
   running: boolean
   status: 'idle' | 'running' | 'completed' | 'failed'
   log: string
+  exit_code: number | null
+  started_at: string | null
+  finished_at: string | null
+  message: string | null
 }
 
 export interface SystemEnvironment {
@@ -1130,7 +1145,7 @@ export interface SystemEnvironment {
 }
 
 export const systemApi = {
-  getVersion: () => api.get<SystemVersion>('/system/version'),
+  getVersion: (refresh = false) => api.get<SystemVersion>('/system/version', { params: refresh ? { refresh: 1 } : undefined }),
   getEnvironment: () => api.get<SystemEnvironment>('/system/environment'),
   startUpdate: () => api.post<{ success: boolean; message: string }>('/system/update'),
   getUpdateStatus: () => api.get<UpdateStatus>('/system/update-status'),

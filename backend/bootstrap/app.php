@@ -26,6 +26,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // every API route
         $middleware->throttleApi();
 
+        // update.sh puts the app in maintenance mode while it runs; the
+        // settings page keeps polling this route to show progress.
+        $middleware->preventRequestsDuringMaintenance(except: [
+            'api/system/update-status',
+        ]);
+
         $middleware->alias([
             'verified' => EnsureEmailIsVerified::class,
             'org.context' => SetOrganizationContext::class,

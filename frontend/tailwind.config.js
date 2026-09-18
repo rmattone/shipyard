@@ -10,8 +10,8 @@ export default {
   theme: {
     extend: {
         fontSize: {
-            xs: ['0.8125rem', { lineHeight: '1.25rem' }],
-            sm: ['0.9375rem', { lineHeight: '1.5rem' }],
+            xs: ['0.75rem', { lineHeight: '1.125rem' }],
+            sm: ['0.875rem', { lineHeight: '1.25rem' }],
         },
         colors: {
             border: 'hsl(var(--border))',
@@ -57,6 +57,10 @@ export default {
                 border: 'hsl(var(--sidebar-border))',
                 ring: 'hsl(var(--sidebar-ring))'
             }
+        },
+        transitionTimingFunction: {
+            out: 'var(--ease-out)',
+            'in-out': 'var(--ease-in-out)',
         },
         borderRadius: {
             lg: 'var(--radius)',
