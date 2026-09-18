@@ -10,8 +10,8 @@ services:
       - ./backend:/var/www/html
       - ./frontend:/var/www/frontend
       - ./frontend/dist:/var/www/html/public/app
-      - ./update.sh:/var/www/update.sh:ro
-      - /var/run/docker.sock:/var/run/docker.sock
+      # The whole checkout, so the app can read VERSION and the git commit.
+      - .:/var/www/shipyard
     networks:
       - server-mgmt
     depends_on:
@@ -72,6 +72,9 @@ services:
     volumes:
       - ./backend:/var/www/html
       - ./frontend:/var/www/frontend
+      # System updates run here as a queued job: this container is root and
+      # can pull, install, migrate, and build against the mounted checkout.
+      - .:/var/www/shipyard
     networks:
       - server-mgmt
     depends_on:
@@ -89,6 +92,7 @@ services:
     command: php artisan schedule:work
     volumes:
       - ./backend:/var/www/html
+      - .:/var/www/shipyard
     networks:
       - server-mgmt
     depends_on:
