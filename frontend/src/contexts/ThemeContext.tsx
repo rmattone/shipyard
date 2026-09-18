@@ -26,6 +26,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = window.document.documentElement
 
+    // Ease between brightness levels rather than cutting; the class is
+    // removed once the transition has had time to finish.
+    root.classList.add('theme-transition')
+    const clear = window.setTimeout(() => root.classList.remove('theme-transition'), 300)
+
     root.classList.remove('light', 'dark')
 
     if (theme === 'system') {
@@ -38,6 +43,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
 
     localStorage.setItem('theme', theme)
+
+    return () => window.clearTimeout(clear)
   }, [theme])
 
   // Listen for system theme changes

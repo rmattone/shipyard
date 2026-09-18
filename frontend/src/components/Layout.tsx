@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { useState, useRef, useEffect } from 'react'
+import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { toast } from 'sonner'
 import { useAuth } from '../hooks/useAuth'
 import { useNavigation } from '@/contexts/NavigationContext'
@@ -24,16 +24,37 @@ import {
   DropdownMenuTrigger,
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu'
-import { ChevronDown, Plus } from 'lucide-react'
+import { ChevronDown, Plus, Menu, Check } from 'lucide-react'
+import { Sheet, SheetContent, SheetTitle, SheetDescription, SheetTrigger } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 
 export default function Layout() {
   const { user, logout, organizations, currentOrganization, switchOrganization, loading } = useAuth()
   const navigate = useNavigate()
+  const { pathname } = useLocation()
+  const [navigationOpen, setNavigationOpen] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
+  const mainRef = useRef<HTMLElement>(null)
+  const wideContent = /\/(terminal|logs)$/.test(pathname) || /\/deployments\/\d+$/.test(pathname)
   const { currentServer, currentApp, servers, apps, loadingServers, loadingApps } = useNavigation()
   const { theme, setTheme } = useTheme()
   const [createOrgOpen, setCreateOrgOpen] = useState(false)
   const [switchingOrg, setSwitchingOrg] = useState(false)
+
+  // The header only grows an edge once content is actually underneath it.
+  useEffect(() => {
+    const main = mainRef.current
+    if (!main) return
+    const update = () => setScrolled(main.scrollTop > 2)
+    update()
+    main.addEventListener('scroll', update, { passive: true })
+    return () => main.removeEventListener('scroll', update)
+  }, [])
+
+  // New destination: start reading from the top, not wherever the last page left off.
+  useEffect(() => {
+    mainRef.current?.scrollTo({ top: 0 })
+  }, [pathname])
 
   const handleLogout = async () => {
     await logout()
@@ -77,25 +98,34 @@ export default function Layout() {
     : apps
 
   return (
-    <div className="flex h-screen w-full flex-col">
+    <div className="flex h-dvh w-full flex-col overflow-hidden">
+      <a href="#main-content" className="skip-link">Skip to content</a>
       {/* Top navbar */}
-      <header className="border-b border-border/50 bg-zinc-50 dark:bg-black/20">
-        <div className="flex h-[5.5rem] items-center justify-between px-6 lg:px-8">
+      <header className="glass header-edge relative z-30 shrink-0 bg-card/85 backdrop-blur-xl" data-scrolled={scrolled}>
+        <div className="flex h-14 items-center justify-between gap-2 px-3 sm:h-16 sm:px-6">
+          <Sheet open={navigationOpen} onOpenChange={setNavigationOpen}>
+            <SheetTrigger asChild><Button variant="ghost" size="icon" className="shrink-0 lg:hidden" aria-label="Open navigation"><Menu /></Button></SheetTrigger>
+            <SheetContent side="left" className="w-72 overflow-y-auto p-0 pt-6">
+              <SheetTitle className="px-6">ShipYard</SheetTitle>
+              <SheetDescription className="px-6 pb-2">Navigate your workspace</SheetDescription>
+              <ContextTabs onNavigate={() => setNavigationOpen(false)} />
+            </SheetContent>
+          </Sheet>
           {/* Breadcrumb navigation */}
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
             {/* Logo */}
-            <NavLink to="/" className="flex items-center gap-2 mr-5">
-              <div className="h-8 w-8 rounded-md bg-slate-800 dark:bg-white p-1.5 flex items-center justify-center flex-shrink-0">
-                <img src={shipyardLogo} alt="ShipYard" className="h-full w-full object-contain invert dark:invert-0" />
+            <NavLink to="/" aria-label="ShipYard home" className="group mr-2 flex shrink-0 items-center gap-2 rounded-md sm:mr-5">
+              <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-foreground p-1.5 transition-transform duration-150 ease-out group-hover:scale-105">
+                <img src={shipyardLogo} alt="" className="h-full w-full object-contain invert dark:invert-0" />
               </div>
-              <span className="font-semibold hidden sm:inline">ShipYard</span>
+              <span className="hidden font-semibold tracking-tight sm:inline">ShipYard</span>
             </NavLink>
 
             {/* Organization switcher */}
             <div className="flex items-center">
               <Button
                 variant="ghost"
-                className="gap-1 px-2 pr-1 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 rounded-r-none"
+                className="gap-1 rounded-r-none px-2 pr-1"
                 onClick={() => navigate('/')}
               >
                 <div className="h-5 w-5 rounded bg-orange-500 flex items-center justify-center text-xs font-bold text-white">
@@ -105,7 +135,7 @@ export default function Layout() {
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" className="px-1 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 rounded-l-none">
+                  <Button variant="ghost" aria-label="Switch organization" className="rounded-l-none px-1">
                     <ChevronDown className="h-3 w-3 opacity-50" />
                   </Button>
                 </DropdownMenuTrigger>
@@ -122,7 +152,7 @@ export default function Layout() {
                       </div>
                       <span className="flex-1 truncate">{organization.name}</span>
                       {organization.id === currentOrganization?.id && (
-                        <span className="text-emerald-500 ml-auto">✓</span>
+                        <Check className="ml-auto h-4 w-4 text-primary" aria-label="Current" />
                       )}
                     </DropdownMenuItem>
                   ))}
@@ -139,21 +169,21 @@ export default function Layout() {
             {/* Server selector (only show if on a server or app page) */}
             {(currentServer || currentApp) && (
               <>
-                <span className="text-muted-foreground dark:text-zinc-500 mx-1">/</span>
+                <span className="mx-1 select-none text-muted-foreground/60">/</span>
                 <div className="flex items-center">
                   <Button
                     variant="ghost"
-                    className="gap-1 px-2 pr-1 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 rounded-r-none"
+                    className="gap-1 rounded-r-none px-2 pr-1"
                     onClick={() => currentServer && navigate(`/servers/${currentServer.id}`)}
                   >
-                    <div className="h-5 w-5 rounded bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
+                    <div className="flex h-5 w-5 items-center justify-center rounded bg-muted text-foreground">
                       <ServerIcon className="h-3 w-3" />
                     </div>
                     <span className="hidden sm:inline ml-1">{currentServer?.name}</span>
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="px-1 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 rounded-l-none">
+                      <Button variant="ghost" aria-label="Switch server" className="rounded-l-none px-1">
                         <ChevronDown className="h-3 w-3 opacity-50" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -169,12 +199,12 @@ export default function Layout() {
                             onClick={() => navigate(`/servers/${server.id}`)}
                             className="gap-2"
                           >
-                            <div className="h-5 w-5 rounded bg-zinc-200 dark:bg-zinc-700 flex items-center justify-center">
+                            <div className="flex h-5 w-5 items-center justify-center rounded bg-muted text-foreground">
                               <ServerIcon className="h-3 w-3" />
                             </div>
                             <span className="flex-1 truncate">{server.name}</span>
                             {server.id === currentServer?.id && (
-                              <span className="text-emerald-500">✓</span>
+                              <Check className="h-4 w-4 text-primary" aria-label="Current" />
                             )}
                           </DropdownMenuItem>
                         ))
@@ -193,11 +223,11 @@ export default function Layout() {
             {/* Application selector (only show if on an app page) */}
             {currentApp && currentServer && (
               <>
-                <span className="text-muted-foreground dark:text-zinc-500 mx-1">/</span>
+                <span className="mx-1 select-none text-muted-foreground/60">/</span>
                 <div className="flex items-center">
                   <Button
                     variant="ghost"
-                    className="gap-1 px-2 pr-1 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 rounded-r-none"
+                    className="gap-1 rounded-r-none px-2 pr-1"
                     onClick={() => navigate(`/apps/${currentApp.id}`)}
                   >
                     <div className="h-5 w-5 rounded bg-emerald-600 flex items-center justify-center text-xs font-bold text-white">
@@ -207,7 +237,7 @@ export default function Layout() {
                   </Button>
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" className="px-1 dark:text-zinc-300 dark:hover:text-white dark:hover:bg-zinc-800 rounded-l-none">
+                      <Button variant="ghost" aria-label="Switch application" className="rounded-l-none px-1">
                         <ChevronDown className="h-3 w-3 opacity-50" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -228,7 +258,7 @@ export default function Layout() {
                             </div>
                             <span className="flex-1 truncate">{app.name}</span>
                             {app.id === currentApp.id && (
-                              <span className="text-emerald-500">✓</span>
+                              <Check className="h-4 w-4 text-primary" aria-label="Current" />
                             )}
                           </DropdownMenuItem>
                         ))
@@ -249,7 +279,7 @@ export default function Layout() {
           <div className="flex items-center gap-2">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full p-0 dark:hover:bg-zinc-800">
+                <Button variant="ghost" size="icon" aria-label="User menu" className="h-8 w-8 rounded-full p-0">
                   <div className="h-8 w-8 rounded-full bg-emerald-600 flex items-center justify-center text-sm font-semibold text-white">
                     {(user?.name || user?.email)?.charAt(0).toUpperCase() || 'U'}
                   </div>
@@ -289,7 +319,7 @@ export default function Layout() {
                       <button
                         onClick={() => setTheme('system')}
                         className={cn(
-                          'p-1.5 rounded transition-colors',
+                          'pressable rounded p-1.5',
                           theme === 'system' ? 'bg-background shadow-sm' : 'hover:bg-background/50'
                         )}
                         title="System"
@@ -299,7 +329,7 @@ export default function Layout() {
                       <button
                         onClick={() => setTheme('light')}
                         className={cn(
-                          'p-1.5 rounded transition-colors',
+                          'pressable rounded p-1.5',
                           theme === 'light' ? 'bg-background shadow-sm' : 'hover:bg-background/50'
                         )}
                         title="Light"
@@ -309,7 +339,7 @@ export default function Layout() {
                       <button
                         onClick={() => setTheme('dark')}
                         className={cn(
-                          'p-1.5 rounded transition-colors',
+                          'pressable rounded p-1.5',
                           theme === 'dark' ? 'bg-background shadow-sm' : 'hover:bg-background/50'
                         )}
                         title="Dark"
@@ -324,30 +354,18 @@ export default function Layout() {
           </div>
         </div>
 
-        {/* Context tabs (org / server / app views) */}
-        <ContextTabs />
       </header>
 
-      {/* Main content */}
-      <main className="flex-1 min-h-0 overflow-y-auto">
-        <div className="mx-auto w-full max-w-6xl px-6 lg:px-10 py-8 lg:py-12">
+      <div className="flex min-h-0 flex-1">
+        <aside className="hidden w-[208px] shrink-0 overflow-y-auto border-r border-border/60 bg-background lg:block">
+          <ContextTabs />
+        </aside>
+      <main id="main-content" ref={mainRef} tabIndex={-1} className="min-w-0 flex-1 overflow-y-auto outline-none">
+        <div key={pathname} className={cn('page-enter mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8', wideContent ? 'max-w-none' : 'max-w-[1440px]')}>
           <Outlet />
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="px-6 lg:px-8 py-4 border-t border-border/50">
-        <div className="flex items-center justify-between text-sm text-muted-foreground dark:text-zinc-500">
-          <div>
-            ShipYard © {new Date().getFullYear()}
-          </div>
-          <div className="flex items-center gap-4">
-            <a href="#" className="hover:text-foreground dark:hover:text-zinc-300 transition-colors">Status</a>
-            <a href="#" className="hover:text-foreground dark:hover:text-zinc-300 transition-colors">Docs</a>
-            <a href="#" className="hover:text-foreground dark:hover:text-zinc-300 transition-colors">Help</a>
-          </div>
-        </div>
-      </footer>
+      </div>
     </div>
   )
 }
