@@ -10,7 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { StatusBadge, LoadingSpinner, ServerMetricsCard } from '@/components/custom'
+import { StatusBadge, LoadingSpinner, ServerMetricsCard, ServerMetricsHistoryCard } from '@/components/custom'
 import { TagBadge } from '@/components/custom/TagBadge'
 import {
   PlusIcon,
@@ -442,6 +442,8 @@ export default function ServerOverview() {
 
         </div>
       </div>
+
+      <ServerMetricsHistoryCard serverId={parseInt(id!)} />
     </div>
   )
 }

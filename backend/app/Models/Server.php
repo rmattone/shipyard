@@ -121,6 +121,11 @@ class Server extends Model
         return $this->hasMany(ServerSshKey::class);
     }
 
+    public function metrics(): HasMany
+    {
+        return $this->hasMany(ServerMetric::class);
+    }
+
     public function isActive(): bool
     {
         return $this->status === 'active';

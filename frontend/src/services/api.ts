@@ -396,8 +396,14 @@ export interface ServerMetrics {
     available: number
     percentage: number
   }
+  swap: {
+    total: number
+    used: number
+    percentage: number
+  }
   cpu: {
     usage: number
+    cores: number
   }
   disk: {
     total: number
@@ -415,6 +421,42 @@ export interface ServerMetrics {
     avg_15: number
   }
   collected_at: string
+}
+
+export type MetricsHistoryRange = '7d' | '30d'
+
+export interface MetricsSummary {
+  peak: number | null
+  p95: number | null
+  avg: number | null
+}
+
+export interface ServerMetricsHistoryPoint {
+  t: string
+  cpu: number
+  cpu_avg: number
+  memory: number
+  memory_avg: number
+  disk: number
+  load_1: number
+  swap_used: number
+}
+
+export interface ServerMetricsHistory {
+  range: MetricsHistoryRange
+  bucket_minutes: number
+  cores: number | null
+  disk_total: number | null
+  disk_used: number | null
+  samples: number
+  series: ServerMetricsHistoryPoint[]
+  summary: {
+    cpu: MetricsSummary
+    memory: MetricsSummary
+    disk: MetricsSummary
+    load_1: MetricsSummary
+    disk_growth_bytes_per_day: number | null
+  }
 }
 
 export interface SoftwareCheck {
@@ -519,6 +561,8 @@ export const serversApi = {
     api.post<{ success: boolean; message: string }>('/servers/' + id + '/node-versions/default', { version }),
   getMetrics: (id: number) =>
     api.get<ServerMetrics>('/servers/' + id + '/metrics'),
+  getMetricsHistory: (id: number, range: MetricsHistoryRange) =>
+    api.get<ServerMetricsHistory>('/servers/' + id + '/metrics/history', { params: { range } }),
   checkSoftware: (id: number) =>
     api.get<ServerSoftware>('/servers/' + id + '/software'),
 }
