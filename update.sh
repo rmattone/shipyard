@@ -168,9 +168,15 @@ run_app php artisan up
 # ---------------------------------------------------------------------------
 
 echo ""
-if git diff --name-only "$BEFORE" "$AFTER" | grep -qE '^(docker-compose\.yml|docker/|update\.sh)'; then
+CHANGED="$(git diff --name-only "$BEFORE" "$AFTER")"
+if echo "$CHANGED" | grep -qE '^(docker-compose\.yml|docker/Dockerfile|docker/php/)'; then
     echo -e "${YELLOW}NOTICE:${NC} container definitions changed in this update."
     echo "        Run on the host to apply them:  cd ${INSTALL_DIR} && docker compose up -d --build"
+    echo ""
+fi
+if echo "$CHANGED" | grep -qE '^docker/nginx/'; then
+    echo -e "${YELLOW}NOTICE:${NC} nginx configuration changed in this update."
+    echo "        Run on the host to load it:      cd ${INSTALL_DIR} && docker compose restart nginx"
     echo ""
 fi
 
