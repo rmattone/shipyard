@@ -7,68 +7,88 @@ import { ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outl
 import { cn, formatBytes } from '@/lib/utils'
 import { format } from 'date-fns'
 
+export type MetricKey = 'cpu' | 'memory' | 'disk' | 'load'
+
 interface ServerMetricsCardProps {
   serverId: number
   autoRefresh?: boolean
   refreshInterval?: number
+  /** When provided, tiles act as a selector for the history chart below. */
+  selected?: MetricKey
+  onSelect?: (metric: MetricKey) => void
 }
 
-function getProgressColor(percentage: number): string {
+function barTone(percentage: number): string {
   if (percentage < 60) return 'bg-emerald-500'
-  if (percentage < 80) return 'bg-yellow-500'
+  if (percentage < 80) return 'bg-amber-500'
   return 'bg-red-500'
 }
 
-function ProgressBar({ percentage, label, detail }: { percentage: number; label: string; detail: string }) {
+interface VitalProps {
+  metric: MetricKey
+  label: string
+  value: string
+  percentage: number
+  detail: string
+  selected?: boolean
+  onSelect?: (metric: MetricKey) => void
+}
+
+/**
+ * One vital sign: a big number you can read from across the room, a thin bar
+ * for the shape, and the detail underneath. Becomes a button when the page
+ * wires it to the history chart, so the tile you tap is the trend you see.
+ */
+function Vital({ metric, label, value, percentage, detail, selected, onSelect }: VitalProps) {
+  const interactive = Boolean(onSelect)
+  const Tag = interactive ? 'button' : 'div'
   return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-sm">
-        <span className="text-muted-foreground">{label}</span>
-        <span className="font-medium tabular-nums">{percentage.toFixed(1)}%</span>
-      </div>
-      <div className="h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(percentage)}>
-        <div
-          className={cn('h-full rounded-full transition-[width,background-color] duration-500 ease-out', getProgressColor(percentage))}
+    <Tag
+      type={interactive ? 'button' : undefined}
+      onClick={interactive ? () => onSelect?.(metric) : undefined}
+      aria-pressed={interactive ? selected : undefined}
+      className={cn(
+        'pressable relative flex min-w-0 flex-col gap-2 px-5 py-4 text-left',
+        interactive && 'hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
+        selected && 'bg-muted/40'
+      )}
+    >
+      {selected && <span aria-hidden className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-primary" />}
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="text-2xl font-semibold tabular-nums tracking-tight">{value}</span>
+      <span className="h-1 w-full overflow-hidden rounded-full bg-muted" role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(percentage, 100))}>
+        <span
+          className={cn('block h-full rounded-full transition-[width,background-color] duration-500 ease-out', barTone(percentage))}
           style={{ width: `${Math.min(percentage, 100)}%` }}
         />
-      </div>
-      <div className="text-xs tabular-nums text-muted-foreground">{detail}</div>
-    </div>
+      </span>
+      <span className="truncate text-xs tabular-nums text-muted-foreground">{detail}</span>
+    </Tag>
   )
 }
 
-function MetricsSkeleton() {
+function VitalsSkeleton() {
   return (
-    <Card className="p-6">
-      <div className="flex items-center justify-between mb-4">
-        <Skeleton className="h-5 w-24" />
-        <Skeleton className="h-8 w-8 rounded" />
-      </div>
-      <div className="space-y-4">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="space-y-2">
-            <div className="flex justify-between">
-              <Skeleton className="h-4 w-16" />
-              <Skeleton className="h-4 w-12" />
-            </div>
-            <Skeleton className="h-2 w-full rounded-full" />
-            <Skeleton className="h-3 w-32" />
+    <Card className="overflow-hidden p-0">
+      <div className="grid grid-cols-2 divide-x divide-y sm:divide-y-0 lg:grid-cols-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="space-y-3 px-5 py-4">
+            <Skeleton className="h-3 w-14" />
+            <Skeleton className="h-7 w-20" />
+            <Skeleton className="h-1 w-full rounded-full" />
+            <Skeleton className="h-3 w-28" />
           </div>
         ))}
-        <div className="pt-2 space-y-2">
-          <Skeleton className="h-4 w-20" />
-          <Skeleton className="h-4 w-40" />
-        </div>
-        <div className="space-y-2">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-32" />
-        </div>
+      </div>
+      <div className="flex items-center justify-between border-t px-5 py-2.5">
+        <Skeleton className="h-3 w-40" />
+        <Skeleton className="h-3 w-24" />
       </div>
     </Card>
   )
 }
 
-export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterval = 30000 }: ServerMetricsCardProps) {
+export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterval = 30000, selected, onSelect }: ServerMetricsCardProps) {
   const [metrics, setMetrics] = useState<ServerMetrics | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -76,19 +96,16 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null)
 
   const fetchMetrics = useCallback(async (showRefreshing = false) => {
-    if (showRefreshing) {
-      setRefreshing(true)
-    }
-
+    if (showRefreshing) setRefreshing(true)
     try {
       const response = await serversApi.getMetrics(serverId)
       setMetrics(response.data)
       setUpdatedAt(new Date())
       setError(null)
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { message?: string } } }
-      // Keep the last good sample on screen; the header marks it stale.
-      setError(error.response?.data?.message || 'Failed to load metrics')
+      const e = err as { response?: { data?: { message?: string } } }
+      // Keep the last good sample on screen; the footer marks it stale.
+      setError(e.response?.data?.message || 'Failed to load metrics')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -101,114 +118,91 @@ export function ServerMetricsCard({ serverId, autoRefresh = false, refreshInterv
 
   useEffect(() => {
     if (!autoRefresh) return
-
-    const interval = setInterval(() => {
-      fetchMetrics()
-    }, refreshInterval)
-
+    const interval = setInterval(() => fetchMetrics(), refreshInterval)
     return () => clearInterval(interval)
   }, [autoRefresh, refreshInterval, fetchMetrics])
 
-  const handleRefresh = () => {
-    fetchMetrics(true)
-  }
-
-  if (loading) {
-    return <MetricsSkeleton />
-  }
+  if (loading) return <VitalsSkeleton />
 
   if (error && !metrics) {
     return (
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold">Server metrics</h3>
-          <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} aria-label="Retry loading metrics">
-            <ArrowPathIcon className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-          </Button>
+      <Card className="flex items-center justify-between gap-4 px-5 py-4">
+        <div className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-400">
+          <ExclamationTriangleIcon className="h-4 w-4 shrink-0" />
+          <span>Metrics unavailable: {error}</span>
         </div>
-        <div className="flex items-center gap-2 text-sm text-yellow-600 dark:text-yellow-500">
-          <ExclamationTriangleIcon className="h-4 w-4" />
-          <span>{error}</span>
-        </div>
+        <Button variant="outline" size="sm" onClick={() => fetchMetrics(true)} disabled={refreshing}>
+          <ArrowPathIcon className={cn('h-4 w-4', refreshing && 'animate-spin')} />
+          Retry
+        </Button>
       </Card>
     )
   }
 
-  if (!metrics) {
-    return null
-  }
+  if (!metrics) return null
+
+  const cores = metrics.cpu.cores
+  const loadPercent = cores > 0 ? (metrics.load.avg_1 / cores) * 100 : 0
 
   return (
-    <Card className="p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold">Server metrics</h3>
+    <Card className="overflow-hidden p-0">
+      <div className={cn('grid grid-cols-2 divide-x divide-y transition-opacity duration-200 sm:divide-y-0 lg:grid-cols-4', error && 'opacity-70')}>
+        <Vital
+          metric="cpu"
+          label="CPU"
+          value={`${metrics.cpu.usage.toFixed(0)}%`}
+          percentage={metrics.cpu.usage}
+          detail={`${cores} ${cores === 1 ? 'core' : 'cores'}`}
+          selected={selected === 'cpu'}
+          onSelect={onSelect}
+        />
+        <Vital
+          metric="memory"
+          label="Memory"
+          value={`${metrics.memory.percentage.toFixed(0)}%`}
+          percentage={metrics.memory.percentage}
+          detail={`${formatBytes(metrics.memory.used)} of ${formatBytes(metrics.memory.total)}`}
+          selected={selected === 'memory'}
+          onSelect={onSelect}
+        />
+        <Vital
+          metric="disk"
+          label="Disk"
+          value={`${metrics.disk.percentage.toFixed(0)}%`}
+          percentage={metrics.disk.percentage}
+          detail={`${formatBytes(metrics.disk.used)} of ${formatBytes(metrics.disk.total)}`}
+          selected={selected === 'disk'}
+          onSelect={onSelect}
+        />
+        <Vital
+          metric="load"
+          label="Load"
+          value={metrics.load.avg_1.toFixed(2)}
+          percentage={loadPercent}
+          detail={`5m ${metrics.load.avg_5.toFixed(2)} · 15m ${metrics.load.avg_15.toFixed(2)}`}
+          selected={selected === 'load'}
+          onSelect={onSelect}
+        />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t px-5 py-2 text-xs text-muted-foreground">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 tabular-nums">
+          <span>Up {metrics.uptime.formatted}</span>
+          {metrics.swap.total > 0 && (
+            <span>Swap {metrics.swap.percentage.toFixed(0)}% ({formatBytes(metrics.swap.used)} of {formatBytes(metrics.swap.total)})</span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 tabular-nums">
           {error && updatedAt ? (
-            <p className="flex items-center gap-1 text-xs tabular-nums text-amber-700 dark:text-amber-400" role="status">
+            <span className="flex items-center gap-1 text-amber-700 dark:text-amber-400" role="status">
               <ExclamationTriangleIcon className="h-3.5 w-3.5" />
               Stale, last sample {format(updatedAt, 'HH:mm:ss')}
-            </p>
+            </span>
           ) : updatedAt ? (
-            <p className="text-xs tabular-nums text-muted-foreground">Updated {format(updatedAt, 'HH:mm:ss')}</p>
+            <span>Updated {format(updatedAt, 'HH:mm:ss')}</span>
           ) : null}
-        </div>
-        <Button variant="ghost" size="icon" onClick={handleRefresh} disabled={refreshing} aria-label="Refresh metrics">
-          <ArrowPathIcon className={cn('h-4 w-4', refreshing && 'animate-spin')} />
-        </Button>
-      </div>
-
-      <div className={cn('space-y-4 transition-opacity duration-200', error && 'opacity-70')}>
-        <ProgressBar
-          percentage={metrics.memory.percentage}
-          label="Memory"
-          detail={`${formatBytes(metrics.memory.used)} / ${formatBytes(metrics.memory.total)}`}
-        />
-
-        {metrics.swap.total > 0 && (
-          <ProgressBar
-            percentage={metrics.swap.percentage}
-            label="Swap"
-            detail={`${formatBytes(metrics.swap.used)} / ${formatBytes(metrics.swap.total)}`}
-          />
-        )}
-
-        <ProgressBar
-          percentage={metrics.cpu.usage}
-          label="CPU"
-          detail={`${metrics.cpu.usage.toFixed(1)}% of ${metrics.cpu.cores} ${metrics.cpu.cores === 1 ? 'core' : 'cores'}`}
-        />
-
-        <ProgressBar
-          percentage={metrics.disk.percentage}
-          label="Disk"
-          detail={`${formatBytes(metrics.disk.used)} / ${formatBytes(metrics.disk.total)}`}
-        />
-
-        <div className="pt-2 border-t">
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Uptime</span>
-            <span className="font-medium tabular-nums">{metrics.uptime.formatted}</span>
-          </div>
-        </div>
-
-        <div>
-          <div className="text-sm text-muted-foreground mb-1">
-            Load Average <span className="text-xs">({metrics.cpu.cores} {metrics.cpu.cores === 1 ? 'core' : 'cores'})</span>
-          </div>
-          <div className="flex gap-4 text-sm tabular-nums">
-            <div>
-              <span className="text-muted-foreground">1m:</span>{' '}
-              <span className="font-medium">{metrics.load.avg_1.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">5m:</span>{' '}
-              <span className="font-medium">{metrics.load.avg_5.toFixed(2)}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">15m:</span>{' '}
-              <span className="font-medium">{metrics.load.avg_15.toFixed(2)}</span>
-            </div>
-          </div>
+          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => fetchMetrics(true)} disabled={refreshing} aria-label="Refresh metrics">
+            <ArrowPathIcon className={cn('h-3.5 w-3.5', refreshing && 'animate-spin')} />
+          </Button>
         </div>
       </div>
     </Card>

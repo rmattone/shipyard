@@ -13,10 +13,22 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ArrowPathIcon, ExclamationTriangleIcon } from '@heroicons/react/24/outline'
 import { cn, formatBytes } from '@/lib/utils'
+import type { MetricKey } from './ServerMetricsCard'
 
 interface ServerMetricsHistoryCardProps {
   serverId: number
+  /** Controlled selection; falls back to internal state when omitted. */
+  metric?: MetricKey
+  onMetricChange?: (metric: MetricKey) => void
 }
+
+const METRIC_LABELS: Record<MetricKey, string> = {
+  memory: 'Memory',
+  cpu: 'CPU',
+  disk: 'Disk',
+  load: 'Load',
+}
+const METRIC_ORDER: MetricKey[] = ['cpu', 'memory', 'disk', 'load']
 
 const RANGE_LABELS: Record<MetricsHistoryRange, string> = {
   '7d': '7 days',
@@ -80,7 +92,7 @@ interface MetricLineChartProps {
   title: string
 }
 
-const CHART_HEIGHT = 140
+const CHART_HEIGHT = 200
 const PAD = { top: 10, right: 12, bottom: 22, left: 40 }
 
 function MetricLineChart({
@@ -371,8 +383,8 @@ function MetricPanel({
   children: React.ReactNode
 }) {
   return (
-    <section className="py-5 first:pt-0 last:pb-0">
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
+    <section key={title} className="animate-in fade-in-0 duration-200">
+      <div className="mb-4 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
         <div>
           <h4 className="font-medium">{title}</h4>
           <p className="text-xs text-muted-foreground">{description}</p>
@@ -386,16 +398,12 @@ function MetricPanel({
 
 function HistorySkeleton() {
   return (
-    <div className="divide-y">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="space-y-3 py-5 first:pt-0 last:pb-0">
-          <div className="flex justify-between">
-            <Skeleton className="h-5 w-24" />
-            <Skeleton className="h-4 w-48" />
-          </div>
-          <Skeleton className="h-[140px] w-full" />
-        </div>
-      ))}
+    <div className="space-y-4">
+      <div className="flex justify-between">
+        <Skeleton className="h-5 w-24" />
+        <Skeleton className="h-4 w-48" />
+      </div>
+      <Skeleton className="h-[200px] w-full" />
     </div>
   )
 }
@@ -412,8 +420,14 @@ function toChartPoints(
   }))
 }
 
-export function ServerMetricsHistoryCard({ serverId }: ServerMetricsHistoryCardProps) {
+export function ServerMetricsHistoryCard({ serverId, metric: controlledMetric, onMetricChange }: ServerMetricsHistoryCardProps) {
   const [range, setRange] = useState<MetricsHistoryRange>('7d')
+  const [internalMetric, setInternalMetric] = useState<MetricKey>('cpu')
+  const metric = controlledMetric ?? internalMetric
+  const selectMetric = (next: MetricKey) => {
+    setInternalMetric(next)
+    onMetricChange?.(next)
+  }
   const [history, setHistory] = useState<ServerMetricsHistory | null>(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -444,22 +458,29 @@ export function ServerMetricsHistoryCard({ serverId }: ServerMetricsHistoryCardP
   )
 
   const header = (
-    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h3 className="font-semibold">Resource History</h3>
-        <p className="text-xs text-muted-foreground">
-          {history && history.samples > 0
-            ? `${history.samples} samples over the last ${RANGE_LABELS[range]}, one point per ${
-                history.bucket_minutes >= 60 ? `${history.bucket_minutes / 60} h` : `${history.bucket_minutes} min`
-              }. Lines show the peak in each interval.`
-            : 'Peaks and trends from samples collected every 5 minutes.'}
-        </p>
+    <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h3 className="font-semibold">Resource history</h3>
+        <Tabs value={metric} onValueChange={(value) => selectMetric(value as MetricKey)}>
+          <TabsList aria-label="Metric" className="h-8">
+            {METRIC_ORDER.map((key) => (
+              <TabsTrigger key={key} value={key} className="h-6 px-2.5 text-xs">{METRIC_LABELS[key]}</TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
       </div>
       <div className="flex items-center gap-2">
+        <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
+          {history && history.samples > 0
+            ? `${history.samples} samples, one point per ${
+                history.bucket_minutes >= 60 ? `${history.bucket_minutes / 60} h` : `${history.bucket_minutes} min`
+              }`
+            : 'Sampled every 5 minutes'}
+        </span>
         <Tabs value={range} onValueChange={(value) => setRange(value as MetricsHistoryRange)}>
-          <TabsList>
-            <TabsTrigger value="7d">7 days</TabsTrigger>
-            <TabsTrigger value="30d">30 days</TabsTrigger>
+          <TabsList aria-label="Range" className="h-8">
+            <TabsTrigger value="7d" className="h-6 px-2.5 text-xs">{RANGE_LABELS['7d']}</TabsTrigger>
+            <TabsTrigger value="30d" className="h-6 px-2.5 text-xs">{RANGE_LABELS['30d']}</TabsTrigger>
           </TabsList>
         </Tabs>
         <Button variant="ghost" size="icon" onClick={fetchHistory} disabled={refreshing} aria-label="Refresh history">
@@ -548,79 +569,88 @@ export function ServerMetricsHistoryCard({ serverId }: ServerMetricsHistoryCardP
   const percentTicks = [0, 25, 50, 75, 100]
   const saturation = { value: SATURATION_PERCENT, label: `${SATURATION_PERCENT}%` }
 
+  const panels: Record<MetricKey, React.ReactNode> = {
+    memory: (
+      <MetricPanel
+        title="Memory"
+        description="Peak per interval, with the average as the lighter line. Sustained p95 above 80% means there is no room for another application."
+        items={percentSummaryItems(summary.memory)}
+      >
+        <MetricLineChart
+          title="Memory usage history"
+          points={toChartPoints(series, 'memory', 'memory_avg')}
+          yMax={100}
+          yTicks={percentTicks}
+          formatValue={formatPercent}
+          formatTick={formatTick}
+          primaryLabel="Peak"
+          secondaryLabel="Avg"
+          reference={saturation}
+        />
+      </MetricPanel>
+    ),
+    cpu: (
+      <MetricPanel
+        title="CPU"
+        description={`Utilisation across ${cores ?? '?'} ${cores === 1 ? 'core' : 'cores'}. Short spikes are normal; a high p95 is not.`}
+        items={percentSummaryItems(summary.cpu)}
+      >
+        <MetricLineChart
+          title="CPU usage history"
+          points={toChartPoints(series, 'cpu', 'cpu_avg')}
+          yMax={100}
+          yTicks={percentTicks}
+          formatValue={formatPercent}
+          formatTick={formatTick}
+          primaryLabel="Peak"
+          secondaryLabel="Avg"
+          reference={saturation}
+        />
+      </MetricPanel>
+    ),
+    disk: (
+      <MetricPanel
+        title="Disk"
+        description="Root filesystem. Growth is extrapolated from the first and last sample in the range."
+        items={diskItems}
+      >
+        <MetricLineChart
+          title="Disk usage history"
+          points={toChartPoints(series, 'disk')}
+          yMax={100}
+          yTicks={percentTicks}
+          formatValue={formatPercent}
+          formatTick={formatTick}
+          primaryLabel="Used"
+          reference={saturation}
+        />
+      </MetricPanel>
+    ),
+    load: (
+      <MetricPanel
+        title="Load average (1 min)"
+        description="Runnable processes. Staying above the core count means the CPU is the bottleneck."
+        items={loadItems}
+      >
+        <MetricLineChart
+          title="Load average history"
+          points={toChartPoints(series, 'load_1')}
+          yMax={loadYMax}
+          yTicks={loadTicks}
+          formatValue={formatLoad}
+          formatTick={formatTick}
+          primaryLabel="Peak"
+          reference={cores ? { value: cores, label: `${cores} ${cores === 1 ? 'core' : 'cores'}` } : undefined}
+        />
+      </MetricPanel>
+    ),
+  }
+
   return (
     <Card className="p-6">
       {header}
-      <div className={cn('divide-y transition-opacity', refreshing && 'opacity-60')}>
-        <MetricPanel
-          title="Memory"
-          description="Sustained p95 above 80% means there is no room for another application."
-          items={percentSummaryItems(summary.memory)}
-        >
-          <MetricLineChart
-            title="Memory usage history"
-            points={toChartPoints(series, 'memory', 'memory_avg')}
-            yMax={100}
-            yTicks={percentTicks}
-            formatValue={formatPercent}
-            formatTick={formatTick}
-            primaryLabel="Peak"
-            secondaryLabel="Avg"
-            reference={saturation}
-          />
-        </MetricPanel>
-
-        <MetricPanel
-          title="CPU"
-          description={`Utilisation across ${cores ?? '?'} ${cores === 1 ? 'core' : 'cores'}. Short spikes are normal; a high p95 is not.`}
-          items={percentSummaryItems(summary.cpu)}
-        >
-          <MetricLineChart
-            title="CPU usage history"
-            points={toChartPoints(series, 'cpu', 'cpu_avg')}
-            yMax={100}
-            yTicks={percentTicks}
-            formatValue={formatPercent}
-            formatTick={formatTick}
-            primaryLabel="Peak"
-            secondaryLabel="Avg"
-            reference={saturation}
-          />
-        </MetricPanel>
-
-        <MetricPanel
-          title="Disk"
-          description="Root filesystem. Growth is extrapolated from the first and last sample in the range."
-          items={diskItems}
-        >
-          <MetricLineChart
-            title="Disk usage history"
-            points={toChartPoints(series, 'disk')}
-            yMax={100}
-            yTicks={percentTicks}
-            formatValue={formatPercent}
-            formatTick={formatTick}
-            primaryLabel="Used"
-            reference={saturation}
-          />
-        </MetricPanel>
-
-        <MetricPanel
-          title="Load average (1 min)"
-          description="Runnable processes. Staying above the core count means the CPU is the bottleneck."
-          items={loadItems}
-        >
-          <MetricLineChart
-            title="Load average history"
-            points={toChartPoints(series, 'load_1')}
-            yMax={loadYMax}
-            yTicks={loadTicks}
-            formatValue={formatLoad}
-            formatTick={formatTick}
-            primaryLabel="Peak"
-            reference={cores ? { value: cores, label: `${cores} ${cores === 1 ? 'core' : 'cores'}` } : undefined}
-          />
-        </MetricPanel>
+      <div className={cn('transition-opacity duration-200', refreshing && 'opacity-60')}>
+        {panels[metric]}
       </div>
     </Card>
   )

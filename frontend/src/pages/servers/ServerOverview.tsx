@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { StatusBadge, LoadingSpinner, ServerMetricsCard, ServerMetricsHistoryCard } from '@/components/custom'
+import type { MetricKey } from '@/components/custom/ServerMetricsCard'
 import { TagBadge } from '@/components/custom/TagBadge'
 import {
   PlusIcon,
@@ -24,7 +25,7 @@ import {
   XCircleIcon,
   SignalIcon,
 } from '@heroicons/react/24/outline'
-import { formatDistanceToNow } from 'date-fns'
+import { formatDistanceToNow, format } from 'date-fns'
 import { getAvatarColor } from '@/lib/utils'
 
 interface AppWithLastDeploy extends Application {
@@ -42,6 +43,8 @@ export default function ServerOverview() {
   const [selectedTagIds, setSelectedTagIds] = useState<number[]>([])
   const [importing, setImporting] = useState(false)
   const [connection, setConnection] = useState<{ ok: boolean; message: string; at: Date } | null>(null)
+  // Shared between the vitals strip and the history chart: tap a vital, see its trend.
+  const [metric, setMetric] = useState<MetricKey>('cpu')
 
   const loadData = async () => {
     if (!id) return
@@ -169,13 +172,9 @@ export default function ServerOverview() {
     return (
       <div className="space-y-6" role="status" aria-label="Loading server">
         <Skeleton className="h-[104px] w-full rounded-xl" />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <Skeleton className="h-72 w-full rounded-xl lg:col-span-2" />
-          <div className="space-y-6">
-            <Skeleton className="h-64 w-full rounded-xl" />
-            <Skeleton className="h-48 w-full rounded-xl" />
-          </div>
-        </div>
+        <Skeleton className="h-[148px] w-full rounded-xl" />
+        <Skeleton className="h-56 w-full rounded-xl" />
+        <Skeleton className="h-72 w-full rounded-xl" />
       </div>
     )
   }
@@ -198,20 +197,28 @@ export default function ServerOverview() {
   const activeApps = filteredApplications.filter(a => a.status === 'active').length
   const failedApps = filteredApplications.filter(a => a.status === 'failed').length
 
+  const addressLine = server.is_local
+    ? 'Local execution'
+    : `${server.username}@${server.host}:${server.port}`
+
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Identity: who this server is, whether we can reach it, what to do next */}
       <div className="resource-header">
-        <div className="flex items-center gap-4">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-muted text-foreground">
+        <div className="flex min-w-0 items-center gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground">
             <ServerIcon className="h-6 w-6" />
           </div>
-          <div>
-            <div className="flex items-center gap-3">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
               <h1 className="break-all text-2xl font-semibold tracking-tight">{server.name}</h1>
               <StatusBadge status={server.status} label={server.status === 'active' ? 'Connected' : 'Inactive'} />
             </div>
-            <p className="font-mono text-sm text-muted-foreground">{server.host}:{server.port}</p>
+            <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+              <span className="font-mono">{addressLine}</span>
+              <span aria-hidden>·</span>
+              <span>Added {format(new Date(server.created_at), 'MMM d, yyyy')}</span>
+            </p>
             {connection && (
               <p
                 role="status"
@@ -242,219 +249,157 @@ export default function ServerOverview() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem asChild>
-                <Link to={`/servers/${id}/settings`}>Settings</Link>
+              <DropdownMenuItem onClick={handleImportApps} disabled={importing}>
+                {importing ? 'Importing…' : 'Import existing applications'}
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to={`/servers/${id}/terminal`}>Open terminal</Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem asChild>
+                <Link to={`/servers/${id}/settings`}>Settings</Link>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
 
-      {/* Main content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left column - Apps list */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Tag Filter Bar */}
-          {serverTags.length > 0 && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-sm text-muted-foreground mr-1">Filter by tag:</span>
-              {serverTags.map((tag) => (
-                <TagBadge
-                  key={tag.id}
-                  tag={tag}
-                  onClick={() => toggleTagFilter(tag.id)}
-                  selected={selectedTagIds.includes(tag.id)}
-                />
-              ))}
-              {selectedTagIds.length > 0 && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearTagFilters}
-                  className="h-6 px-2 text-xs"
-                >
-                  <XMarkIcon className="h-3 w-3 mr-1" />
-                  Clear
-                </Button>
-              )}
-            </div>
-          )}
+      {/* Vitals: the four numbers that answer "is this box healthy right now" */}
+      <ServerMetricsCard serverId={parseInt(id!)} autoRefresh={true} selected={metric} onSelect={setMetric} />
 
-          {/* Recent sites */}
-          <Card>
-            <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="font-semibold">
-                Applications
-                {selectedTagIds.length > 0 && (
-                  <span className="ml-2 text-sm font-normal text-muted-foreground">
-                    ({filteredApplications.length} of {applications.length})
-                  </span>
-                )}
-              </h2>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="sm" onClick={handleImportApps} disabled={importing}>
-                  {importing ? <LoadingSpinner size="sm" /> : <ArrowDownTrayIcon className="h-4 w-4 mr-1" />}
-                  Import existing
-                </Button>
-                <Button variant="ghost" size="icon" onClick={() => navigate(`/servers/${id}/apps/new`)}>
-                  <PlusIcon className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-            {filteredApplications.length === 0 ? (
-              <div className="p-8 text-center">
-                <CubeIcon className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                {selectedTagIds.length > 0 ? (
-                  <>
-                    <p className="text-muted-foreground mb-4">No applications match the selected tags</p>
-                    <Button variant="outline" onClick={clearTagFilters}>
-                      Clear filters
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-muted-foreground mb-4">No applications on this server yet</p>
-                    <Button onClick={() => navigate(`/servers/${id}/apps/new`)}>
-                      <PlusIcon className="h-4 w-4 mr-2" />
-                      Add your first application
-                    </Button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="divide-y">
-                {filteredApplications.map((app) => {
-                  const color = getAvatarColor(app.name)
-                  return (
-                    <div
-                      key={app.id}
-                      className="row-link group flex items-center gap-4 p-4"
-                    >
-                      <div className={`h-10 w-10 shrink-0 rounded-xl ${color.bg} ${color.text} flex items-center justify-center font-medium`}>
-                        {app.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Link to={`/apps/${app.id}`} className="row-cover truncate font-medium">{app.domain || app.name}</Link>
-                          {app.tags && app.tags.length > 0 && (
-                            <div className="flex gap-1">
-                              {app.tags.map((tag) => (
-                                <TagBadge key={tag.id} tag={tag} className="text-xs py-0" />
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        <div className="text-sm text-muted-foreground truncate">
-                          {app.repository_url ? `${getRepoName(app.repository_url)}:${app.branch} · ` : ''}{getTypeLabel(app.type)}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
-                          {app.last_deployment
-                            ? `Deployed ${formatDistanceToNow(new Date(app.last_deployment.created_at), { addSuffix: false })} ago`
-                            : 'Never deployed'}
-                        </span>
-                        {app.last_deployment?.status === 'failed' && (
-                          <StatusBadge status="failed" label="Deploy failed" />
-                        )}
-                      </div>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="row-action" aria-label={`Actions for ${app.name}`}>
-                            <EllipsisHorizontalIcon className="h-5 w-5" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem asChild>
-                            <Link to={`/apps/${app.id}`}>View</Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link to={`/apps/${app.id}/deployments`}>Deployments</Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link to={`/apps/${app.id}/settings`}>Settings</Link>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  )
-                })}
-              </div>
+      {/* Applications: what this server is for */}
+      <Card className="overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b p-4">
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="font-semibold">Applications</h2>
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {selectedTagIds.length > 0 ? `${filteredApplications.length} of ${applications.length}` : applications.length}
+              {' '}{applications.length === 1 ? 'application' : 'applications'}
+              {activeApps > 0 && <> · <span className="text-emerald-700 dark:text-emerald-400">{activeApps} active</span></>}
+              {failedApps > 0 && <> · <span className="text-red-700 dark:text-red-400">{failedApps} failed</span></>}
+            </p>
+          </div>
+          <div className="flex items-center gap-1">
+            <Button variant="ghost" size="sm" onClick={handleImportApps} disabled={importing}>
+              {importing ? <LoadingSpinner size="sm" /> : <ArrowDownTrayIcon className="h-4 w-4" />}
+              Import existing
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate(`/servers/${id}/apps/new`)}>
+              <PlusIcon className="h-4 w-4" />
+              New
+            </Button>
+          </div>
+        </div>
+
+        {serverTags.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 border-b bg-muted/30 px-4 py-2.5">
+            <span className="mr-1 text-xs text-muted-foreground">Filter by tag</span>
+            {serverTags.map((tag) => (
+              <TagBadge
+                key={tag.id}
+                tag={tag}
+                onClick={() => toggleTagFilter(tag.id)}
+                selected={selectedTagIds.includes(tag.id)}
+              />
+            ))}
+            {selectedTagIds.length > 0 && (
+              <Button variant="ghost" size="sm" onClick={clearTagFilters} className="h-6 px-2 text-xs">
+                <XMarkIcon className="h-3 w-3" />
+                Clear
+              </Button>
             )}
-          </Card>
-        </div>
+          </div>
+        )}
 
-        {/* Right column - Details */}
-        <div className="space-y-6">
-          <ServerMetricsCard serverId={parseInt(id!)} autoRefresh={true} />
-
-          <Card className="p-6">
-            <h3 className="font-semibold mb-4">Details</h3>
-            <dl className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">ID</dt>
-                <dd className="font-medium">{server.id}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Host</dt>
-                <dd className="font-medium font-mono text-sm">{server.host}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Port</dt>
-                <dd className="font-medium">{server.port}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Username</dt>
-                <dd className="font-medium">{server.username}</dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Status</dt>
-                <dd><StatusBadge status={server.status} /></dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Created</dt>
-                <dd className="font-medium">
-                  {new Date(server.created_at).toLocaleDateString('en-US', {
-                    month: 'short',
-                    day: '2-digit',
-                    year: 'numeric',
-                  })}
-                </dd>
-              </div>
-            </dl>
-          </Card>
-
-          <Card className="p-6">
-            <h3 className="font-semibold mb-4">Applications</h3>
-            <dl className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Total</dt>
-                <dd className="font-medium">
-                  {selectedTagIds.length > 0
-                    ? `${filteredApplications.length} / ${applications.length}`
-                    : applications.length}
-                </dd>
-              </div>
-              <div className="flex justify-between">
-                <dt className="text-muted-foreground">Active</dt>
-                <dd className="font-medium tabular-nums text-emerald-700 dark:text-emerald-400">{activeApps}</dd>
-              </div>
-              {failedApps > 0 && (
-                <div className="flex justify-between">
-                  <dt className="text-muted-foreground">Failed</dt>
-                  <dd className="font-medium tabular-nums text-red-700 dark:text-red-400">{failedApps}</dd>
+        {filteredApplications.length === 0 ? (
+          <div className="p-10 text-center">
+            <CubeIcon className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+            {selectedTagIds.length > 0 ? (
+              <>
+                <p className="font-medium">No applications match the selected tags</p>
+                <Button variant="outline" className="mt-4" onClick={clearTagFilters}>
+                  Clear filters
+                </Button>
+              </>
+            ) : (
+              <>
+                <p className="font-medium">Nothing deployed here yet</p>
+                <p className="mt-1 text-sm text-muted-foreground">Create an application, or import ones that already live on this server.</p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <Button onClick={() => navigate(`/servers/${id}/apps/new`)}>
+                    <PlusIcon className="h-4 w-4" />
+                    New application
+                  </Button>
+                  <Button variant="outline" onClick={handleImportApps} disabled={importing}>
+                    {importing ? <LoadingSpinner size="sm" /> : <ArrowDownTrayIcon className="h-4 w-4" />}
+                    Import existing
+                  </Button>
                 </div>
-              )}
-            </dl>
-          </Card>
+              </>
+            )}
+          </div>
+        ) : (
+          <div className="divide-y">
+            {filteredApplications.map((app) => {
+              const color = getAvatarColor(app.name)
+              return (
+                <div key={app.id} className="row-link group flex items-center gap-4 p-4">
+                  <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl font-medium ${color.bg} ${color.text}`}>
+                    {app.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link to={`/apps/${app.id}`} className="row-cover truncate font-medium">{app.domain || app.name}</Link>
+                      {app.tags && app.tags.length > 0 && (
+                        <div className="flex gap-1">
+                          {app.tags.map((tag) => (
+                            <TagBadge key={tag.id} tag={tag} className="py-0 text-xs" />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                      {app.repository_url ? <><span className="font-mono">{getRepoName(app.repository_url)}:{app.branch}</span> · </> : ''}{getTypeLabel(app.type)}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="hidden text-xs tabular-nums text-muted-foreground md:inline">
+                      {app.last_deployment
+                        ? `Deployed ${formatDistanceToNow(new Date(app.last_deployment.created_at), { addSuffix: false })} ago`
+                        : 'Never deployed'}
+                    </span>
+                    {app.last_deployment?.status === 'failed' ? (
+                      <StatusBadge status="failed" label="Deploy failed" />
+                    ) : app.status !== 'active' ? (
+                      <StatusBadge status={app.status} />
+                    ) : null}
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon" className="row-action" aria-label={`Actions for ${app.name}`}>
+                        <EllipsisHorizontalIcon className="h-5 w-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      <DropdownMenuItem asChild>
+                        <Link to={`/apps/${app.id}`}>Overview</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link to={`/apps/${app.id}/deployments`}>Deployments</Link>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem asChild>
+                        <Link to={`/apps/${app.id}/settings`}>Settings</Link>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Card>
 
-        </div>
-      </div>
-
-      <ServerMetricsHistoryCard serverId={parseInt(id!)} />
+      {/* Trend for the selected vital */}
+      <ServerMetricsHistoryCard serverId={parseInt(id!)} metric={metric} onMetricChange={setMetric} />
     </div>
   )
 }
