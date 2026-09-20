@@ -33,6 +33,7 @@ class ServerMetric extends Model
         'server_id',
         'collected_at',
         'cpu_percent',
+        'cpu_steal_percent',
         'cpu_cores',
         'memory_total',
         'memory_used',
@@ -52,6 +53,7 @@ class ServerMetric extends Model
         return [
             'collected_at' => 'datetime',
             'cpu_percent' => 'float',
+            'cpu_steal_percent' => 'float',
             'cpu_cores' => 'integer',
             'memory_total' => 'integer',
             'memory_used' => 'integer',
@@ -82,6 +84,7 @@ class ServerMetric extends Model
             'server_id' => $server->id,
             'collected_at' => $metrics['collected_at'] ?? now(),
             'cpu_percent' => $metrics['cpu']['usage'] ?? 0,
+            'cpu_steal_percent' => $metrics['cpu']['steal'] ?? 0,
             'cpu_cores' => $metrics['cpu']['cores'] ?? 1,
             'memory_total' => $metrics['memory']['total'] ?? 0,
             'memory_used' => $metrics['memory']['used'] ?? 0,

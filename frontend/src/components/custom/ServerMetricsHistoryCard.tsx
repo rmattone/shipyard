@@ -550,6 +550,36 @@ export function ServerMetricsHistoryCard({ serverId, metric: controlledMetric, o
     }
   }
 
+  // Steal is CPU the hypervisor gave to another guest. It is not this server's
+  // work, so it is excluded from the usage line and surfaced on its own. Only
+  // worth showing once it is big enough to explain a gap between the chart and
+  // what the applications are actually doing.
+  const stealP95 = summary.cpu_steal?.p95 ?? null
+  const stealIsNotable = stealP95 !== null && stealP95 >= 1
+
+  const cpuItems: SummaryItem[] = [
+    ...percentSummaryItems(summary.cpu),
+    ...(stealIsNotable
+      ? [
+          {
+            label: 'Steal p95',
+            value: formatSummaryValue(stealP95, formatPercent),
+            emphasis: stealP95 >= 10 ? ('danger' as const) : stealP95 >= 5 ? ('warning' as const) : undefined,
+          },
+        ]
+      : []),
+  ]
+
+  const cpuDescription = [
+    `Utilisation across ${cores ?? '?'} ${cores === 1 ? 'core' : 'cores'}, excluding steal.`,
+    'Short spikes are normal; a high p95 is not.',
+    stealIsNotable
+      ? 'Steal is time the host gave to another guest, so it is the provider overselling the machine, not your load.'
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
   const loadYMax = Math.max(1, cores ? cores * 2 : 0, (summary.load_1.peak ?? 0) * 1.15)
   const loadTicks = [0, loadYMax / 2, loadYMax]
   const loadItems: SummaryItem[] = [
@@ -592,8 +622,8 @@ export function ServerMetricsHistoryCard({ serverId, metric: controlledMetric, o
     cpu: (
       <MetricPanel
         title="CPU"
-        description={`Utilisation across ${cores ?? '?'} ${cores === 1 ? 'core' : 'cores'}. Short spikes are normal; a high p95 is not.`}
-        items={percentSummaryItems(summary.cpu)}
+        description={cpuDescription}
+        items={cpuItems}
       >
         <MetricLineChart
           title="CPU usage history"
