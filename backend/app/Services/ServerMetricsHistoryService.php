@@ -28,6 +28,7 @@ class ServerMetricsHistoryService
 
     private const SUMMARY_METRICS = [
         'cpu' => ['column' => 'cpu_percent', 'precision' => 1],
+        'cpu_steal' => ['column' => 'cpu_steal_percent', 'precision' => 1],
         'memory' => ['column' => 'memory_percent', 'precision' => 1],
         'disk' => ['column' => 'disk_percent', 'precision' => 1],
         'load_1' => ['column' => 'load_1', 'precision' => 2],
@@ -46,7 +47,7 @@ class ServerMetricsHistoryService
             ->where('server_id', $server->id)
             ->where('collected_at', '>=', $since)
             ->orderBy('collected_at')
-            ->get(['collected_at', 'cpu_percent', 'cpu_cores', 'memory_percent', 'disk_percent', 'disk_total', 'disk_used', 'load_1']);
+            ->get(['collected_at', 'cpu_percent', 'cpu_steal_percent', 'cpu_cores', 'memory_percent', 'disk_percent', 'disk_total', 'disk_used', 'load_1']);
 
         return [
             'range' => $range,
@@ -68,6 +69,8 @@ class ServerMetricsHistoryService
             ->selectRaw('FLOOR(UNIX_TIMESTAMP(collected_at) / ?) * ? AS bucket', [$bucketSeconds, $bucketSeconds])
             ->selectRaw('MAX(cpu_percent) AS cpu')
             ->selectRaw('AVG(cpu_percent) AS cpu_avg')
+            ->selectRaw('MAX(cpu_steal_percent) AS cpu_steal')
+            ->selectRaw('AVG(cpu_steal_percent) AS cpu_steal_avg')
             ->selectRaw('MAX(memory_percent) AS memory')
             ->selectRaw('AVG(memory_percent) AS memory_avg')
             ->selectRaw('MAX(disk_percent) AS disk')
@@ -81,6 +84,8 @@ class ServerMetricsHistoryService
             't' => Carbon::createFromTimestampUTC((int) $row->bucket)->toIso8601String(),
             'cpu' => round((float) $row->cpu, 1),
             'cpu_avg' => round((float) $row->cpu_avg, 1),
+            'cpu_steal' => round((float) $row->cpu_steal, 1),
+            'cpu_steal_avg' => round((float) $row->cpu_steal_avg, 1),
             'memory' => round((float) $row->memory, 1),
             'memory_avg' => round((float) $row->memory_avg, 1),
             'disk' => round((float) $row->disk, 1),

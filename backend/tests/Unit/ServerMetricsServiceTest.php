@@ -28,6 +28,36 @@ class ServerMetricsServiceTest extends TestCase
         $this->assertSame(4, $parsed['cores']);
     }
 
+    public function test_steal_is_reported_separately_and_excluded_from_usage(): void
+    {
+        // 100 ticks pass. 40 idle, 10 iowait, 30 stolen by the hypervisor and
+        // 20 spent on this server's own work. Usage is the 20, not the 50.
+        $output = implode("\n", [
+            'cpu  1000 0 500 8000 200 0 50 300 0 0',
+            'cpu  1010 0 510 8040 210 0 50 330 0 0',
+            '1',
+        ]);
+
+        $parsed = $this->service()->parseCpuSamples($output);
+
+        $this->assertSame(20.0, $parsed['usage']);
+        $this->assertSame(30.0, $parsed['steal']);
+    }
+
+    public function test_usage_is_unchanged_when_there_is_no_steal(): void
+    {
+        $output = implode("\n", [
+            'cpu  1000 0 500 8000 200 0 50 0 0 0',
+            'cpu  1040 0 510 8040 210 0 50 0 0 0',
+            '4',
+        ]);
+
+        $parsed = $this->service()->parseCpuSamples($output);
+
+        $this->assertSame(50.0, $parsed['usage']);
+        $this->assertSame(0.0, $parsed['steal']);
+    }
+
     public function test_cpu_usage_is_zero_when_counters_did_not_move(): void
     {
         $output = "cpu  100 0 50 800 20 0 5 0 0 0\ncpu  100 0 50 800 20 0 5 0 0 0\n2\n";
