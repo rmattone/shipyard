@@ -435,6 +435,8 @@ export interface ServerMetricsHistoryPoint {
   t: string
   cpu: number
   cpu_avg: number
+  cpu_steal: number
+  cpu_steal_avg: number
   memory: number
   memory_avg: number
   disk: number
@@ -452,6 +454,7 @@ export interface ServerMetricsHistory {
   series: ServerMetricsHistoryPoint[]
   summary: {
     cpu: MetricsSummary
+    cpu_steal: MetricsSummary
     memory: MetricsSummary
     disk: MetricsSummary
     load_1: MetricsSummary
