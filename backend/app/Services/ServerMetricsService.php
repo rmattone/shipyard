@@ -92,9 +92,11 @@ class ServerMetricsService
     private function getCpuMetrics(): array
     {
         // /proc/stat counters are cumulative since boot, so a single read only
-        // yields the lifetime average. Two samples one second apart give the
-        // current utilisation. nproc rides along to avoid another round trip.
-        $result = $this->sshService->execute('head -1 /proc/stat; sleep 1; head -1 /proc/stat; nproc', 30);
+        // yields the lifetime average. Two samples spread over a few seconds
+        // give the current utilisation. A one second window was short enough
+        // that any process starting inside it read as a full core, so the
+        // window is three seconds. nproc rides along to save a round trip.
+        $result = $this->sshService->execute('head -1 /proc/stat; sleep 3; head -1 /proc/stat; nproc', 30);
 
         $parsed = $result['success'] ? $this->parseCpuSamples($result['output']) : null;
 
@@ -108,8 +110,11 @@ class ServerMetricsService
 
         $cores = $this->sshService->execute('nproc');
 
+        // The top(1) fallback cannot separate steal, so it reports none rather
+        // than guessing.
         return [
             'usage' => round($usage, 1),
+            'steal' => 0.0,
             'cores' => max(1, (int) trim($cores['output'] ?? '1')),
         ];
     }
@@ -120,8 +125,12 @@ class ServerMetricsService
      * caller can fall back to another probe.
      *
      * Field order after the "cpu" label: user nice system idle iowait irq
-     * softirq steal guest guest_nice. Idle time is idle + iowait; everything
-     * else counts as busy, so steal shows up as usage on oversold VMs.
+     * softirq steal guest guest_nice. Idle time is idle + iowait.
+     *
+     * Steal is time the hypervisor gave to someone else. It is not idle, but
+     * it is not this server's work either, so counting it as usage blames the
+     * customer for the provider overselling the host. It is reported as its
+     * own figure and excluded from 'usage'.
      */
     public function parseCpuSamples(string $output): ?array
     {
@@ -138,11 +147,14 @@ class ServerMetricsService
 
         $totalDelta = $second['total'] - $first['total'];
         $idleDelta = $second['idle'] - $first['idle'];
+        $stealDelta = $second['steal'] - $first['steal'];
 
         if ($totalDelta <= 0) {
             $usage = 0.0;
+            $steal = 0.0;
         } else {
-            $usage = (($totalDelta - $idleDelta) / $totalDelta) * 100;
+            $usage = (($totalDelta - $idleDelta - $stealDelta) / $totalDelta) * 100;
+            $steal = ($stealDelta / $totalDelta) * 100;
         }
 
         $cores = 1;
@@ -153,12 +165,13 @@ class ServerMetricsService
 
         return [
             'usage' => round(max(0.0, min(100.0, $usage)), 1),
+            'steal' => round(max(0.0, min(100.0, $steal)), 1),
             'cores' => $cores,
         ];
     }
 
     /**
-     * @return array{total: int, idle: int}
+     * @return array{total: int, idle: int, steal: int}
      */
     private function cpuLineTotals(string $line): array
     {
@@ -171,6 +184,7 @@ class ServerMetricsService
         return [
             'total' => array_sum($values),
             'idle' => $idle,
+            'steal' => $values[7] ?? 0,
         ];
     }
 
