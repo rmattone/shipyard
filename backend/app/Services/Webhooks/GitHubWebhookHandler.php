@@ -32,7 +32,7 @@ class GitHubWebhookHandler implements WebhookHandler
             throw new RuntimeException('Unsupported GitHub webhook event; only push events trigger deployments.');
         }
 
-        $payload = $request->all();
+        $payload = $this->payload($request);
 
         $branch = str_replace('refs/heads/', '', $payload['ref'] ?? '');
         $headCommit = $payload['head_commit'] ?? null;
@@ -44,5 +44,21 @@ class GitHubWebhookHandler implements WebhookHandler
             'author' => $headCommit['author']['name'] ?? null,
             'repository' => $payload['repository']['clone_url'] ?? null,
         ];
+    }
+
+    /**
+     * GitHub webhooks can be configured with either content type:
+     * application/json sends the payload as the raw body, while
+     * application/x-www-form-urlencoded wraps it in a "payload" form field.
+     */
+    private function payload(Request $request): array
+    {
+        $formPayload = $request->input('payload');
+
+        if (is_string($formPayload)) {
+            return json_decode($formPayload, true) ?? [];
+        }
+
+        return $request->all();
     }
 }
