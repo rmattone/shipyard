@@ -51,6 +51,7 @@ class AdminSeederTest extends TestCase
 
         $admin = User::where('email', 'admin@example.com')->first();
         $this->assertNotNull($admin);
+        $this->assertTrue($admin->is_installation_admin);
         $this->assertTrue(Hash::check('a-strong-password', $admin->password));
     }
 
@@ -78,5 +79,13 @@ class AdminSeederTest extends TestCase
         $admin = User::where('email', 'admin@example.com')->first();
 
         $this->assertSame(1, $admin->organizations()->count());
+    }
+
+    public function test_seeder_does_not_promote_an_existing_account_with_the_admin_email(): void
+    {
+        $this->setAdminEnv('a-strong-password');
+        $user = User::factory()->create(['email' => 'admin@example.com']);
+        $this->seed(DatabaseSeeder::class);
+        $this->assertFalse($user->fresh()->is_installation_admin);
     }
 }

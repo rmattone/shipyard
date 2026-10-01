@@ -222,6 +222,7 @@ export interface OrganizationInvitation {
 }
 
 export interface User {
+  is_installation_admin?: boolean
   id: number
   name: string
   email: string

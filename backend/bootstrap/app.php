@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\AuthorizeOrganizationWrites;
+use App\Http\Middleware\EnsureInstallationAdmin;
 use App\Http\Middleware\EnsureOrganizationRole;
 use App\Http\Middleware\SetOrganizationContext;
 use Illuminate\Auth\Middleware\EnsureEmailIsVerified;
@@ -34,6 +35,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'verified' => EnsureEmailIsVerified::class,
+            'installation.admin' => EnsureInstallationAdmin::class,
             'org.context' => SetOrganizationContext::class,
             'org.role' => EnsureOrganizationRole::class,
             'org.writes' => AuthorizeOrganizationWrites::class,

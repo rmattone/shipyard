@@ -8,7 +8,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Host-level operations on the ShipYard installation itself. Owner-only via
+ * Host-level operations on the ShipYard installation itself. Installation-admin-only via
  * the route group. Version detection and the update run live in
  * SystemUpdateService and RunSystemUpdate.
  */

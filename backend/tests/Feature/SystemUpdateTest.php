@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Jobs\RunSystemUpdate;
 use App\Models\Organization;
+use App\Models\User;
 use App\Services\SystemUpdateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -45,6 +46,14 @@ class SystemUpdateTest extends TestCase
         parent::tearDown();
     }
 
+    private function createInstallationAdmin(): User
+    {
+        $user = $this->createOrgUser(Organization::ROLE_MEMBER);
+        $user->forceFill(['is_installation_admin' => true])->save();
+
+        return $user;
+    }
+
     private function fakeGit(string $commit = 'aaaaaaa1', string $branch = 'main'): void
     {
         Process::fake([
@@ -63,7 +72,7 @@ class SystemUpdateTest extends TestCase
             'raw.githubusercontent.com/acme/shipyard-fork/main/VERSION' => Http::response("1.3.0\n"),
         ]);
 
-        $this->actingAs($this->createOrgUser())
+        $this->actingAs($this->createInstallationAdmin())
             ->getJson('/api/system/version')
             ->assertOk()
             ->assertJsonPath('current_version', '1.2.0')
@@ -87,7 +96,7 @@ class SystemUpdateTest extends TestCase
             'raw.githubusercontent.com/*' => Http::response("9.9.9\n"),
         ]);
 
-        $this->actingAs($this->createOrgUser())
+        $this->actingAs($this->createInstallationAdmin())
             ->getJson('/api/system/version')
             ->assertOk()
             ->assertJsonPath('update_available', false)
@@ -102,7 +111,7 @@ class SystemUpdateTest extends TestCase
             'raw.githubusercontent.com/*' => Http::response("1.3.0\n"),
         ]);
 
-        $this->actingAs($this->createOrgUser())
+        $this->actingAs($this->createInstallationAdmin())
             ->getJson('/api/system/version')
             ->assertOk()
             ->assertJsonPath('current_commit', null)
@@ -115,7 +124,7 @@ class SystemUpdateTest extends TestCase
     {
         $this->fakeGit();
         Http::fake(['*' => Http::response(['sha' => 'x'])]);
-        $user = $this->createOrgUser();
+        $user = $this->createInstallationAdmin();
 
         $this->actingAs($user)->getJson('/api/system/version')->assertOk();
         $this->actingAs($user)->getJson('/api/system/version')->assertOk();
@@ -125,7 +134,7 @@ class SystemUpdateTest extends TestCase
         Http::assertSentCount(4);
     }
 
-    public function test_non_owners_cannot_reach_system_routes(): void
+    public function test_non_installation_admins_cannot_reach_system_routes(): void
     {
         $member = $this->createOrgUser(Organization::ROLE_MEMBER);
 
@@ -136,7 +145,7 @@ class SystemUpdateTest extends TestCase
     public function test_update_queues_the_job_and_reports_running(): void
     {
         Bus::fake();
-        $user = $this->createOrgUser();
+        $user = $this->createInstallationAdmin();
 
         $this->actingAs($user)->postJson('/api/system/update')
             ->assertStatus(202)
@@ -155,7 +164,7 @@ class SystemUpdateTest extends TestCase
     public function test_second_update_is_rejected_while_one_runs(): void
     {
         Bus::fake();
-        $user = $this->createOrgUser();
+        $user = $this->createInstallationAdmin();
 
         $this->actingAs($user)->postJson('/api/system/update')->assertStatus(202);
         $this->actingAs($user)->postJson('/api/system/update')->assertStatus(409);
@@ -168,7 +177,7 @@ class SystemUpdateTest extends TestCase
         Bus::fake();
         unlink($this->installDir.'/update.sh');
 
-        $this->actingAs($this->createOrgUser())->postJson('/api/system/update')
+        $this->actingAs($this->createInstallationAdmin())->postJson('/api/system/update')
             ->assertNotFound()
             ->assertJsonPath('success', false);
 
@@ -180,7 +189,7 @@ class SystemUpdateTest extends TestCase
         $updates = app(SystemUpdateService::class);
         $updates->setState(['status' => 'running', 'started_at' => now()->subHours(2)->toIso8601String()]);
 
-        $this->actingAs($this->createOrgUser())->getJson('/api/system/update-status')
+        $this->actingAs($this->createInstallationAdmin())->getJson('/api/system/update-status')
             ->assertOk()
             ->assertJsonPath('status', 'failed')
             ->assertJsonPath('running', false);
