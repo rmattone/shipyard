@@ -12,6 +12,8 @@ This report preserves the original audit evidence against commit `7703051657f1b6
 
 Regression coverage: `backend/tests/Unit/SshHostKeySecurityTest.php`, `backend/tests/Unit/GitHostKeySecurityTest.php`, `backend/tests/Feature/SshHostKeyApiTest.php`, and updated `SSHServiceConnectionTest.php`. The Git wrapper tests execute generated Bash scripts against a recording fake SSH transport and verify key pinning, strict checking, cleanup, and propagation of simulated host-key rejection. There was no live MITM or remote-host test.
 
+**Finding 4 compatibility follow-up — version 1.0.3:** An ED25519 host-key pin also restricted phpseclib's RSA user-authentication algorithm list, causing fallback to the legacy `ssh-rsa` (SHA-1) signature rejected by modern server policy. The fix retains RSA SHA-2 algorithms in the preference list while continuing to compare the exact saved host public key before authentication. A regression test captures the real library-generated authentication packet without network access and verifies SHA-2 selection. Targeted host-key, connection, and Git wrapper tests passed (19 tests, 97 assertions); this follow-up has not been deployed.
+
 ## Prioritized findings
 
 ### 1. Critical — tenant users can schedule commands in the shared ShipYard runtime
