@@ -8,6 +8,7 @@ use App\Services\TerminalService;
 use App\Support\Ssh\HostKey;
 use App\Support\Ssh\InteractiveSSH2;
 use Mockery;
+use phpseclib3\Common\Functions\Strings;
 use phpseclib3\Crypt\EC;
 use phpseclib3\Crypt\RSA;
 use phpseclib3\Net\SFTP;
@@ -90,6 +91,43 @@ class SshHostKeySecurityTest extends TestCase
         $client->shouldReceive('getServerPublicHostKey')->andReturn(str_replace('ssh-rsa ', 'rsa-sha2-512 ', $key));
         HostKey::verify($client, $key);
         $this->addToAssertionCount(1);
+    }
+
+    public function test_ed25519_host_pinning_keeps_rsa_sha2_user_authentication(): void
+    {
+        $client = new class('unused.test') extends SSH2
+        {
+            public string $packet = '';
+
+            public function getServerPublicHostKey()
+            {
+                return HostKeyFixture::key();
+            }
+
+            protected function send_binary_packet($data, $logged = null)
+            {
+                $this->packet = $data;
+                throw new RuntimeException('Authentication packet captured without network access.');
+            }
+        };
+        HostKey::verify($client, HostKeyFixture::key());
+        // Simulate the server's advertised signature support, then execute
+        // phpseclib's real RSA authentication algorithm selection.
+        (new \ReflectionProperty(SSH2::class, 'supported_private_key_algorithms'))
+            ->setValue($client, ['ssh-ed25519', 'rsa-sha2-512', 'rsa-sha2-256']);
+        try {
+            (new \ReflectionMethod(SSH2::class, 'privatekey_login'))
+                ->invoke($client, 'shipyard', RSA::createKey(2048));
+            $this->fail('Expected the outgoing packet to be intercepted.');
+        } catch (RuntimeException $e) {
+            $this->assertSame('Authentication packet captured without network access.', $e->getMessage());
+        }
+        $packet = $client->packet;
+        [$message, $username, $service, $method, $signed, $algorithm] =
+            Strings::unpackSSH2('CsssCs', $packet);
+        $this->assertSame('shipyard', $username);
+        $this->assertSame('publickey', $method);
+        $this->assertContains($algorithm, ['rsa-sha2-256', 'rsa-sha2-512']);
     }
 
     private function connect(object $service, string $transport, Server $server): void

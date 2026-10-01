@@ -30,8 +30,12 @@ final class HostKey
         try {
             $expected = self::normalize($trusted);
             $type = explode(' ', $expected)[0];
+            // phpseclib also uses this preference list for RSA user authentication.
+            // Keep RSA SHA-2 available even when the pinned host key is EC.
+            // The exact public-key comparison below remains the trust boundary.
+            $rsa = ['rsa-sha2-512', 'rsa-sha2-256'];
             $client->setPreferredAlgorithms([
-                'hostkey' => $type === 'ssh-rsa' ? ['rsa-sha2-512', 'rsa-sha2-256'] : [$type],
+                'hostkey' => $type === 'ssh-rsa' ? $rsa : [$type, ...$rsa],
             ]);
             $actual = $client->getServerPublicHostKey();
             // phpseclib labels RSA keys with the negotiated signature algorithm.
