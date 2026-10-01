@@ -1,3 +1,4 @@
+import { SshHostKeyInput } from '@/components/custom/SshHostKeyInput'
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { gitProvidersApi, sshKeysApi } from '../../services/api'
@@ -103,6 +104,7 @@ export default function GitProviderNew() {
     host: '',
     access_token: '',
     private_key: '',
+    ssh_host_key: '',
     username: '',
     is_default: false,
   })
@@ -147,6 +149,7 @@ export default function GitProviderNew() {
         host: formData.host || undefined,
         access_token: authMethod === 'token' ? formData.access_token : undefined,
         private_key: authMethod === 'ssh' ? formData.private_key : undefined,
+        ssh_host_key: authMethod === 'ssh' ? formData.ssh_host_key : undefined,
         username: formData.type === 'bitbucket' ? formData.username : undefined,
         is_default: false,
       })
@@ -180,6 +183,7 @@ export default function GitProviderNew() {
         host: formData.host || undefined,
         access_token: authMethod === 'token' ? formData.access_token : undefined,
         private_key: authMethod === 'ssh' ? formData.private_key : undefined,
+        ssh_host_key: authMethod === 'ssh' ? formData.ssh_host_key : undefined,
         username: formData.type === 'bitbucket' ? formData.username : undefined,
         is_default: formData.is_default,
       })
@@ -363,7 +367,9 @@ export default function GitProviderNew() {
                   </p>
                 </div>
 
-                {publicKey && (
+                <SshHostKeyInput value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
+
+            {publicKey && (
                   <Alert className="bg-green-50 border-green-200">
                     <AlertDescription>
                       <div className="flex items-center justify-between mb-2">

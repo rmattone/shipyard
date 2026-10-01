@@ -28,6 +28,7 @@ class Server extends Model
         'username',
         'deploy_user',
         'private_key',
+        'ssh_host_key',
         'status',
         'is_local',
         'php_version',

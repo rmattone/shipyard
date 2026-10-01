@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Server;
 use App\Models\TerminalSession;
+use App\Support\Ssh\HostKey;
 use App\Support\Ssh\InteractiveSSH2;
 use phpseclib3\Crypt\PublicKeyLoader;
 use RuntimeException;
@@ -39,8 +40,11 @@ class TerminalService
             throw new RuntimeException('The web terminal is not available for the local server.');
         }
 
-        $ssh = new InteractiveSSH2($server->host, $server->port);
+        HostKey::normalize($server->ssh_host_key);
+        $ssh = $this->makeClient($server);
         $ssh->setTimeout(20); // login phase
+
+        HostKey::verify($ssh, $server->ssh_host_key);
 
         if (! $ssh->login($server->username, PublicKeyLoader::load($server->private_key))) {
             throw new RuntimeException("SSH authentication failed for {$server->host}");
@@ -53,6 +57,11 @@ class TerminalService
         $ssh->setTimeout(self::READ_TIMEOUT);
 
         return $ssh;
+    }
+
+    protected function makeClient(Server $server): InteractiveSSH2
+    {
+        return new InteractiveSSH2($server->host, $server->port);
     }
 
     public function inputKey(int $sessionId): string

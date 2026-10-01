@@ -5,6 +5,7 @@ namespace Tests\Unit;
 use App\Models\Server;
 use App\Services\SSHService;
 use phpseclib3\Net\SFTP;
+use Tests\Support\HostKeyFixture;
 use Tests\TestCase;
 
 class FakeSftp extends SFTP
@@ -22,6 +23,11 @@ class FakeSftp extends SFTP
     public function __construct()
     {
         parent::__construct('unused.invalid', 22);
+    }
+
+    public function getServerPublicHostKey()
+    {
+        return HostKeyFixture::key();
     }
 
     public function login($username, ...$args)
@@ -86,6 +92,7 @@ class SSHServiceUploadTest extends TestCase
             'port' => 22,
             'username' => 'root',
             'is_local' => false,
+            'ssh_host_key' => HostKeyFixture::key(),
         ]);
 
         return $server;

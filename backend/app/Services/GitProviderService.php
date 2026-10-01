@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\GitProvider;
+use App\Support\Ssh\GitHostKey;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -50,6 +51,7 @@ class GitProviderService
     private function testSSHConnection(GitProvider $provider): array
     {
         $host = $provider->getEffectiveHost();
+        $knownHosts = GitHostKey::knownHosts($provider);
         $privateKey = $provider->getNormalizedPrivateKey();
 
         // Validate key format
@@ -60,11 +62,16 @@ class GitProviderService
         file_put_contents($keyFile, $privateKey);
         chmod($keyFile, 0600);
 
+        $knownHostsFile = tempnam(sys_get_temp_dir(), 'ssh_hosts_');
+        file_put_contents($knownHostsFile, $knownHosts);
+        chmod($knownHostsFile, 0600);
+
         try {
             // Build SSH command to test connection
             $command = sprintf(
-                'ssh -i %s -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -o BatchMode=yes -T git@%s 2>&1',
+                'ssh '.GitHostKey::OPTIONS.' -i %s -o UserKnownHostsFile=%s -T git@%s 2>&1',
                 escapeshellarg($keyFile),
+                escapeshellarg($knownHostsFile),
                 escapeshellarg($host)
             );
 
@@ -120,6 +127,7 @@ class GitProviderService
         } finally {
             // Clean up temp key file
             @unlink($keyFile);
+            @unlink($knownHostsFile);
         }
     }
 
@@ -157,8 +165,13 @@ class GitProviderService
         $branch = escapeshellarg($branch);
         $targetPath = escapeshellarg($targetPath);
 
+        $hostTrust = GitHostKey::setupScript($provider);
+        $sshOptions = GitHostKey::OPTIONS;
+
         return <<<BASH
 #!/bin/bash
+
+{$hostTrust}
 
 # Create temporary SSH key file
 _SSH_KEY_FILE=\$(mktemp)
@@ -171,7 +184,7 @@ chmod 600 "\$_SSH_KEY_FILE"
 _SSH_WRAPPER=\$(mktemp)
 cat > "\$_SSH_WRAPPER" << WRAPPER_EOF
 #!/bin/bash
-exec ssh -i "\$_SSH_KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes "\\\$@"
+exec ssh -i "\$_SSH_KEY_FILE" {$sshOptions} -o UserKnownHostsFile="\$_SSH_KNOWN_HOSTS" "\\\$@"
 WRAPPER_EOF
 chmod +x "\$_SSH_WRAPPER"
 
@@ -261,9 +274,14 @@ BASH;
         $branch = escapeshellarg($branch);
         $targetPath = escapeshellarg($targetPath);
 
+        $hostTrust = GitHostKey::setupScript($provider);
+        $sshOptions = GitHostKey::OPTIONS;
+
         return <<<BASH
 #!/bin/bash
 cd {$targetPath}
+
+{$hostTrust}
 
 # Create temporary SSH key file
 _SSH_KEY_FILE=\$(mktemp)
@@ -276,7 +294,7 @@ chmod 600 "\$_SSH_KEY_FILE"
 _SSH_WRAPPER=\$(mktemp)
 cat > "\$_SSH_WRAPPER" << WRAPPER_EOF
 #!/bin/bash
-exec ssh -i "\$_SSH_KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes "\\\$@"
+exec ssh -i "\$_SSH_KEY_FILE" {$sshOptions} -o UserKnownHostsFile="\$_SSH_KNOWN_HOSTS" "\\\$@"
 WRAPPER_EOF
 chmod +x "\$_SSH_WRAPPER"
 
@@ -349,7 +367,12 @@ BASH;
         $host = escapeshellarg('git@'.$provider->getEffectiveHost());
         $privateKey = $provider->private_key;
 
+        $hostTrust = GitHostKey::setupScript($provider);
+        $sshOptions = GitHostKey::OPTIONS;
+
         return <<<BASH
+{$hostTrust}
+
 # Create temporary SSH key file
 _SSH_KEY_FILE=\$(mktemp)
 cat > "\$_SSH_KEY_FILE" << 'SSH_KEY_EOF'
@@ -358,7 +381,7 @@ SSH_KEY_EOF
 chmod 600 "\$_SSH_KEY_FILE"
 
 # Test SSH connection (most git hosts return exit code 1 on success but with a welcome message)
-ssh -i "\$_SSH_KEY_FILE" -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -T {$host} 2>&1
+ssh -i "\$_SSH_KEY_FILE" {$sshOptions} -o UserKnownHostsFile="\$_SSH_KNOWN_HOSTS" -T {$host} 2>&1
 _SSH_STATUS=\$?
 
 # Cleanup

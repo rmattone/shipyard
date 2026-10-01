@@ -1,6 +1,16 @@
 # ShipYard security audit — 2026-10-01
 
-Reviewed commit: `7703051657f1b6727034287f040e64fbd10d33bf`. This completes the validation requested in SECURITY_AUDIT_HANDOFF.md. No application code, dependency locks, deployments, commits, or pushes were changed. Severity reflects the supplied multi-organization Docker deployment.
+Original reviewed commit: `7703051657f1b6727034287f040e64fbd10d33bf`. The original audit validation and evidence below refer to that repository state. At the time, no application code, dependency locks, deployments, commits, or pushes were changed. Severity reflects the supplied multi-organization Docker deployment. Subsequent remediation status is recorded immediately below.
+
+## Current remediation status — 2026-10-01
+
+This report preserves the original audit evidence against commit `7703051657f1b6727034287f040e64fbd10d33bf`. Findings 1–3 have since been fixed in code as described below. Finding 4 is now fixed in the working tree and covered by new regression tests; it has not been deployed. Findings 5–7 remain open. No managed-server connection, host-key enrollment, or production deployment was performed. The implementation and follow-up work are summarized here so the historical original-review references are not mistaken for current state.
+
+**Finding 4 remediation:** Server records and Git provider records now store an SSH public host key. SSH, SFTP, and terminal connections compare the negotiated server key with the explicitly supplied saved key before login. Missing or changed keys fail closed; a changed server address, port, user, credential, or trust key invalidates SSHService session reuse. No trust-on-first-use or network key scan is performed. The server and Git provider forms provide a field with instructions to obtain the key from a trusted console or official provider source. SSH Git tests, clone/pull operations, and application deployment scripts now use a temporary `known_hosts` file built only from the saved provider key with strict checking; that temporary file is removed after the operation. The SSH Git test path also uses this trust record. Token-only HTTPS providers do not require SSH host trust.
+
+**Existing-installation rollout:** apply the new migration, then add a verified host public key to each existing server and SSH-key Git provider in its settings before using SSH, SFTP, terminal, or SSH Git operations. Verify replacements through a separate trusted channel. An empty field intentionally blocks SSH operations. No automatic trust bootstrap is provided because accepting a key received over the same network connection would preserve the interception risk this finding describes.
+
+Regression coverage: `backend/tests/Unit/SshHostKeySecurityTest.php`, `backend/tests/Unit/GitHostKeySecurityTest.php`, `backend/tests/Feature/SshHostKeyApiTest.php`, and updated `SSHServiceConnectionTest.php`. The Git wrapper tests execute generated Bash scripts against a recording fake SSH transport and verify key pinning, strict checking, cleanup, and propagation of simulated host-key rejection. There was no live MITM or remote-host test.
 
 ## Prioritized findings
 
@@ -56,7 +66,7 @@ Fresh installs grant the capability only to a newly created installer admin. Run
 
 Deployment: run `php artisan migrate --force`, clear/rebuild the route cache (`php artisan route:clear` or `php artisan route:cache`), deploy the rebuilt frontend, and restart long-lived application processes. For Compose, execute the Artisan commands with `docker compose exec app`. Grant the intended installation administrator after migration. Existing installations have no web updater access until this explicit grant. Already queued updates are not canceled by this HTTP authorization change. No deployment or production administrator assignment was performed here.
 
-Validation: 28 targeted backend tests passed (114 assertions) in PHP 8.2/Linux against disposable MySQL 8, with the old local route cache bypassed. Coverage includes the original create-organization escalation, every system endpoint, rejected profile/mass-assignment escalation, console grant/revoke, seeder behavior, and successful update dispatch by an installation administrator whose organization role is member. Frontend production build passed. The stale local route cache was subsequently cleared. Finding 4 is the next unresolved application finding.
+Validation: 28 targeted backend tests passed (114 assertions) in PHP 8.2/Linux against disposable MySQL 8, with the old local route cache bypassed. Coverage includes the original create-organization escalation, every system endpoint, rejected profile/mass-assignment escalation, console grant/revoke, seeder behavior, and successful update dispatch by an installation administrator whose organization role is member. Frontend production build passed. The stale local route cache was subsequently cleared. Finding 4 was subsequently fixed in the working tree; Findings 5–7 remain the unresolved application findings.
 
 ### 4. High — SSH/SFTP and Git connections do not retain or verify server identity
 
@@ -66,7 +76,7 @@ SSH and SFTP authenticate without checking a pinned server key. Git wrappers dis
 
 Evidence: code review, no live MITM experiment. This is separate from the phpseclib dependency advisory.
 
-Fix: store and verify fingerprints, provide an explicit first-connection trust flow, reject unexpected key changes, and retain known-hosts data for Git.
+The code remediation and required existing-installation enrollment steps are recorded in the current remediation status above.
 
 ### 5. Medium — empty gzip restore is rejected only after replacing the target database
 

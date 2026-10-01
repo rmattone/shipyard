@@ -72,6 +72,7 @@ api.interceptors.response.use(
 )
 
 export interface Server {
+  ssh_host_key?: string | null
   id: number
   name: string
   host: string
@@ -233,6 +234,7 @@ export interface User {
 }
 
 export interface GitProvider {
+  ssh_host_key?: string | null
   id: number
   name: string
   type: 'gitlab' | 'github' | 'bitbucket'
@@ -538,7 +540,7 @@ export const sshKeysApi = {
 export const serversApi = {
   list: () => api.get<Server[]>('/servers'),
   get: (id: number) => api.get<Server>('/servers/' + id),
-  create: (data: Partial<Server> & { private_key: string }) =>
+  create: (data: Partial<Server> & { private_key: string; ssh_host_key?: string }) =>
     api.post<Server>('/servers', data),
   update: (id: number, data: Partial<Server>) =>
     api.put<Server>('/servers/' + id, data),
@@ -552,7 +554,7 @@ export const serversApi = {
     api.post<{ success: boolean; message: string; system_info?: string }>(
       '/servers/' + id + '/test-connection'
     ),
-  testConnectionAdhoc: (data: { host: string; port?: number; username: string; private_key: string }) =>
+  testConnectionAdhoc: (data: { host: string; port?: number; username: string; private_key: string; ssh_host_key?: string }) =>
     api.post<{ success: boolean; message: string; system_info?: string }>(
       '/servers/test-connection',
       data
@@ -845,6 +847,7 @@ export const gitProvidersApi = {
     host?: string
     access_token?: string
     private_key?: string
+    ssh_host_key?: string | null
     username?: string
     is_default?: boolean
   }) => api.post<GitProvider>('/git-providers', data),
@@ -854,6 +857,7 @@ export const gitProvidersApi = {
     host?: string | null
     access_token?: string
     private_key?: string
+    ssh_host_key?: string | null
     username?: string | null
     is_default?: boolean
   }) => api.put<GitProvider>('/git-providers/' + id, data),

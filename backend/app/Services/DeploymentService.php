@@ -8,6 +8,7 @@ use App\Models\Deployment;
 use App\Services\Concerns\RestartsLinkedDaemons;
 use App\Services\Concerns\RunsRemoteScripts;
 use App\Support\EnvFile;
+use App\Support\Ssh\GitHostKey;
 use RuntimeException;
 
 class DeploymentService
@@ -338,9 +339,13 @@ class DeploymentService
     private function wrapScriptWithSSHKey(Application $app, string $script): string
     {
         $privateKey = $app->gitProvider->getNormalizedPrivateKey();
+        $hostTrust = GitHostKey::setupScript($app->gitProvider);
+        $sshOptions = GitHostKey::OPTIONS;
 
         return <<<BASH
 #!/bin/bash
+
+{$hostTrust}
 
 # Setup SSH key for authenticated git operations
 _SSH_KEY_FILE=\$(mktemp)
@@ -353,14 +358,14 @@ chmod 600 "\$_SSH_KEY_FILE"
 _SSH_WRAPPER=\$(mktemp)
 cat > "\$_SSH_WRAPPER" << WRAPPER_EOF
 #!/bin/bash
-exec ssh -i "\$_SSH_KEY_FILE" -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o BatchMode=yes "\\\$@"
+exec ssh -i "\$_SSH_KEY_FILE" {$sshOptions} -o UserKnownHostsFile="\$_SSH_KNOWN_HOSTS" "\\\$@"
 WRAPPER_EOF
 chmod +x "\$_SSH_WRAPPER"
 export GIT_SSH="\$_SSH_WRAPPER"
 
 # Cleanup function
 _cleanup_ssh() {
-    rm -f "\$_SSH_KEY_FILE" "\$_SSH_WRAPPER"
+    rm -f "\$_SSH_KEY_FILE" "\$_SSH_WRAPPER" "\$_SSH_KNOWN_HOSTS"
 }
 trap _cleanup_ssh EXIT
 
