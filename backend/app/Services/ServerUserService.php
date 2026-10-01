@@ -130,10 +130,7 @@ class ServerUserService
     {
         $validated = $this->assertValidUsername($username);
 
-        // Local execution runs shell commands directly as the process' own
-        // user (see SSHService::executeLocal); testConnection() never
-        // actually logs in as $username, so "verifying" a switch here would
-        // be vacuous and the persisted username would be a lie.
+        // Local servers are retained for historical records but cannot execute operations.
         if ($server->is_local) {
             throw new InvalidArgumentException('Connection-user switching is not supported for local servers.');
         }

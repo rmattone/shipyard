@@ -8,7 +8,6 @@ use phpseclib3\Exception\FileNotFoundException;
 use phpseclib3\Net\SFTP;
 use phpseclib3\Net\SSH2;
 use RuntimeException;
-use Symfony\Component\Process\Process;
 
 class SSHService
 {
@@ -18,16 +17,13 @@ class SSHService
 
     private ?Server $server = null;
 
-    private bool $isLocal = false;
-
     public function connect(Server $server): self
     {
-        $this->isLocal = $server->isLocal();
+        // This boundary also protects existing records and jobs without an HTTP user.
+        if ($server->isLocal()) {
+            $this->disconnect();
 
-        if ($this->isLocal) {
-            $this->server = $server;
-
-            return $this;
+            throw new RuntimeException('Local server execution is disabled. Configure an SSH server instead.');
         }
 
         // Reuse the live session for repeated connect() calls to the same
@@ -61,12 +57,11 @@ class SSHService
 
     public function connectSftp(Server $server): self
     {
-        $this->isLocal = $server->isLocal();
+        // This boundary also protects existing records and jobs without an HTTP user.
+        if ($server->isLocal()) {
+            $this->disconnect();
 
-        if ($this->isLocal) {
-            $this->server = $server;
-
-            return $this;
+            throw new RuntimeException('Local server execution is disabled. Configure an SSH server instead.');
         }
 
         if ($this->sftp !== null && $this->isSameServer($server) && $this->sftp->isConnected()) {
@@ -127,15 +122,10 @@ class SSHService
         }
 
         $this->server = null;
-        $this->isLocal = false;
     }
 
     public function execute(string $command, int $timeout = 300): array
     {
-        if ($this->isLocal) {
-            return $this->executeLocal($command, $timeout);
-        }
-
         if (! $this->ssh) {
             throw new RuntimeException('Not connected to any server');
         }
@@ -177,49 +167,6 @@ class SSHService
         ];
     }
 
-    private function executeLocal(string $command, int $timeout = 300): array
-    {
-        // Commands that require sudo on local server
-        if ($this->commandRequiresSudo($command)) {
-            $command = 'sudo '.$command;
-        }
-
-        $process = Process::fromShellCommandline($command);
-        $process->setTimeout($timeout);
-
-        $process->run();
-
-        return [
-            'output' => $process->getOutput().$process->getErrorOutput(),
-            'exit_code' => $process->getExitCode(),
-            'success' => $process->isSuccessful(),
-        ];
-    }
-
-    /**
-     * Check if a command requires sudo for local execution.
-     */
-    private function commandRequiresSudo(string $command): bool
-    {
-        $sudoCommands = [
-            'nginx ',
-            'nginx -t',
-            'systemctl ',
-            'certbot ',
-            'ln -sf /etc/nginx',
-            'rm -f /etc/nginx',
-            'rm -f /etc/letsencrypt',
-        ];
-
-        foreach ($sudoCommands as $sudoCommand) {
-            if (str_starts_with($command, $sudoCommand)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     /**
      * @throws FileNotFoundException if $localPath does not exist
      *                               or is not a regular file. Streaming from disk (SFTP::SOURCE_LOCAL_FILE)
@@ -230,15 +177,6 @@ class SSHService
      */
     public function upload(string $localPath, string $remotePath): bool
     {
-        if ($this->isLocal) {
-            $dir = dirname($remotePath);
-            if (! is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            return copy($localPath, $remotePath);
-        }
-
         if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -255,33 +193,6 @@ class SSHService
 
     public function uploadContent(string $content, string $remotePath): bool
     {
-        if ($this->isLocal) {
-            // Use sudo for system paths that require elevated permissions
-            if ($this->requiresSudo($remotePath)) {
-                // Write to temp file first, then sudo cp to destination
-                $tempFile = tempnam(sys_get_temp_dir(), 'srv_');
-                file_put_contents($tempFile, $content);
-
-                $process = Process::fromShellCommandline(
-                    sprintf('sudo cp %s %s && sudo chmod 644 %s',
-                        escapeshellarg($tempFile),
-                        escapeshellarg($remotePath),
-                        escapeshellarg($remotePath)
-                    )
-                );
-                $process->run();
-                unlink($tempFile);
-
-                return $process->isSuccessful();
-            }
-            $dir = dirname($remotePath);
-            if (! is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            return file_put_contents($remotePath, $content) !== false;
-        }
-
         if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -295,14 +206,6 @@ class SSHService
 
     public function download(string $remotePath): ?string
     {
-        if ($this->isLocal) {
-            if (! file_exists($remotePath)) {
-                return null;
-            }
-
-            return file_get_contents($remotePath);
-        }
-
         if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -316,10 +219,6 @@ class SSHService
 
     public function fileExists(string $remotePath): bool
     {
-        if ($this->isLocal) {
-            return file_exists($remotePath);
-        }
-
         if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
         }
@@ -338,11 +237,9 @@ class SSHService
             $result = $this->execute('echo "Connection successful" && uname -a');
             $this->disconnect();
 
-            $message = $server->isLocal() ? 'Local execution ready' : 'Connection successful';
-
             return [
                 'success' => true,
-                'message' => $message,
+                'message' => 'Connection successful',
                 'system_info' => trim($result['output']),
             ];
         } catch (\Exception $e) {
@@ -357,26 +254,5 @@ class SSHService
     public function __destruct()
     {
         $this->disconnect();
-    }
-
-    /**
-     * Check if a path requires sudo for local execution.
-     */
-    private function requiresSudo(string $path): bool
-    {
-        $sudoPaths = [
-            '/etc/nginx',
-            '/etc/letsencrypt',
-            '/etc/systemd',
-            '/var/log/nginx',
-        ];
-
-        foreach ($sudoPaths as $sudoPath) {
-            if (str_starts_with($path, $sudoPath)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }

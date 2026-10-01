@@ -321,6 +321,9 @@ class ApplicationController extends Controller
 
     public function deploy(Request $request, Application $application): JsonResponse
     {
+        abort_if($application->server->isLocal(), 422,
+            'Local server execution is disabled. Configure an SSH server instead.');
+
         $request->validate([
             'commit_hash' => 'nullable|string|max:40',
         ]);
