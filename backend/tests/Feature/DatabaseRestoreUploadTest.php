@@ -71,6 +71,24 @@ class DatabaseRestoreUploadTest extends TestCase
         Queue::assertPushed(ProcessDatabaseRestore::class);
     }
 
+    public function test_empty_and_truncated_gzip_uploads_never_queue_an_overwrite(): void
+    {
+        Queue::fake();
+        Storage::fake('local');
+        [$user, $database] = $this->setup_target();
+        foreach ([gzencode(''), substr(gzencode("-- SQL dump\nCREATE TABLE t (id int);"), 0, -8)] as $bytes) {
+            $this->actingAs($user)->postJson($this->url($database), [
+                'dump' => UploadedFile::fake()->createWithContent('dump.sql.gz', $bytes),
+                'target_database' => 'shop',
+                'overwrite' => '1',
+                'confirm_name' => 'shop',
+            ])->assertStatus(422);
+        }
+        $this->assertSame(0, BackupRun::count());
+        $this->assertSame([], Storage::disk('local')->allFiles());
+        Queue::assertNothingPushed();
+    }
+
     public function test_overwrite_requires_the_confirmation_name_to_match(): void
     {
         Queue::fake();

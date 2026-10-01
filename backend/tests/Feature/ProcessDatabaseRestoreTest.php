@@ -132,7 +132,7 @@ class ProcessDatabaseRestoreTest extends TestCase
         $this->createOrgUser();
 
         Storage::fake('local');
-        Storage::disk('local')->put('restores/dump.sql.gz', gzencode('SELECT 1;'));
+        Storage::disk('local')->put('restores/dump.sql.gz', gzencode("-- SQL dump\nSELECT 1;"));
 
         $database = Database::factory()->create([
             'type' => 'postgresql',

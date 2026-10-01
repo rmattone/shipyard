@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\BackupRun;
 use App\Models\Database;
 use App\Models\Server;
+use App\Support\DumpInspector;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -100,6 +101,13 @@ class BackupRestoreService
         $step = 'upload';
 
         try {
+            // Recheck stored uploads, including jobs queued before validation
+            // was tightened. No target database work may precede this check.
+            $format = (new DumpInspector)->detect(Storage::disk(BackupRun::UPLOAD_DISK)->path($run->upload_path));
+            if ($format !== $run->format) {
+                throw new RuntimeException('The stored dump format has changed. Upload it again.');
+            }
+
             $this->ssh->connect($server);
 
             $run->appendLog('Uploading the dump to the server...');
@@ -269,7 +277,8 @@ class BackupRestoreService
 
     private function pruneSafetyDumps(string $target): void
     {
-        $pattern = escapeshellarg(self::SAFETY_DUMP_DIR."/{$target}-*.sql.gz");
+        $directory = escapeshellarg(self::SAFETY_DUMP_DIR);
+        $pattern = escapeshellarg("{$target}-*.sql.gz");
 
         // Keep the newest N and delete the rest. Failure here is not fatal:
         // tidiness must never fail a successful restore, so a dead connection
@@ -280,8 +289,9 @@ class BackupRestoreService
             // No sudo: safetyDump() chowns the directory to the connecting user,
             // so that user owns every dump in it.
             $this->ssh->execute(
-                "ls -1t {$pattern} 2>/dev/null | tail -n +".(self::SAFETY_DUMPS_KEPT + 1)
-                .' | xargs -r rm -f'
+                "find {$directory} -maxdepth 1 -type f -name {$pattern} -printf '%T@ %p\\0'"
+                .' | sort -z -nr | tail -z -n +'.(self::SAFETY_DUMPS_KEPT + 1)
+                ." | cut -z -d ' ' -f 2- | xargs -0 -r rm -f --"
             );
         } catch (Throwable $e) {
             // Not fatal; see above.

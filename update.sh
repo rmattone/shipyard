@@ -10,7 +10,7 @@
 #
 # Both paths do the same seven steps. Inside a container the commands run
 # directly (same image, same mounts); on the host they go through
-# `docker compose exec`. Data and .env files are never touched.
+# `docker compose exec`. Data is preserved; unsafe queue reservations in backend/.env are raised.
 #
 # Container definition changes (docker-compose.yml, docker/) cannot be
 # applied from inside a container. The script says so at the end when the
@@ -145,6 +145,9 @@ fi
 STEP="composer install"
 echo -e "${YELLOW}[4/7]${NC} Installing PHP dependencies..."
 run_app env COMPOSER_ALLOW_SUPERUSER=1 composer install --no-interaction --no-dev --optimize-autoloader --no-progress 2>&1 | grep -v '^$' || true
+
+STEP="queue reservation configuration"
+run_app php scripts/ensure-queue-reservation.php
 
 STEP="migrations"
 echo -e "${YELLOW}[5/7]${NC} Running database migrations..."

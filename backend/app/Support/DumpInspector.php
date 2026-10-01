@@ -3,6 +3,8 @@
 namespace App\Support;
 
 use App\Exceptions\UnsupportedDumpException;
+use Symfony\Component\Process\Exception\ExceptionInterface;
+use Symfony\Component\Process\Process;
 
 /**
  * Resolves a dump's format from its leading bytes, including one layer of
@@ -66,12 +68,25 @@ class DumpInspector
     }
 
     /**
-     * Reads only the first bytes of the decompressed stream, never the whole
-     * file: this is what keeps classification cheap even on a multi-gigabyte
-     * dump.
+     * Validate the entire gzip stream (including its checksum and trailer)
+     * without buffering the decompressed dump in PHP memory, then classify
+     * its prefix. gzread alone can accept truncated streams.
      */
     private function detectGzipped(string $path): string
     {
+        try {
+            $check = new Process(['gzip', '-t', '--', $path]);
+            $check->setTimeout(120);
+            $check->run();
+            $valid = $check->isSuccessful();
+        } catch (ExceptionInterface $e) {
+            $valid = false;
+        }
+
+        if (! $valid) {
+            throw new UnsupportedDumpException('The gzip archive could not be validated. Re-create it and upload again.');
+        }
+
         $stream = @gzopen($path, 'rb');
 
         if ($stream === false) {
@@ -88,10 +103,7 @@ class DumpInspector
         }
 
         if ($inner === '') {
-            // Decompresses to nothing, so there is no content to classify.
-            // Whether that is a genuinely empty dump or a truncated stream is
-            // for the load step to discover, not this format check.
-            return self::FORMAT_SQL_GZ;
+            throw new UnsupportedDumpException('The uploaded dump is empty.');
         }
 
         $this->assertLooksLikeSql($inner);
