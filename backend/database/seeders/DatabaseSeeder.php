@@ -36,6 +36,7 @@ class DatabaseSeeder extends Seeder
                 'email' => $email,
                 'password' => Hash::make($password),
             ]);
+            $user->forceFill(['is_installation_admin' => true])->save();
         }
 
         // Every install needs at least one organization; the admin owns it.

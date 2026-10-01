@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { useAuth } from '@/hooks/useAuth'
 import { useSectionParam } from '@/hooks/useSectionParam'
 import { gitProvidersApi, systemApi, GitProvider, SystemVersion, UpdateStatus } from '../../services/api'
 import { toast } from 'sonner'
@@ -38,6 +39,8 @@ const SECTIONS: readonly SettingsSection[] = ['account', 'source-control', 'noti
 
 export default function Settings() {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isInstallationAdmin = user?.is_installation_admin === true
   const [providers, setProviders] = useState<GitProvider[]>([])
   const [loading, setLoading] = useState(true)
   const [deleteId, setDeleteId] = useState<number | null>(null)
@@ -59,7 +62,7 @@ export default function Settings() {
   // Load version info when switching to system section, and resume watching
   // an update that is already running (for example after a page reload).
   useEffect(() => {
-    if (activeSection === 'system') {
+    if (activeSection === 'system' && isInstallationAdmin) {
       checkVersion()
       systemApi.getUpdateStatus()
         .then((response) => {
@@ -75,7 +78,7 @@ export default function Settings() {
     }
     return () => stopPolling()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSection])
+  }, [activeSection, isInstallationAdmin])
 
   const loadProviders = async () => {
     try {
@@ -192,7 +195,7 @@ export default function Settings() {
     { id: 'members' as const, label: 'Members' },
     { id: 'general' as const, label: 'General' },
     { id: 'trash' as const, label: 'Trash' },
-    { id: 'system' as const, label: 'System' },
+    ...(isInstallationAdmin ? [{ id: 'system' as const, label: 'System' }] : []),
   ]
 
   if (loading) {
@@ -316,7 +319,10 @@ export default function Settings() {
 
         {activeSection === 'trash' && <ServerTrash />}
 
-        {activeSection === 'system' && (
+        {activeSection === 'system' && !isInstallationAdmin && (
+          <p>System settings require installation administrator access.</p>
+        )}
+        {activeSection === 'system' && isInstallationAdmin && (
           <div className="space-y-6">
             <Card>
               <CardHeader>

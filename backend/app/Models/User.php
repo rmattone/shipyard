@@ -13,12 +13,17 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
+    // is_installation_admin is managed only by the installer/host console.
     // current_organization_id is intentionally not fillable: it is only
     // ever set through the switch endpoint after a membership check.
     protected $fillable = [
         'name',
         'email',
         'password',
+    ];
+
+    protected $attributes = [
+        'is_installation_admin' => false,
     ];
 
     protected $hidden = [
@@ -30,6 +35,7 @@ class User extends Authenticatable
     {
         return [
             'email_verified_at' => 'datetime',
+            'is_installation_admin' => 'boolean',
             'password' => 'hashed',
         ];
     }

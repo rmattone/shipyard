@@ -22,7 +22,7 @@ Regression coverage: `backend/tests/Feature/LocalServerSecurityTest.php` reprodu
 
 Validation: 33 targeted backend tests passed (88 assertions) against disposable MySQL 8; frontend production build passed; lint on the two changed frontend files reported zero errors and two pre-existing hook-dependency warnings.
 
-Scope: this closes the direct local-execution path in finding 1. Dedicated maintenance workers and reduced Docker worker privileges remain defense-in-depth work; the independent global-updater authorization issue in finding 3 remains open.
+Scope: this closes the direct local-execution path in finding 1. Dedicated maintenance workers and reduced Docker worker privileges remain defense-in-depth work; the independent global-updater authorization issue is addressed separately in finding 3 below.
 
 ### 2. High — log filenames allow command execution by read-only members
 
@@ -38,7 +38,7 @@ Fix: quote every path argument, validate filenames against the intended filename
 
 Regression coverage: `backend/tests/Feature/LogSecurityTest.php` rejects the original member HTTP payload and additional shell/control-character filenames without invoking SSH, checks cross-organization denial, and exercises listing, stats, line counts, tailing, and option-prefixed searches against disposable local files through a mocked SSH transport. The fixture path contains spaces, quotes, and literal shell substitution to verify actual shell argument handling. These command fixtures use the Linux utilities expected by the application.
 
-Validation: 14 tests passed (61 assertions) in the cached PHP 8.2/Linux container against disposable MySQL 8. No managed server was contacted or deployment performed. The original audit reproduction remains historical evidence and intentionally expects the old vulnerable behavior. Finding 3 is the next unresolved application finding.
+Validation: 14 tests passed (61 assertions) in the cached PHP 8.2/Linux container against disposable MySQL 8. No managed server was contacted or deployment performed. The original audit reproduction remains historical evidence and intentionally expects the old vulnerable behavior. Finding 3 is addressed below.
 
 ### 3. High — creating an organization grants access to the global updater
 
@@ -49,6 +49,14 @@ Installation-wide system routes check only organization ownership, which any aut
 Evidence: HTTP reproduction confirms 403 before organization creation and 202 afterwards, with SystemUpdateService mocked. No update or maintenance mode was run.
 
 Fix: gate all global system operations on a separate installation administrator capability.
+
+**Remediation — 2026-10-01:** All four `/api/system/*` endpoints now require an authenticated user with the separate `is_installation_admin` capability. They sit outside organization middleware, so creating, owning, joining, or switching organizations cannot grant this capability or affect it. The flag defaults to false, is not mass assignable, and cannot be changed through profile or organization APIs. The System settings section is shown only to installation administrators.
+
+Fresh installs grant the capability only to a newly created installer admin. Running the seeder against an existing account does not promote it based on its email. Existing installations deliberately receive no automatic administrator assignment: a trusted host operator must identify the intended existing user ID and grant access using `php artisan shipyard:installation-admin USER_ID`. Use `--revoke` to remove access. This command is host-console-only; there is no tenant-accessible grant endpoint.
+
+Deployment: run `php artisan migrate --force`, clear/rebuild the route cache (`php artisan route:clear` or `php artisan route:cache`), deploy the rebuilt frontend, and restart long-lived application processes. For Compose, execute the Artisan commands with `docker compose exec app`. Grant the intended installation administrator after migration. Existing installations have no web updater access until this explicit grant. Already queued updates are not canceled by this HTTP authorization change. No deployment or production administrator assignment was performed here.
+
+Validation: 28 targeted backend tests passed (114 assertions) in PHP 8.2/Linux against disposable MySQL 8, with the old local route cache bypassed. Coverage includes the original create-organization escalation, every system endpoint, rejected profile/mass-assignment escalation, console grant/revoke, seeder behavior, and successful update dispatch by an installation administrator whose organization role is member. Frontend production build passed. The stale local route cache was subsequently cleared. Finding 4 is the next unresolved application finding.
 
 ### 4. High — SSH/SFTP and Git connections do not retain or verify server identity
 

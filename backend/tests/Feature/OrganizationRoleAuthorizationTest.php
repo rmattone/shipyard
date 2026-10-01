@@ -102,11 +102,11 @@ class OrganizationRoleAuthorizationTest extends TestCase
             ->assertForbidden();
     }
 
-    public function test_system_routes_are_owner_only(): void
+    public function test_organization_roles_do_not_grant_system_access(): void
     {
         $this->actingAs($this->member)->getJson('/api/system/version')->assertForbidden();
         $this->actingAs($this->admin)->getJson('/api/system/version')->assertForbidden();
-        $this->actingAs($this->owner)->getJson('/api/system/version')->assertOk();
+        $this->actingAs($this->owner)->getJson('/api/system/version')->assertForbidden();
     }
 
     public function test_members_can_still_switch_organizations_and_leave(): void

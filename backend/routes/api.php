@@ -258,12 +258,12 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     // Deployments
     Route::get('/deployments/{deployment}', [DeploymentController::class, 'show']);
 
-    // System (host-level operations on the ShipYard installation itself:
-    // owner-only, this reaches far beyond a single organization)
-    Route::middleware('org.role:owner')->group(function () {
-        Route::get('/system/version', [SystemController::class, 'version']);
-        Route::get('/system/environment', [SystemController::class, 'environment']);
-        Route::post('/system/update', [SystemController::class, 'update']);
-        Route::get('/system/update-status', [SystemController::class, 'updateStatus']);
-    });
+});
+
+// Installation-wide operations are independent of organization membership.
+Route::middleware(['auth:sanctum', 'installation.admin'])->group(function () {
+    Route::get('/system/version', [SystemController::class, 'version']);
+    Route::get('/system/environment', [SystemController::class, 'environment']);
+    Route::post('/system/update', [SystemController::class, 'update']);
+    Route::get('/system/update-status', [SystemController::class, 'updateStatus']);
 });
