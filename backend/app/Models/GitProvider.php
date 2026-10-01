@@ -23,6 +23,7 @@ class GitProvider extends Model
         'host',
         'access_token',
         'private_key',
+        'ssh_host_key',
         'username',
         'is_default',
     ];

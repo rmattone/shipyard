@@ -1,3 +1,4 @@
+import { SshHostKeyInput } from '@/components/custom/SshHostKeyInput'
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useSectionParam } from '@/hooks/useSectionParam'
@@ -57,6 +58,7 @@ export default function ServerSettings() {
     port: 22,
     username: '',
     private_key: '',
+    ssh_host_key: '',
   })
 
   // Tags state
@@ -84,6 +86,7 @@ export default function ServerSettings() {
         port: response.data.port,
         username: response.data.username,
         private_key: '',
+        ssh_host_key: response.data.ssh_host_key || '',
       })
     } catch {
       toast.error('Failed to load server')
@@ -350,6 +353,8 @@ export default function ServerSettings() {
                       className="w-full min-w-0"
                     />
                   </div>
+
+                  <SshHostKeyInput value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
 
                   {/* SSH Private Key */}
                   <div className="settings-row border-b">

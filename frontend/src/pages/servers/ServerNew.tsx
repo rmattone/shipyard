@@ -1,3 +1,4 @@
+import { SshHostKeyInput } from '@/components/custom/SshHostKeyInput'
 import { useState, FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { serversApi, sshKeysApi } from '../../services/api'
@@ -30,6 +31,7 @@ export default function ServerNew() {
     port: '22',
     username: 'root',
     private_key: '',
+    ssh_host_key: '',
     status: 'active' as 'active' | 'inactive',
   })
 
@@ -53,7 +55,7 @@ export default function ServerNew() {
     toast.success('Public key copied to clipboard')
   }
 
-  const canTest = formData.host !== '' && formData.username !== '' && formData.private_key !== ''
+  const canTest = formData.host !== '' && formData.username !== '' && formData.private_key !== '' && formData.ssh_host_key !== ''
 
   const handleTestConnection = async () => {
     setTesting(true)
@@ -63,6 +65,7 @@ export default function ServerNew() {
         port: parseInt(formData.port) || 22,
         username: formData.username,
         private_key: formData.private_key,
+        ssh_host_key: formData.ssh_host_key,
       })
       toast.success(response.data.message)
     } catch (error: unknown) {
@@ -170,6 +173,8 @@ export default function ServerNew() {
                 required
               />
             </div>
+
+            <SshHostKeyInput value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
 
             {publicKey && (
               <Alert className="bg-blue-50 border-blue-200">

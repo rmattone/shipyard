@@ -1,3 +1,4 @@
+import { SshHostKeyInput } from '@/components/custom/SshHostKeyInput'
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { gitProvidersApi, GitProvider, Application } from '../../services/api'
@@ -39,6 +40,7 @@ export default function GitProviderDetail() {
     host: '',
     access_token: '',
     private_key: '',
+    ssh_host_key: '',
     username: '',
     is_default: false,
   })
@@ -54,6 +56,7 @@ export default function GitProviderDetail() {
             host: res.data.host || '',
             access_token: '',
             private_key: '',
+            ssh_host_key: res.data.ssh_host_key || '',
             username: res.data.username || '',
             is_default: res.data.is_default,
           })
@@ -88,6 +91,7 @@ export default function GitProviderDetail() {
     try {
       const updateData: Record<string, unknown> = {
         name: formData.name,
+        ssh_host_key: formData.ssh_host_key || null,
         type: formData.type,
         host: formData.host || null,
         is_default: formData.is_default,
@@ -262,6 +266,7 @@ export default function GitProviderDetail() {
                     Leave empty to keep current key
                   </p>
                 </div>
+                <SshHostKeyInput value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
                 <div className="flex items-center gap-2">
                   <input
                     type="checkbox"

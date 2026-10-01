@@ -4,8 +4,10 @@ namespace Tests\Unit;
 
 use App\Models\Server;
 use App\Services\SSHService;
+use phpseclib3\Crypt\EC;
 use phpseclib3\Net\SSH2;
 use RuntimeException;
+use Tests\Support\HostKeyFixture;
 use Tests\TestCase;
 
 class FakeSsh2 extends SSH2
@@ -27,6 +29,11 @@ class FakeSsh2 extends SSH2
     public function __construct()
     {
         parent::__construct('unused.invalid', 22);
+    }
+
+    public function getServerPublicHostKey()
+    {
+        return HostKeyFixture::key();
     }
 
     public function login($username, ...$args)
@@ -101,6 +108,7 @@ class SSHServiceConnectionTest extends TestCase
             'port' => 22,
             'username' => 'root',
             'is_local' => false,
+            'ssh_host_key' => HostKeyFixture::key(),
         ]);
 
         return $server;
@@ -148,6 +156,41 @@ class SSHServiceConnectionTest extends TestCase
             try {
                 $service->execute('echo must-not-run-on-previous-server');
                 $this->fail('The previous session must not remain usable.');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Not connected to any server', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_changing_connection_details_on_the_same_model_does_not_reuse_a_session(): void
+    {
+        foreach (['host' => 'new.test', 'port' => 2222, 'username' => 'deploy'] as $field => $value) {
+            $service = new TestableSSHService;
+            $server = $this->makeServer(1);
+            $service->connect($server);
+            $server->$field = $value;
+            $service->connect($server);
+            $this->assertCount(2, $service->clients);
+            $this->assertSame(1, $service->clients[0]->disconnectCount);
+        }
+    }
+
+    public function test_replacing_or_removing_trust_clears_the_previous_connection(): void
+    {
+        foreach ([null, EC::createKey('Ed25519')->getPublicKey()->toString('OpenSSH')] as $key) {
+            $service = new TestableSSHService;
+            $server = $this->makeServer(1);
+            $service->connect($server);
+            $server->ssh_host_key = $key;
+            try {
+                $service->connect($server);
+                $this->fail('Changed trust must reject the previous host.');
+            } catch (RuntimeException $e) {
+                $this->assertSame(1, $service->clients[0]->disconnectCount);
+            }
+            try {
+                $service->execute('must-not-run');
+                $this->fail('Old session must be cleared.');
             } catch (RuntimeException $e) {
                 $this->assertSame('Not connected to any server', $e->getMessage());
             }

@@ -35,6 +35,7 @@ class ServerController extends Controller
             'host' => 'required|string|max:255',
             'port' => 'nullable|integer|min:1|max:65535',
             'username' => 'required|string|max:255',
+            'ssh_host_key' => ['nullable', 'string', 'max:4096', new \App\Rules\SshHostKey],
             'private_key' => 'required|string',
             'status' => 'nullable|in:active,inactive',
             'is_local' => 'sometimes|declined',
@@ -64,6 +65,7 @@ class ServerController extends Controller
             'host' => 'sometimes|required|string|max:255',
             'port' => 'nullable|integer|min:1|max:65535',
             'username' => 'sometimes|required|string|max:255',
+            'ssh_host_key' => ['nullable', 'string', 'max:4096', new \App\Rules\SshHostKey],
             'private_key' => 'nullable|string',
             'status' => 'nullable|in:active,inactive',
         ]);
@@ -160,6 +162,7 @@ class ServerController extends Controller
             'host' => 'required|string|max:255',
             'port' => 'nullable|integer|min:1|max:65535',
             'username' => 'required|string|max:255',
+            'ssh_host_key' => ['nullable', 'string', 'max:4096', new \App\Rules\SshHostKey],
             'private_key' => 'required|string',
         ]);
 
@@ -169,6 +172,7 @@ class ServerController extends Controller
             'port' => $validated['port'] ?? 22,
             'username' => $validated['username'],
             'private_key' => $validated['private_key'],
+            'ssh_host_key' => $validated['ssh_host_key'] ?? null,
             'status' => 'active',
             'is_local' => false,
         ]);

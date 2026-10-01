@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\GitProvider;
+use App\Rules\SshHostKey;
 use App\Services\GitProviderService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -28,6 +29,7 @@ class GitProviderController extends Controller
             'type' => 'required|in:gitlab,github,bitbucket',
             'host' => 'nullable|string|max:255',
             'access_token' => 'nullable|string',
+            'ssh_host_key' => ['nullable', 'string', 'max:4096', new SshHostKey],
             'private_key' => 'nullable|string',
             'username' => 'required_if:type,bitbucket|nullable|string|max:255',
             'is_default' => 'nullable|boolean',
@@ -65,6 +67,7 @@ class GitProviderController extends Controller
             'type' => 'sometimes|required|in:gitlab,github,bitbucket',
             'host' => 'nullable|string|max:255',
             'access_token' => 'nullable|string',
+            'ssh_host_key' => ['nullable', 'string', 'max:4096', new SshHostKey],
             'private_key' => 'nullable|string',
             'username' => 'nullable|string|max:255',
             'is_default' => 'nullable|boolean',
@@ -81,7 +84,7 @@ class GitProviderController extends Controller
         }
 
         // Handle is_default being explicitly set to false
-        if (!isset($validated['is_default'])) {
+        if (! isset($validated['is_default'])) {
             unset($validated['is_default']);
         }
 
@@ -107,6 +110,7 @@ class GitProviderController extends Controller
     {
         try {
             $result = $this->gitProviderService->testConnection($gitProvider);
+
             return response()->json($result);
         } catch (\Exception $e) {
             return response()->json([
@@ -124,6 +128,7 @@ class GitProviderController extends Controller
 
         try {
             $result = $this->gitProviderService->listRepositories($gitProvider, $search, $page, $perPage);
+
             return response()->json($result);
         } catch (\Exception $e) {
             return response()->json([
@@ -140,6 +145,7 @@ class GitProviderController extends Controller
 
         try {
             $result = $this->gitProviderService->listBranches($gitProvider, $request->query('repository'));
+
             return response()->json($result);
         } catch (\Exception $e) {
             return response()->json([
