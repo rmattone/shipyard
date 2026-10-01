@@ -100,11 +100,13 @@ class DumpInspectorTest extends TestCase
         $this->assertSame(DumpInspector::FORMAT_SQL, (new DumpInspector)->detect($path));
     }
 
-    public function test_detects_gzip_of_empty_content_by_magic_bytes(): void
+    public function test_rejects_gzip_of_empty_content(): void
     {
         $path = $this->writeTemp(gzencode(''));
 
-        $this->assertSame(DumpInspector::FORMAT_SQL_GZ, (new DumpInspector)->detect($path));
+        $this->expectException(UnsupportedDumpException::class);
+
+        (new DumpInspector)->detect($path);
     }
 
     public function test_rejects_a_file_of_only_whitespace(): void
@@ -206,5 +208,26 @@ class DumpInspectorTest extends TestCase
         $this->expectException(UnsupportedDumpException::class);
 
         (new DumpInspector)->detect($path);
+    }
+
+    public function test_rejects_truncated_trailers_and_late_checksum_corruption(): void
+    {
+        $gzip = gzencode("-- SQL dump\n".str_repeat("INSERT INTO t VALUES (1);\n", 10000));
+        $corrupt = $gzip;
+        $corrupt[strlen($corrupt) - 8] = chr(ord($corrupt[strlen($corrupt) - 8]) ^ 1);
+        foreach ([substr($gzip, 0, -8), substr($gzip, 0, -1), $corrupt] as $bytes) {
+            try {
+                (new DumpInspector)->detect($this->writeTemp($bytes));
+                $this->fail('Invalid gzip was accepted');
+            } catch (UnsupportedDumpException $e) {
+                $this->assertStringContainsString('gzip', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_accepts_a_large_complete_gzip_stream(): void
+    {
+        $gzip = gzencode("-- SQL dump\n".str_repeat("INSERT INTO t VALUES (1);\n", 10000));
+        $this->assertSame(DumpInspector::FORMAT_SQL_GZ, (new DumpInspector)->detect($this->writeTemp($gzip)));
     }
 }

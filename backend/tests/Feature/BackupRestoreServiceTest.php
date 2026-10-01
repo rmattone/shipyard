@@ -77,7 +77,7 @@ class BackupRestoreServiceTest extends TestCase
         $this->createOrgUser();
 
         Storage::fake('local');
-        Storage::disk('local')->put('restores/dump.sql.gz', gzencode('SELECT 1;'));
+        Storage::disk('local')->put('restores/dump.sql.gz', gzencode("-- SQL dump\nSELECT 1;"));
 
         $database = Database::factory()->create(array_merge([
             'type' => 'postgresql',
@@ -92,6 +92,24 @@ class BackupRestoreServiceTest extends TestCase
             'upload_path' => 'restores/dump.sql.gz',
             'status' => 'pending',
         ], $attributes));
+    }
+
+    public function test_previously_queued_invalid_uploads_fail_before_database_work(): void
+    {
+        foreach ([gzencode(''), substr(gzencode('-- SQL dump'), 0, -8)] as $bytes) {
+            $this->mockSsh();
+            $run = $this->makeRun();
+            Storage::disk('local')->put($run->upload_path, $bytes);
+
+            app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
+
+            $this->assertSame('failed', $run->fresh()->status);
+            $this->assertNull($this->firstCommandContaining('DROP DATABASE'));
+            $this->assertNull($this->firstCommandContaining('CREATE DATABASE'));
+            $this->assertNull($this->firstCommandContaining('pg_dump'));
+            $this->assertNull($run->fresh()->safety_dump_path);
+            Storage::disk('local')->assertMissing($run->upload_path);
+        }
     }
 
     public function test_the_safety_dump_directory_is_owned_by_the_connecting_user(): void
@@ -121,7 +139,7 @@ class BackupRestoreServiceTest extends TestCase
 
         app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);
 
-        $prune = $this->firstCommandContaining('tail -n +');
+        $prune = $this->firstCommandContaining('tail -z -n +');
 
         // The connecting user owns the directory and every dump in it, so
         // elevating here would only mask an ownership mistake.
@@ -299,7 +317,7 @@ class BackupRestoreServiceTest extends TestCase
         $this->fakeResults['pg_tables'] = ['output' => '5', 'exit_code' => 0, 'success' => true];
         // Pruning old safety dumps is tidiness, not correctness: it must not
         // be able to turn an otherwise-successful restore into a failure.
-        $this->fakeResults['xargs -r sudo rm -f'] = ['throw' => true];
+        $this->fakeResults['xargs -0 -r rm -f'] = ['throw' => true];
         $run = $this->makeRun();
 
         app(BackupRestoreService::class)->restoreFromUpload($run, overwrite: true);

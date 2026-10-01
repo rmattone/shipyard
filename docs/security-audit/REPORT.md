@@ -4,7 +4,7 @@ Original reviewed commit: `7703051657f1b6727034287f040e64fbd10d33bf`. The origin
 
 ## Current remediation status — 2026-10-01
 
-This report preserves the original audit evidence against commit `7703051657f1b6727034287f040e64fbd10d33bf`. Findings 1–3 have since been fixed in code as described below. Finding 4 is now fixed in the working tree and covered by new regression tests; it has not been deployed. Findings 5–7 remain open. No managed-server connection, host-key enrollment, or production deployment was performed. The implementation and follow-up work are summarized here so the historical original-review references are not mistaken for current state.
+This report preserves the original audit evidence against commit `7703051657f1b6727034287f040e64fbd10d33bf`. Findings 1–3 have since been fixed in code as described below. Finding 4 has been merged via pull request and is covered by regression tests; production deployment and host-key enrollment have not been verified. Findings 5–7 are fixed in this change for version 1.0.2, with regression coverage described below; these changes have not been deployed. No managed-server connection, host-key enrollment, or production deployment was performed. The implementation and follow-up work are summarized here so the historical original-review references are not mistaken for current state.
 
 **Finding 4 remediation:** Server records and Git provider records now store an SSH public host key. SSH, SFTP, and terminal connections compare the negotiated server key with the explicitly supplied saved key before login. Missing or changed keys fail closed; a changed server address, port, user, credential, or trust key invalidates SSHService session reuse. No trust-on-first-use or network key scan is performed. The server and Git provider forms provide a field with instructions to obtain the key from a trusted console or official provider source. SSH Git tests, clone/pull operations, and application deployment scripts now use a temporary `known_hosts` file built only from the saved provider key with strict checking; that temporary file is removed after the operation. The SSH Git test path also uses this trust record. Token-only HTTPS providers do not require SSH host trust.
 
@@ -66,7 +66,7 @@ Fresh installs grant the capability only to a newly created installer admin. Run
 
 Deployment: run `php artisan migrate --force`, clear/rebuild the route cache (`php artisan route:clear` or `php artisan route:cache`), deploy the rebuilt frontend, and restart long-lived application processes. For Compose, execute the Artisan commands with `docker compose exec app`. Grant the intended installation administrator after migration. Existing installations have no web updater access until this explicit grant. Already queued updates are not canceled by this HTTP authorization change. No deployment or production administrator assignment was performed here.
 
-Validation: 28 targeted backend tests passed (114 assertions) in PHP 8.2/Linux against disposable MySQL 8, with the old local route cache bypassed. Coverage includes the original create-organization escalation, every system endpoint, rejected profile/mass-assignment escalation, console grant/revoke, seeder behavior, and successful update dispatch by an installation administrator whose organization role is member. Frontend production build passed. The stale local route cache was subsequently cleared. Finding 4 was subsequently fixed in the working tree; Findings 5–7 remain the unresolved application findings.
+Validation: 28 targeted backend tests passed (114 assertions) in PHP 8.2/Linux against disposable MySQL 8, with the old local route cache bypassed. Coverage includes the original create-organization escalation, every system endpoint, rejected profile/mass-assignment escalation, console grant/revoke, seeder behavior, and successful update dispatch by an installation administrator whose organization role is member. Frontend production build passed. The stale local route cache was subsequently cleared. Finding 4 was subsequently merged. Findings 5–7 are fixed in this change for version 1.0.2 as described below.
 
 ### 4. High — SSH/SFTP and Git connections do not retain or verify server identity
 
@@ -76,7 +76,7 @@ SSH and SFTP authenticate without checking a pinned server key. Git wrappers dis
 
 Evidence: code review, no live MITM experiment. This is separate from the phpseclib dependency advisory.
 
-The code remediation and required existing-installation enrollment steps are recorded in the current remediation status above.
+**Status — merged:** the host-key verification remediation has been merged. Production deployment and enrollment of existing servers and SSH Git providers remain unverified; follow the rollout steps above before relying on SSH connections.
 
 ### 5. Medium — empty gzip restore is rejected only after replacing the target database
 
@@ -90,6 +90,10 @@ Fix: reject empty decompressed input and check gzip integrity before destructive
 
 The earlier corrupt-gzip fixture fails on local PHP 8.4 but is rejected on cached PHP 8.2.33. That exact compatibility regression is not a confirmed production PHP 8.2 vulnerability.
 
+**Remediation — 2026-10-01:** DumpInspector rejects empty decompressed input and runs `gzip -t` against the complete archive before accepting it, checking the trailer/checksum without buffering the expanded dump in PHP memory. Validation fails closed if gzip is unavailable, rejects the archive, or exceeds 120 seconds. The Docker image explicitly installs gzip. Restore execution revalidates the stored upload and its format before connecting or running database commands, protecting jobs queued before this fix as well as files changed after upload. Invalid uploads return 422 without dispatch; invalid stored uploads fail and are cleaned up before any database replacement.
+
+Regression coverage: `DumpInspectorTest` covers empty, corrupt, truncated-trailer, late-checksum-failure, and complete gzip streams. `DatabaseRestoreUploadTest` verifies rejected overwrites create no run or queued job. `BackupRestoreServiceTest` verifies previously queued empty/truncated uploads never reach dump, DROP, or CREATE commands. Valid restore and duplicate-delivery fixtures now contain realistic SQL headers. This verifies archive integrity and prefix classification, not the SQL semantics of the complete dump; staging-database validation remains a separate enhancement.
+
 ### 6. Medium — safety-backup pruning never expands the filename wildcard
 
 Source: `backend/app/Services/BackupRestoreService.php:270`.
@@ -100,6 +104,10 @@ Evidence: the test captures the actual generated command via reflection, substit
 
 Fix: enumerate files safely, for example using find with a quoted name pattern, and verify real file retention rather than only asserting command text.
 
+**Remediation — 2026-10-01:** Pruning now uses `find` with a separately quoted name pattern and null-delimited modification-time/path records. GNU `sort`, `tail`, `cut`, and `xargs` retain the newest three regular files for the target and safely delete older matches, including filenames containing whitespace or newlines. Symlinks, directories, and other targets are excluded. Pruning remains best-effort and does not fail an otherwise successful restore.
+
+Regression coverage: `BackupRetentionSecurityTest` executes the generated command against disposable Linux files and verifies the actual retained/deleted files, including preservation of unrelated files, directories, and symlinks. The existing failed-prune regression now matches the actual command rather than an obsolete sudo command.
+
 ### 7. Medium — quick-install queue reservation is shorter than job timeouts
 
 Sources: `backend/config/queue.php:30`, `install.sh:358`, `backend/.env.example:36`, `backend/app/Jobs/ProcessDatabaseRestore.php:36`.
@@ -109,6 +117,12 @@ Redis retry_after defaults to 90 seconds, while jobs allow 1800 seconds and rest
 Evidence: configuration and job review. No Redis redelivery experiment. The supplied Compose file has one queue worker; ordinary single-worker deployments are not demonstrated to duplicate after 90 seconds. Deployment locks and restore claims mitigate duplicate execution, but do not correct reservation/attempt accounting.
 
 Fix: set a safe default above the longest job timeout and write/migrate the value consistently during install and update.
+
+**Remediation — 2026-10-01:** Redis and database queue reservations now default to, and enforce a minimum of, 3,600 seconds, above the current 3,000-second restore timeout. Larger configured values are preserved. The installer and example environment write both reservation values. `update.sh` runs `backend/scripts/ensure-queue-reservation.php` before its normal configuration clearing and worker restart; the migration adds missing values and raises invalid/short values while preserving larger settings and unrelated configuration. No production environment file was changed here.
+
+Regression coverage: `QueueReservationSecurityTest` verifies missing, short, invalid, and larger runtime values, the relation to the restore timeout, and idempotent environment migration with quoted custom values. No live Redis redelivery experiment was performed.
+
+**Rollout for findings 5–7:** deploy the changed code/image with gzip available; from the backend directory run `php scripts/ensure-queue-reservation.php`, clear/rebuild cached configuration, and restart long-lived queue workers. The updated updater handles the environment migration, configuration clearing, and queue restart. An updater process already running the previous script may not execute the newly added migration, so verify the values after rollout. No production rollout or managed-server operation was performed as part of these fixes.
 
 ## Dependency exposure assessment
 
@@ -126,8 +140,13 @@ Upgrade affected dependencies in a separate tested remediation change. Prioritiz
 
 ## Validation and limits
 
-New evidence: `ShipyardAuditTest.php`, `targeted-tests-2026-10-01.log`, `composer-audit-2026-10-01.json`, `npm-audit-2026-10-01.json`.
+Original audit evidence: `ShipyardAuditTest.php`, `targeted-tests-2026-10-01.log`, `composer-audit-2026-10-01.json`, and `npm-audit-2026-10-01.json`. The remediation verification added after that audit is listed separately below.
 
-The five targeted tests passed with 30 assertions against disposable MySQL 8. They intentionally assert vulnerable behavior; passing is evidence of the findings, not a security pass. They remain outside backend/tests. SSH, restore commands, deployment execution, and updater execution are mocked except for the harmless local log marker and disposable retention fixture.
+The five original targeted tests passed with 30 assertions against disposable MySQL 8. They intentionally assert vulnerable behavior; passing is evidence of the findings, not a security pass. They remain outside backend/tests. SSH, restore commands, deployment execution, and updater execution are mocked except for the harmless local log marker and disposable retention fixture.
 
-Prior handoff checks remain applicable to the unchanged reviewed commit: frontend build passed; lint had zero errors and 18 warnings; backend suite had 663 passing tests and the one PHP-version-dependent corrupt-gzip failure described above. Broad checks were not unnecessarily rerun. No real managed servers were modified. This was a targeted repository audit, not a live penetration test or proof that no other defects exist.
+Original audit baseline checks: frontend build passed; lint had zero errors and 18 warnings; backend suite had 663 passing tests and the one PHP-version-dependent corrupt-gzip failure described above.
+
+Post-remediation verification for finding 4: full backend suite passed on PHP 8.2 (714 tests, 2,381 assertions) against disposable MySQL 8. Focused host-key/API tests passed (26 tests, 131 assertions). Frontend production build passed. Targeted lint had zero errors and two existing hook-dependency warnings in `ServerSettings.tsx`. The SSH Git wrapper tests use a recording fake SSH executable to verify strict checking, saved-key trust, cleanup, and failure propagation; no live SSH hosts or managed servers were contacted. This remains a targeted repository audit, not a live penetration test or proof that no other defects exist.
+
+
+Post-remediation verification for findings 5–7: the full backend suite passed in the cached PHP 8.2/Linux container against disposable MySQL 8 (721 tests, 2,443 assertions), including the real GNU-tool retention fixture. Local PHP 8.4 gzip/queue tests also passed (23 tests, 57 assertions). Formatting of all changed PHP files, `bash -n install.sh update.sh`, and `git diff --check` passed. PHPUnit reported existing doc-comment metadata deprecation warnings. A repository-root formatting check also flags the pre-existing historical `docs/security-audit/ShipyardAuditTest.php`; that evidence fixture was left unchanged. No frontend files changed, and no production deployment was performed.

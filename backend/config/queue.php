@@ -13,7 +13,7 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 90),
+            'retry_after' => max(3600, (int) env('DB_QUEUE_RETRY_AFTER', 3600)),
             'after_commit' => false,
         ],
 
@@ -25,9 +25,8 @@ return [
             // restore job (see BackupRestoreService::MAX_RESTORE_SECONDS): a
             // lower value lets Redis reclaim a still-running job as abandoned
             // and hand it to another worker while the first is still going.
-            // The 90 fallback below is only safe if REDIS_QUEUE_RETRY_AFTER is
-            // set in the environment; see backend/.env.example.
-            'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
+            // Clamp old installation overrides too; longer reservations remain valid.
+            'retry_after' => max(3600, (int) env('REDIS_QUEUE_RETRY_AFTER', 3600)),
             'block_for' => null,
             'after_commit' => false,
         ],
