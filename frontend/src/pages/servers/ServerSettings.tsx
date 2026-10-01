@@ -279,10 +279,10 @@ export default function ServerSettings() {
             </CardHeader>
             <CardContent>
               {server.is_local && (
-                <Alert className="mb-4 bg-green-50 border-green-200">
+                <Alert className="mb-4 bg-amber-50 border-amber-200">
                   <AlertDescription>
-                    <p className="text-sm text-green-800">
-                      This is a local server. Commands run directly without SSH.
+                    <p className="text-sm text-amber-800">
+                      Local execution is disabled. Add an SSH-connected server and recreate your applications there.
                     </p>
                   </AlertDescription>
                 </Alert>
@@ -375,10 +375,10 @@ export default function ServerSettings() {
                 <div>
                   <p className="font-medium">{server.is_local ? 'Local execution' : 'Connection status'}</p>
                   <p className="text-sm text-muted-foreground">
-                    {server.is_local ? 'Test local command execution.' : 'Test the SSH connection to your server.'}
+                    {server.is_local ? 'Local execution is disabled.' : 'Test the SSH connection to your server.'}
                   </p>
                 </div>
-                <Button variant="outline" onClick={handleTestConnection} disabled={testing}>
+                <Button variant="outline" onClick={handleTestConnection} disabled={testing || server.is_local}>
                   {testing && <LoadingSpinner size="sm" className="mr-2" />}
                   Test {server.is_local ? 'Execution' : 'Connection'}
                 </Button>

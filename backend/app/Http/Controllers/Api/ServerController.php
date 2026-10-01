@@ -30,26 +30,19 @@ class ServerController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $isLocal = $request->boolean('is_local');
-
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'host' => $isLocal ? 'nullable|string|max:255' : 'required|string|max:255',
+            'host' => 'required|string|max:255',
             'port' => 'nullable|integer|min:1|max:65535',
-            'username' => $isLocal ? 'nullable|string|max:255' : 'required|string|max:255',
-            'private_key' => $isLocal ? 'nullable|string' : 'required|string',
+            'username' => 'required|string|max:255',
+            'private_key' => 'required|string',
             'status' => 'nullable|in:active,inactive',
-            'is_local' => 'nullable|boolean',
+            'is_local' => 'sometimes|declined',
         ]);
 
         $validated['port'] = $validated['port'] ?? 22;
         $validated['status'] = $validated['status'] ?? 'active';
-        $validated['is_local'] = $isLocal;
-
-        if ($isLocal) {
-            $validated['host'] = $validated['host'] ?? 'localhost';
-            $validated['username'] = $validated['username'] ?? get_current_user();
-        }
+        $validated['is_local'] = false;
 
         $server = Server::create($validated);
 
@@ -66,6 +59,7 @@ class ServerController extends Controller
     public function update(Request $request, Server $server): JsonResponse
     {
         $validated = $request->validate([
+            'is_local' => 'prohibited',
             'name' => 'sometimes|required|string|max:255',
             'host' => 'sometimes|required|string|max:255',
             'port' => 'nullable|integer|min:1|max:65535',

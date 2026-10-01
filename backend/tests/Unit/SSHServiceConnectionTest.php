@@ -129,6 +129,31 @@ class SSHServiceConnectionTest extends TestCase
         $this->assertSame(1, $service->clients[0]->disconnectCount, 'The previous connection must be closed, not leaked.');
     }
 
+    public function test_rejected_local_connection_clears_the_previous_remote_session(): void
+    {
+        foreach (['connect', 'connectSftp'] as $method) {
+            $service = new TestableSSHService;
+            $service->connect($this->makeServer(1));
+            $local = $this->makeServer(2);
+            $local->is_local = true;
+
+            try {
+                $service->$method($local);
+                $this->fail('Local connections must be rejected.');
+            } catch (RuntimeException $e) {
+                $this->assertStringContainsString('Local server execution is disabled', $e->getMessage());
+            }
+
+            $this->assertSame(1, $service->clients[0]->disconnectCount);
+            try {
+                $service->execute('echo must-not-run-on-previous-server');
+                $this->fail('The previous session must not remain usable.');
+            } catch (RuntimeException $e) {
+                $this->assertSame('Not connected to any server', $e->getMessage());
+            }
+        }
+    }
+
     public function test_a_dead_connection_is_reestablished(): void
     {
         $service = new TestableSSHService;
