@@ -16,26 +16,27 @@ class LogService
      */
     public function getLogFiles(Application $app): array
     {
-        $logPath = $app->getLogsPath();
+        $logPath = escapeshellarg($app->getLogsPath());
 
         $this->sshService->connect($app->server);
 
         // Check if logs directory exists
         $result = $this->sshService->execute("test -d {$logPath} && echo 'exists'");
 
-        if (!$result['success'] || trim($result['output']) !== 'exists') {
+        if (! $result['success'] || trim($result['output']) !== 'exists') {
             $this->sshService->disconnect();
+
             return [];
         }
 
         // List log files with details
         $result = $this->sshService->execute(
-            "find {$logPath} -maxdepth 1 -name '*.log' -type f -exec stat --format='%n|%s|%Y' {} \\; 2>/dev/null | sort -t'|' -k3 -rn"
+            "find {$logPath} -maxdepth 1 -name '*.log' -type f -exec stat --format='%n|%s|%Y' -- {} \\; 2>/dev/null | sort -t'|' -k3 -rn"
         );
 
         $this->sshService->disconnect();
 
-        if (!$result['success'] || empty(trim($result['output']))) {
+        if (! $result['success'] || empty(trim($result['output']))) {
             return [];
         }
 
@@ -43,13 +44,20 @@ class LogService
         $lines = explode("\n", trim($result['output']));
 
         foreach ($lines as $line) {
-            if (empty($line)) continue;
+            if (empty($line)) {
+                continue;
+            }
 
             $parts = explode('|', $line);
-            if (count($parts) !== 3) continue;
+            if (count($parts) !== 3) {
+                continue;
+            }
 
             [$path, $size, $mtime] = $parts;
             $filename = basename($path);
+            if (! $this->isSupportedFilename($filename)) {
+                continue;
+            }
 
             $files[] = [
                 'name' => $filename,
@@ -67,25 +75,24 @@ class LogService
      */
     public function getLogContent(Application $app, string $filename, int $lines = 500, ?string $search = null): array
     {
-        // Validate filename to prevent path traversal
-        if (preg_match('/[\/\\\\]/', $filename) || $filename === '.' || $filename === '..') {
+        if (! $this->isSupportedFilename($filename)) {
             throw new RuntimeException('Invalid filename');
         }
 
-        $logPath = "{$app->getLogsPath()}/{$filename}";
+        $logPath = escapeshellarg("{$app->getLogsPath()}/{$filename}");
 
         $this->sshService->connect($app->server);
 
         // Check if file exists and get its stats
         $result = $this->sshService->execute("test -f {$logPath} && echo 'exists'");
 
-        if (!$result['success'] || trim($result['output']) !== 'exists') {
+        if (! $result['success'] || trim($result['output']) !== 'exists') {
             $this->sshService->disconnect();
             throw new RuntimeException("Log file not found: {$filename}");
         }
 
         // Get file stats
-        $statsResult = $this->sshService->execute("stat --format='%s' {$logPath}");
+        $statsResult = $this->sshService->execute("stat --format='%s' -- {$logPath}");
         $fileSize = $statsResult['success'] ? (int) trim($statsResult['output']) : 0;
 
         // Get total line count
@@ -96,9 +103,9 @@ class LogService
         if ($search) {
             // Escape special characters in search term for grep
             $escapedSearch = escapeshellarg($search);
-            $command = "tail -n {$lines} {$logPath} | grep -i {$escapedSearch}";
+            $command = "tail -n {$lines} -- {$logPath} | grep -i -- {$escapedSearch}";
         } else {
-            $command = "tail -n {$lines} {$logPath}";
+            $command = "tail -n {$lines} -- {$logPath}";
         }
 
         $result = $this->sshService->execute($command);
@@ -115,5 +122,14 @@ class LogService
             'returned_lines' => $returnedLines,
             'file_size' => $fileSize,
         ];
+    }
+
+    /**
+     * Match the .log files exposed by the log browser, without shell syntax,
+     * path separators, control characters, or leading option characters.
+     */
+    private function isSupportedFilename(string $filename): bool
+    {
+        return preg_match('/\A[A-Za-z0-9][A-Za-z0-9._-]*\.log\z/', $filename) === 1;
     }
 }
