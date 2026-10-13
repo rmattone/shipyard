@@ -55,7 +55,7 @@ export default function ServerNew() {
     toast.success('Public key copied to clipboard')
   }
 
-  const canTest = formData.host !== '' && formData.username !== '' && formData.private_key !== '' && formData.ssh_host_key !== ''
+  const canTest = formData.host !== '' && formData.username !== '' && formData.private_key !== ''
 
   const handleTestConnection = async () => {
     setTesting(true)
@@ -67,6 +67,12 @@ export default function ServerNew() {
         private_key: formData.private_key,
         ssh_host_key: formData.ssh_host_key,
       })
+      const hostKey = response.data.ssh_host_key
+      if (hostKey) {
+        setFormData(current => current.host === formData.host && current.port === formData.port
+          && current.ssh_host_key === formData.ssh_host_key
+          ? { ...current, ssh_host_key: hostKey } : current)
+      }
       toast.success(response.data.message)
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
@@ -174,7 +180,7 @@ export default function ServerNew() {
               />
             </div>
 
-            <SshHostKeyInput value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
+            <SshHostKeyInput trustOnFirstUse value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
 
             {publicKey && (
               <Alert className="bg-blue-50 border-blue-200">

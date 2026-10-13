@@ -219,6 +219,7 @@ Set `SHIPYARD_REPO` (owner/repo) and `SHIPYARD_BRANCH` in `backend/.env` to foll
    - **SSH Port** - Usually 22
    - **SSH User** - The user to connect as (e.g., `root` or `deploy`)
    - **SSH Key** - Your private SSH key
+   - **Trusted SSH host public key** - Optional. Leave blank to trust and save the server's host key on the first successful connection, or supply a verified key yourself. Later connections reject a changed host key.
 3. Click **Test Connection** to verify
 4. Save the server
 

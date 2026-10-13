@@ -25,26 +25,34 @@ final class HostKey
         }
     }
 
-    public static function verify(SSH2 $client, ?string $trusted): void
+    public static function verify(SSH2 $client, ?string $trusted, bool $trustOnFirstUse = false): string
     {
         try {
-            $expected = self::normalize($trusted);
-            $type = explode(' ', $expected)[0];
+            $expected = $trustOnFirstUse && blank($trusted) ? null : self::normalize($trusted);
             // phpseclib also uses this preference list for RSA user authentication.
             // Keep RSA SHA-2 available even when the pinned host key is EC.
             // The exact public-key comparison below remains the trust boundary.
-            $rsa = ['rsa-sha2-512', 'rsa-sha2-256'];
-            $client->setPreferredAlgorithms([
-                'hostkey' => $type === 'ssh-rsa' ? $rsa : [$type, ...$rsa],
-            ]);
+            if ($expected !== null) {
+                $type = explode(' ', $expected)[0];
+                $rsa = ['rsa-sha2-512', 'rsa-sha2-256'];
+                $client->setPreferredAlgorithms([
+                    'hostkey' => $type === 'ssh-rsa' ? $rsa : [$type, ...$rsa],
+                ]);
+            }
             $actual = $client->getServerPublicHostKey();
             // phpseclib labels RSA keys with the negotiated signature algorithm.
             if (is_string($actual)) {
                 $actual = preg_replace('/^rsa-sha2-(256|512) /', 'ssh-rsa ', $actual);
             }
-            if (! is_string($actual) || ! hash_equals($expected, self::normalize($actual))) {
+            if (! is_string($actual)) {
+                throw new RuntimeException('Unable to read the server SSH host public key.');
+            }
+            $actual = self::normalize($actual);
+            if ($expected !== null && ! hash_equals($expected, $actual)) {
                 throw new RuntimeException('SSH host key mismatch. Connection refused. Verify the server identity through a trusted channel before replacing its saved key.');
             }
+
+            return $actual;
         } catch (Throwable $e) {
             $client->disconnect();
             throw $e;

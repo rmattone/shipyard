@@ -100,9 +100,12 @@ export default function ServerSettings() {
     if (!id) return
     setSaving(true)
     try {
-      const response = await serversApi.update(parseInt(id), formData)
+      const response = await serversApi.update(parseInt(id), {
+        ...formData,
+        ssh_host_key: formData.ssh_host_key === (server?.ssh_host_key || '') ? undefined : formData.ssh_host_key,
+      })
       setServer(response.data)
-      setFormData({ ...formData, private_key: '' })
+      setFormData({ ...formData, private_key: '', ssh_host_key: response.data.ssh_host_key || '' })
       toast.success('Server updated')
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } } }
@@ -118,6 +121,13 @@ export default function ServerSettings() {
     try {
       const response = await serversApi.testConnection(parseInt(id))
       if (response.data.success) {
+        const hostKey = response.data.ssh_host_key
+        if (hostKey) {
+          setFormData(current => current.host === server?.host && current.port === server?.port
+            && current.ssh_host_key === (server?.ssh_host_key || '')
+            ? { ...current, ssh_host_key: hostKey } : current)
+          setServer(current => current ? { ...current, ssh_host_key: hostKey } : current)
+        }
         toast.success('Connection successful!')
       } else {
         toast.error(response.data.message || 'Connection failed')
@@ -354,7 +364,7 @@ export default function ServerSettings() {
                     />
                   </div>
 
-                  <SshHostKeyInput value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
+                  <SshHostKeyInput trustOnFirstUse value={formData.ssh_host_key} onChange={ssh_host_key => setFormData({ ...formData, ssh_host_key })} />
 
                   {/* SSH Private Key */}
                   <div className="settings-row border-b">

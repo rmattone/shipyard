@@ -14,6 +14,8 @@ Regression coverage: `backend/tests/Unit/SshHostKeySecurityTest.php`, `backend/t
 
 **Finding 4 compatibility follow-up — version 1.0.3:** An ED25519 host-key pin also restricted phpseclib's RSA user-authentication algorithm list, causing fallback to the legacy `ssh-rsa` (SHA-1) signature rejected by modern server policy. The fix retains RSA SHA-2 algorithms in the preference list while continuing to compare the exact saved host public key before authentication. A regression test captures the real library-generated authentication packet without network access and verifies SHA-2 selection. Targeted host-key, connection, and Git wrapper tests passed (19 tests, 97 assertions); this follow-up has not been deployed.
 
+**Server onboarding follow-up — 2026-10-13:** Manual host-key enrollment is now optional for managed servers. SSH, SFTP, and terminal connections learn the host key during the first handshake and save it after successful authentication; subsequent connections still reject changed keys. Concurrent enrollment cannot overwrite an existing pin. Ad hoc connection tests return the learned key for the create-server form to save. This supersedes the mandatory server enrollment rollout above: first use now trusts the network connection rather than an independently verified server identity. Operators can still supply a verified key before connecting. SSH Git providers retain their explicit-key requirement.
+
 ## Prioritized findings
 
 ### 1. Critical — tenant users can schedule commands in the shared ShipYard runtime
