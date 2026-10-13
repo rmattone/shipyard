@@ -47,17 +47,71 @@ class SshHostKeySecurityTest extends TestCase
         }
     }
 
-    public function test_unknown_keys_fail_without_opening_a_network_connection(): void
+    public function test_invalid_supplied_keys_fail_without_opening_a_network_connection(): void
     {
         foreach (['ssh', 'sftp', 'terminal'] as $transport) {
             $client = Mockery::mock($transport === 'terminal' ? InteractiveSSH2::class : SFTP::class);
             $client->shouldNotReceive('getServerPublicHostKey');
             $client->shouldNotReceive('login');
             try {
-                $this->connect($this->service($transport, $client), $transport, $this->server(null));
-                $this->fail('An unknown host must not be implicitly trusted.');
+                $this->connect($this->service($transport, $client), $transport, $this->server('invalid-key'));
+                $this->fail('An invalid supplied host key must be rejected.');
             } catch (RuntimeException $e) {
                 $this->assertStringContainsString('trusted SSH public host key', $e->getMessage());
+            }
+        }
+    }
+
+    public function test_unknown_keys_are_learned_only_after_successful_login_for_every_transport(): void
+    {
+        foreach (['ssh', 'sftp', 'terminal'] as $transport) {
+            foreach ([null, ''] as $unknown) {
+                foreach ([true, false] as $authenticated) {
+                    $class = match ($transport) {
+                        'ssh' => SSH2::class, 'sftp' => SFTP::class, default => InteractiveSSH2::class
+                    };
+                    $client = Mockery::mock($class);
+                    $client->shouldReceive('setTimeout');
+                    $client->shouldReceive('disconnect');
+                    $client->shouldReceive('getServerPublicHostKey')->once()->ordered()->andReturn(HostKeyFixture::key());
+                    $client->shouldReceive('login')->once()->ordered()->andReturn($authenticated);
+                    if ($authenticated && $transport === 'terminal') {
+                        $client->shouldReceive('setWindowSize')->once();
+                        $client->shouldReceive('openShell')->once();
+                    } else {
+                        $client->shouldNotReceive('openShell');
+                    }
+                    $server = $this->server($unknown);
+                    $server->private_key = EC::createKey('Ed25519')->toString('PKCS8');
+
+                    try {
+                        $this->connect($this->service($transport, $client), $transport, $server);
+                        $this->assertTrue($authenticated);
+                        $this->assertSame(HostKey::normalize(HostKeyFixture::key()), $server->ssh_host_key);
+                    } catch (RuntimeException $e) {
+                        $this->assertFalse($authenticated);
+                        $this->assertStringContainsString('authentication failed', $e->getMessage());
+                        $this->assertSame($unknown, $server->ssh_host_key);
+                    }
+                }
+            }
+        }
+    }
+
+    public function test_first_connection_rejects_an_unreadable_host_key_before_login(): void
+    {
+        foreach ([false, 'not-a-key'] as $key) {
+            $client = Mockery::mock(SSH2::class);
+            $client->shouldReceive('setTimeout');
+            $client->shouldReceive('getServerPublicHostKey')->once()->andReturn($key);
+            $client->shouldReceive('disconnect')->once();
+            $client->shouldNotReceive('login');
+            $server = $this->server(null);
+            try {
+                $this->connect($this->service('ssh', $client), 'ssh', $server);
+                $this->fail('An unreadable host key must be rejected.');
+            } catch (RuntimeException $e) {
+                $this->assertNull($server->ssh_host_key);
             }
         }
     }

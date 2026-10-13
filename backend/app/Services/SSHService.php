@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Server;
 use App\Support\Ssh\HostKey;
+use App\Support\Ssh\ServerHostKey;
 use phpseclib3\Crypt\PublicKeyLoader;
 use phpseclib3\Exception\FileNotFoundException;
 use phpseclib3\Net\SFTP;
@@ -27,7 +28,7 @@ class SSHService
             throw new RuntimeException('Local server execution is disabled. Configure an SSH server instead.');
         }
 
-        $this->requireHostKey($server);
+        $this->prepareHostKey($server);
 
         // Reuse the live session for repeated connect() calls to the same
         // server: one atomic deploy calls connect() five-plus times and used
@@ -50,16 +51,24 @@ class SSHService
         $ssh->setTimeout(30);
 
         try {
-            HostKey::verify($ssh, $server->ssh_host_key);
+            $hostKey = HostKey::verify($ssh, $server->ssh_host_key, trustOnFirstUse: true);
         } catch (\Throwable $e) {
             $this->disconnect();
             throw $e;
         }
 
-        if (! $ssh->login($server->username, $this->loadPrivateKey($server))) {
-            throw new RuntimeException("SSH authentication failed for {$server->host}");
+        try {
+            if (! $ssh->login($server->username, $this->loadPrivateKey($server))) {
+                throw new RuntimeException("SSH authentication failed for {$server->host}");
+            }
+            ServerHostKey::remember($server, $hostKey);
+        } catch (\Throwable $e) {
+            $ssh->disconnect();
+            $this->disconnect();
+            throw $e;
         }
 
+        $this->server = clone $server;
         $this->ssh = $ssh;
 
         return $this;
@@ -74,7 +83,7 @@ class SSHService
             throw new RuntimeException('Local server execution is disabled. Configure an SSH server instead.');
         }
 
-        $this->requireHostKey($server);
+        $this->prepareHostKey($server);
 
         if ($this->sftp !== null && $this->isSameServer($server) && $this->sftp->isConnected()) {
             $this->server = clone $server;
@@ -94,25 +103,33 @@ class SSHService
         $sftp->setTimeout(30);
 
         try {
-            HostKey::verify($sftp, $server->ssh_host_key);
+            $hostKey = HostKey::verify($sftp, $server->ssh_host_key, trustOnFirstUse: true);
         } catch (\Throwable $e) {
             $this->disconnect();
             throw $e;
         }
 
-        if (! $sftp->login($server->username, $this->loadPrivateKey($server))) {
-            throw new RuntimeException("SFTP authentication failed for {$server->host}");
+        try {
+            if (! $sftp->login($server->username, $this->loadPrivateKey($server))) {
+                throw new RuntimeException("SFTP authentication failed for {$server->host}");
+            }
+            ServerHostKey::remember($server, $hostKey);
+        } catch (\Throwable $e) {
+            $sftp->disconnect();
+            $this->disconnect();
+            throw $e;
         }
 
+        $this->server = clone $server;
         $this->sftp = $sftp;
 
         return $this;
     }
 
-    private function requireHostKey(Server $server): void
+    private function prepareHostKey(Server $server): void
     {
         try {
-            HostKey::normalize($server->ssh_host_key);
+            ServerHostKey::prepare($server);
         } catch (\Throwable $e) {
             $this->disconnect();
             throw $e;
@@ -276,6 +293,7 @@ class SSHService
                 'success' => true,
                 'message' => 'Connection successful',
                 'system_info' => trim($result['output']),
+                'ssh_host_key' => $server->ssh_host_key,
             ];
         } catch (\Exception $e) {
             return [

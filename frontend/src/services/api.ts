@@ -551,11 +551,11 @@ export const serversApi = {
   restore: (id: number) => api.post<Server>('/servers/' + id + '/restore'),
   forceDelete: (id: number) => api.delete('/servers/' + id + '/force'),
   testConnection: (id: number) =>
-    api.post<{ success: boolean; message: string; system_info?: string }>(
+    api.post<{ success: boolean; message: string; system_info?: string; ssh_host_key?: string }>(
       '/servers/' + id + '/test-connection'
     ),
   testConnectionAdhoc: (data: { host: string; port?: number; username: string; private_key: string; ssh_host_key?: string }) =>
-    api.post<{ success: boolean; message: string; system_info?: string }>(
+    api.post<{ success: boolean; message: string; system_info?: string; ssh_host_key?: string }>(
       '/servers/test-connection',
       data
     ),

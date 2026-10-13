@@ -175,9 +175,9 @@ class SSHServiceConnectionTest extends TestCase
         }
     }
 
-    public function test_replacing_or_removing_trust_clears_the_previous_connection(): void
+    public function test_replacing_trust_with_an_invalid_or_different_key_clears_the_previous_connection(): void
     {
-        foreach ([null, EC::createKey('Ed25519')->getPublicKey()->toString('OpenSSH')] as $key) {
+        foreach (['invalid-key', EC::createKey('Ed25519')->getPublicKey()->toString('OpenSSH')] as $key) {
             $service = new TestableSSHService;
             $server = $this->makeServer(1);
             $service->connect($server);
@@ -195,6 +195,24 @@ class SSHServiceConnectionTest extends TestCase
                 $this->assertSame('Not connected to any server', $e->getMessage());
             }
         }
+    }
+
+    public function test_a_learned_host_key_allows_connection_reuse_and_can_be_relearned_after_clearing(): void
+    {
+        $service = new TestableSSHService;
+        $server = $this->makeServer(1);
+        $server->ssh_host_key = null;
+
+        $service->connect($server);
+        $service->connect($server);
+        $this->assertCount(1, $service->clients);
+        $this->assertNotNull($server->ssh_host_key);
+
+        $server->ssh_host_key = null;
+        $service->connect($server);
+        $this->assertCount(2, $service->clients);
+        $this->assertSame(1, $service->clients[0]->disconnectCount);
+        $this->assertNotNull($server->ssh_host_key);
     }
 
     public function test_a_dead_connection_is_reestablished(): void
