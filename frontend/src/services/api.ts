@@ -472,6 +472,11 @@ export interface SoftwareCheck {
 
 export type ServerSoftware = Record<string, SoftwareCheck>
 
+export interface PhpBranch {
+  branch: string
+  packages: { name: string; version: string }[]
+}
+
 export interface RepositoriesResponse {
   repositories: Repository[]
   page: number
@@ -571,6 +576,10 @@ export const serversApi = {
     api.get<ServerMetricsHistory>('/servers/' + id + '/metrics/history', { params: { range } }),
   checkSoftware: (id: number) =>
     api.get<ServerSoftware>('/servers/' + id + '/software'),
+  phpBranches: (id: number) =>
+    api.get<{ branches: PhpBranch[] }>(`/servers/${id}/php-updates`),
+  updatePhp: (id: number, branch: string) =>
+    api.post<DatabaseInstallation>(`/servers/${id}/php-updates`, { branch }),
 }
 
 // Web terminal (SSE for output, POST for input)
