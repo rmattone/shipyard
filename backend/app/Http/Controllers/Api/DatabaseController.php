@@ -10,6 +10,7 @@ use App\Models\Server;
 use App\Services\DatabaseService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 class DatabaseController extends Controller
@@ -44,6 +45,14 @@ class DatabaseController extends Controller
             'version' => 'nullable|string|max:50',
         ]);
 
+        return DB::transaction(fn () => $this->queueInstallation($server, $validated));
+    }
+
+    private function queueInstallation(Server $server, array $validated): JsonResponse
+    {
+        // Serialize requests with PHP updates as well as other installers.
+        Server::whereKey($server->id)->lockForUpdate()->firstOrFail();
+
         // Reinstalling an engine that already has a connection record would
         // reset the server's admin password and orphan the stored credentials
         if (in_array($validated['engine'], ['mysql', 'postgresql'], true)) {
@@ -60,15 +69,14 @@ class DatabaseController extends Controller
             }
         }
 
-        // Check for duplicate running installation
+        // Only one package operation at a time per server.
         $running = $server->databaseInstallations()
-            ->where('engine', $validated['engine'])
             ->whereIn('status', ['pending', 'running'])
             ->exists();
 
         if ($running) {
             return response()->json([
-                'message' => "A {$validated['engine']} installation is already in progress for this server.",
+                'message' => 'A software installation or update is already in progress on this server.',
             ], 409);
         }
 
@@ -84,7 +92,7 @@ class DatabaseController extends Controller
 
         $installation = $server->databaseInstallations()->create($installationData);
 
-        ProcessDatabaseInstallation::dispatch($installation);
+        ProcessDatabaseInstallation::dispatch($installation)->afterCommit();
 
         return response()->json($installation, 202);
     }

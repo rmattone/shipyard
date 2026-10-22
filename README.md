@@ -235,6 +235,14 @@ A vhost written before the server gained its deploy user keeps the distro FPM so
 
 On servers with a deploy user, run daemons (queue workers) and scheduled tasks as that same user. Files created at runtime in storage/ belong to whoever created them, and PHP-FPM offers no per-pool umask, so mixing users across FPM, workers, and cron leads to permission errors on shared files. The panel defaults new daemons and tasks to the deploy user on these servers for exactly this reason.
 
+### Updating PHP on managed servers
+
+Open **Server → Software → PHP Updates** to see installed PHP branches and their full package versions. Organization owners and admins can select **Update PHP 8.x** to update that branch and its installed extensions from the server's configured APT repositories. This requires Ubuntu or Debian with systemd and root SSH access or passwordless sudo.
+
+Updates run in the background, with a persisted log that remains available after reopening the page. The updater validates PHP-FPM configuration, checks the package upgrade plan, preserves existing configuration files, and verifies installed package versions. Active PHP-FPM, Apache with mod_php, and detected ShipYard PHP workers are restarted and checked; sites may briefly be interrupted. PHP workers managed outside ShipYard need a separate restart.
+
+The action stays within the selected PHP branch. A successful update confirms package and service checks; confirmation of a particular security fix comes from the package vendor's advisory, including any backported fixes in distro package revisions.
+
 ### Deploying an Application
 
 1. Go to **Applications** → **New Application**

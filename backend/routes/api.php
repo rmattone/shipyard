@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\NotificationChannelController;
 use App\Http\Controllers\Api\OrganizationController;
 use App\Http\Controllers\Api\OrganizationInvitationController;
 use App\Http\Controllers\Api\OrganizationMemberController;
+use App\Http\Controllers\Api\PhpUpdateController;
 use App\Http\Controllers\Api\RollbackController;
 use App\Http\Controllers\Api\ScheduledTaskController;
 use App\Http\Controllers\Api\ServerController;
@@ -104,6 +105,8 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::get('/servers/{server}/metrics', [ServerController::class, 'getMetrics']);
     Route::get('/servers/{server}/metrics/history', [ServerController::class, 'getMetricsHistory']);
     Route::get('/servers/{server}/software', [ServerController::class, 'checkSoftware']);
+    Route::get('/servers/{server}/php-updates', [PhpUpdateController::class, 'index']);
+    Route::post('/servers/{server}/php-updates', [PhpUpdateController::class, 'store'])->middleware('org.role:admin');
 
     // Destructive server lifecycle (admin or owner only). restore and force
     // need withTrashed() bindings or they 404 on the very rows they act on;

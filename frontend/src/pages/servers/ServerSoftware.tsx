@@ -36,6 +36,7 @@ import {
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { LoadingSpinner } from '@/components/custom'
+import PhpUpdatesPanel from '@/components/PhpUpdatesPanel'
 import { serversApi, databasesApi, type Server, type ServerSoftware as ServerSoftwareType } from '@/services/api'
 
 type InstallableEngine = 'mysql' | 'postgresql' | 'pm2' | 'php' | 'node' | 'nginx' | 'certbot'
@@ -86,6 +87,7 @@ export default function ServerSoftware() {
   const [installedDbEngines, setInstalledDbEngines] = useState<Set<string>>(new Set())
   const [loadingSoftware, setLoadingSoftware] = useState(true)
   const [loading, setLoading] = useState(true)
+  const [updatingPhp, setUpdatingPhp] = useState(false)
 
   // Install states
   const [showInstallDialog, setShowInstallDialog] = useState(false)
@@ -283,7 +285,7 @@ export default function ServerSoftware() {
       <div>
         <h1 className="text-2xl font-bold">Software</h1>
         <p className="text-muted-foreground">
-          Detect and install software on {server.name}
+          Detect, install, and update software on {server.name}
         </p>
       </div>
 
@@ -342,6 +344,14 @@ export default function ServerSoftware() {
         </CardContent>
       </Card>
 
+      <PhpUpdatesPanel
+        key={serverId}
+        serverId={serverId}
+        disabled={installing}
+        onBusyChange={setUpdatingPhp}
+        onComplete={loadSoftware}
+      />
+
       {/* Install Software */}
       <Card>
         <CardHeader>
@@ -374,7 +384,7 @@ export default function ServerSoftware() {
                   <Button
                     size="sm"
                     onClick={() => openInstallDialog(engine)}
-                    disabled={installing}
+                    disabled={installing || updatingPhp}
                   >
                     <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
                     Install
