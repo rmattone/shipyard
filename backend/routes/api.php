@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\DatabaseRestoreController;
 use App\Http\Controllers\Api\DatabaseUserController;
 use App\Http\Controllers\Api\DeploymentController;
 use App\Http\Controllers\Api\DeploymentStreamController;
+use App\Http\Controllers\Api\DnsProviderController;
 use App\Http\Controllers\Api\DomainController;
 use App\Http\Controllers\Api\EnvironmentVariableController;
 use App\Http\Controllers\Api\FirewallController;
@@ -209,6 +210,10 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::apiResource('notification-channels', NotificationChannelController::class);
     Route::post('/notification-channels/{notification_channel}/test', [NotificationChannelController::class, 'test']);
 
+    // DNS providers (Cloudflare)
+    Route::apiResource('dns-providers', DnsProviderController::class)->except(['show']);
+    Route::post('/dns-providers/{dns_provider}/test', [DnsProviderController::class, 'test']);
+
     Route::apiResource('git-providers', GitProviderController::class);
     Route::post('/git-providers/{git_provider}/test', [GitProviderController::class, 'testConnection']);
     Route::get('/git-providers/{git_provider}/repositories', [GitProviderController::class, 'repositories']);
@@ -241,6 +246,8 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     // Environment file (full .env content)
     Route::get('/applications/{application}/env-file', [EnvironmentVariableController::class, 'getEnvFile']);
     Route::put('/applications/{application}/env-file', [EnvironmentVariableController::class, 'updateEnvFile']);
+    Route::get('/applications/{application}/env-template', [EnvironmentVariableController::class, 'template']);
+    Route::get('/applications/{application}/env-health', [EnvironmentVariableController::class, 'health']);
 
     // Domains
     Route::get('/applications/{application}/domains', [DomainController::class, 'index']);
@@ -249,6 +256,9 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::put('/applications/{application}/domains/{domain}/primary', [DomainController::class, 'setPrimary']);
     Route::post('/applications/{application}/domains/{domain}/ssl', [DomainController::class, 'requestSsl']);
     Route::get('/applications/{application}/domains/{domain}/ssl', [DomainController::class, 'getSslStatus']);
+    Route::post('/applications/{application}/domains/{domain}/dns', [DomainController::class, 'linkDns']);
+    Route::put('/applications/{application}/domains/{domain}/dns', [DomainController::class, 'updateDns']);
+    Route::delete('/applications/{application}/domains/{domain}/dns', [DomainController::class, 'unlinkDns']);
 
     // Nginx configuration
     Route::get('/applications/{application}/nginx', [NginxController::class, 'show']);

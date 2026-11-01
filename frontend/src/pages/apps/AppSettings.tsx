@@ -27,7 +27,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { LoadingSpinner } from '@/components/custom'
 import { TagMultiSelect } from '@/components/custom/TagMultiSelect'
-import { EyeIcon, EyeSlashIcon, ExclamationTriangleIcon, ClipboardDocumentIcon, CheckIcon } from '@heroicons/react/24/outline'
+import { EnvHealthPanel } from '@/components/EnvHealthPanel'
+import { EyeIcon, EyeSlashIcon, ExclamationTriangleIcon, ClipboardDocumentIcon, CheckIcon, DocumentArrowDownIcon, KeyIcon } from '@heroicons/react/24/outline'
 import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 
@@ -65,6 +66,8 @@ export default function AppSettings() {
   const [originalEnvContent, setOriginalEnvContent] = useState('')
   const [envRevealed, setEnvRevealed] = useState(false)
   const [savingEnv, setSavingEnv] = useState(false)
+  const [loadingTemplate, setLoadingTemplate] = useState(false)
+  const [envHealthKey, setEnvHealthKey] = useState(0)
 
   // Tags state
   const [serverTags, setServerTags] = useState<Tag[]>([])
@@ -177,12 +180,54 @@ export default function AppSettings() {
     }
   }
 
+  // Fill the editor with .env.example (or the built-in template) with
+  // production defaults applied. Nothing is saved until Save.
+  const handleLoadTemplate = async () => {
+    if (envContent.trim() && !confirm('Replace the editor content with the template? Nothing is saved until you click Save.')) {
+      return
+    }
+
+    setLoadingTemplate(true)
+    try {
+      const response = await envApi.getTemplate(appId)
+      const { content, source, applied, notice } = response.data
+      if (source === 'none') {
+        toast.info(notice || 'No template is available for this application')
+        return
+      }
+      setEnvContent(content)
+      setEnvRevealed(true)
+      const from = source === 'repository' ? 'Loaded .env.example from the repository' : 'Loaded the built-in template'
+      toast.success(applied.length ? `${from}. Set ${applied.join(', ')}.` : `${from}.`)
+      if (notice && source !== 'repository') toast.info(notice)
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { message?: string } } }
+      toast.error(err.response?.data?.message || 'Failed to load the template')
+    } finally {
+      setLoadingTemplate(false)
+    }
+  }
+
+  // Same format as `php artisan key:generate`: base64 of 32 random bytes
+  const handleGenerateAppKey = () => {
+    const bytes = crypto.getRandomValues(new Uint8Array(32))
+    const key = 'base64:' + btoa(String.fromCharCode(...bytes))
+    if (/^APP_KEY=.*$/m.test(envContent)) {
+      if (!confirm('Replace the current APP_KEY? Existing sessions and encrypted values stop working with a new key.')) return
+      setEnvContent(envContent.replace(/^APP_KEY=.*$/m, `APP_KEY=${key}`))
+    } else {
+      setEnvContent(envContent.replace(/\n*$/, '') + (envContent.trim() ? '\n' : '') + `APP_KEY=${key}\n`)
+    }
+    setEnvRevealed(true)
+  }
+
   // Environment save handler
   const handleSaveEnv = async () => {
     setSavingEnv(true)
     try {
       const response = await envApi.updateContent(appId, envContent)
       setOriginalEnvContent(envContent)
+      setEnvHealthKey(key => key + 1)
 
       const syncResult = response.data.sync_result
       if (syncResult.synced) {
@@ -523,12 +568,30 @@ export default function AppSettings() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label>Environment variables</Label>
-                <p className="text-sm text-muted-foreground">
-                  Your application's environment variables.
-                </p>
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div className="space-y-2">
+                  <Label>Environment variables</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Your application's environment variables.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {app?.type !== 'static' && (
+                    <Button variant="outline" size="sm" onClick={handleLoadTemplate} disabled={loadingTemplate}>
+                      {loadingTemplate ? <LoadingSpinner size="sm" className="mr-2" /> : <DocumentArrowDownIcon className="h-4 w-4 mr-2" />}
+                      Load template
+                    </Button>
+                  )}
+                  {app?.type === 'laravel' && (
+                    <Button variant="outline" size="sm" onClick={handleGenerateAppKey}>
+                      <KeyIcon className="h-4 w-4 mr-2" />
+                      Generate APP_KEY
+                    </Button>
+                  )}
+                </div>
               </div>
+
+              <EnvHealthPanel appId={appId} refreshKey={envHealthKey} />
 
               <div className="relative">
                 <Textarea

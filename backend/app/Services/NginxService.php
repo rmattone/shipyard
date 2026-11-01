@@ -436,6 +436,10 @@ server {
 
     {$ssl}
 
+    # ACME challenges over HTTPS too: behind a proxy that forces HTTPS
+    # (Cloudflare "Always Use HTTPS"), renewal requests arrive here.
+    {$acme}
+
     add_header X-Frame-Options "SAMEORIGIN";
     add_header X-Content-Type-Options "nosniff";
 
@@ -591,6 +595,10 @@ server {
 
     {$ssl}
 
+    # ACME challenges over HTTPS too: behind a proxy that forces HTTPS
+    # (Cloudflare "Always Use HTTPS"), renewal requests arrive here.
+    {$acme}
+
     location / {
         proxy_pass http://localhost:{$port};
         proxy_http_version 1.1;
@@ -724,6 +732,10 @@ server {
     root {$root};
 
     {$ssl}
+
+    # ACME challenges over HTTPS too: behind a proxy that forces HTTPS
+    # (Cloudflare "Always Use HTTPS"), renewal requests arrive here.
+    {$acme}
 
     index index.html;
 

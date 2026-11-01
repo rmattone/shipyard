@@ -288,4 +288,32 @@ class NginxTemplateTest extends TestCase
             }
         }
     }
+
+    // Behind Cloudflare with "Always Use HTTPS", Let's Encrypt's renewal
+    // request is redirected to https and lands on the 443 block, which must
+    // answer the challenge too or renewals of proxied domains fail.
+
+    public function test_https_blocks_also_serve_acme_challenges(): void
+    {
+        foreach (['laravel', 'nodejs', 'static'] as $type) {
+            $app = $this->makeApp(['type' => $type], sslDomain: true, domain: "{$type}-https.test");
+
+            $config = app(NginxService::class)->generateConfig($app);
+
+            $httpsBlocks = array_filter(
+                explode('server {', $config),
+                fn (string $block) => str_contains($block, 'listen 443')
+            );
+
+            $this->assertNotEmpty($httpsBlocks, "The {$type} SSL template has no 443 block.");
+
+            foreach ($httpsBlocks as $block) {
+                $this->assertStringContainsString(
+                    'location ^~ /.well-known/acme-challenge/',
+                    $block,
+                    "The {$type} 443 block does not serve ACME challenges."
+                );
+            }
+        }
+    }
 }

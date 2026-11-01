@@ -751,4 +751,45 @@ BASH;
             ], $branches),
         ];
     }
+
+    /**
+     * Read one file from a branch through the provider API. Returns null
+     * when the file does not exist on that branch.
+     */
+    public function fetchFile(GitProvider $provider, string $repository, string $branch, string $path): ?string
+    {
+        if (! $provider->usesAccessToken()) {
+            throw new RuntimeException('Reading repository files requires an access token on the git provider.');
+        }
+
+        $response = match ($provider->type) {
+            'gitlab' => Http::withHeaders([
+                'PRIVATE-TOKEN' => $provider->access_token,
+            ])->get("{$provider->getApiBaseUrl()}/projects/".urlencode($repository).'/repository/files/'.urlencode($path).'/raw', [
+                'ref' => $branch,
+            ]),
+            'github' => Http::withHeaders([
+                'Authorization' => "Bearer {$provider->access_token}",
+                'Accept' => 'application/vnd.github.raw+json',
+                'X-GitHub-Api-Version' => '2022-11-28',
+            ])->get("{$provider->getApiBaseUrl()}/repos/{$repository}/contents/{$path}", [
+                'ref' => $branch,
+            ]),
+            'bitbucket' => Http::withBasicAuth(
+                $provider->username ?? '',
+                $provider->access_token
+            )->get("{$provider->getApiBaseUrl()}/repositories/{$repository}/src/".rawurlencode($branch)."/{$path}"),
+            default => throw new RuntimeException("Unknown provider type: {$provider->type}"),
+        };
+
+        if ($response->status() === 404) {
+            return null;
+        }
+
+        if (! $response->successful()) {
+            throw new RuntimeException("Could not read {$path} from the repository (HTTP {$response->status()}).");
+        }
+
+        return $response->body();
+    }
 }

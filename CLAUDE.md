@@ -91,6 +91,12 @@ All server interactions go through `SSHService`. Never execute SSH commands dire
 ### Environment Variables
 Secrets are encrypted at rest using Laravel's encryption. Access via the `EnvironmentVariable` model, never store plaintext.
 
+### DNS Providers (Cloudflare)
+`dns_providers` is a tenant root table (`BelongsToOrganization`, token encrypted, verified against Cloudflare before it is saved). `DomainDnsService` points a domain's record at its server's public IP through `App\Services\Dns\CloudflareClient`. A name that already has A/AAAA/CNAME records pointing elsewhere is a 409 conflict until the caller sends `dns_overwrite`; a record that already points at the server is adopted (`dns_record_managed = false`) and is never deleted. Records are created DNS only and the proxy is switched on after the certificate is issued (`dns_status = pending_proxy` until then), because Let's Encrypt HTTP validation fails behind a proxy that forces HTTPS. The 443 nginx blocks serve ACME challenges too, so renewals behind the proxy work. Removing a domain, renaming the primary domain, or deleting the app releases managed records best effort (`releaseQuietly`).
+
+### Environment Defaults
+`EnvTemplateService` builds a starting `.env` from the repository's `.env.example` (read through the git provider API, so it needs an access token) or a built-in template, forcing production values (APP_ENV, APP_DEBUG, LOG_LEVEL, a generated APP_KEY, APP_URL from the primary domain). It is never saved by itself. Defaults are not seeded on app creation on purpose: deployments skip writing `.env` when an app has no variables, and seeded keys would overwrite a `.env` placed on the server by hand. `EnvHealthService` reports unsafe production settings by key only (values never leave it) and, for a queue connection without a worker or a missing `schedule:run` cron, returns a `fix` that is the exact payload for the existing daemon or scheduled task endpoint.
+
 ### Nginx Configuration
 Generated dynamically by `NginxService`. Templates are built per-application and pushed to target servers.
 

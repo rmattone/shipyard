@@ -11,6 +11,7 @@ use App\Models\Deployment;
 use App\Models\Server;
 use App\Services\ApplicationImportService;
 use App\Services\CertbotService;
+use App\Services\DomainDnsService;
 use App\Services\NginxService;
 use App\Services\SSHService;
 use App\Support\CurrentOrganization;
@@ -185,6 +186,8 @@ class ApplicationController extends Controller
         if (isset($validated['domain']) && $oldDomain !== $validated['domain']) {
             $primary = $application->primaryDomain();
             if ($primary) {
+                // The managed DNS record belongs to the old name
+                app(DomainDnsService::class)->releaseQuietly($primary);
                 $primary->update(['domain' => $validated['domain']]);
             } else {
                 $application->domains()->create([
@@ -234,6 +237,12 @@ class ApplicationController extends Controller
         foreach ($application->scheduledTasks()->where('status', '!=', 'removing')->get() as $task) {
             $task->markAsRemoving();
             ProcessScheduledTaskRemoval::dispatch($task);
+        }
+
+        // DNS records ShipYard created for the app's domains (best effort)
+        $dnsService = app(DomainDnsService::class);
+        foreach ($application->domains()->whereNotNull('dns_record_id')->get() as $domain) {
+            $dnsService->releaseQuietly($domain);
         }
 
         // Same for linked daemons: stop the units before they run a dead path.
@@ -372,6 +381,12 @@ class ApplicationController extends Controller
                 $application,
                 $request->input('email')
             );
+
+            // Proxied Cloudflare records waited for the certificate
+            $dnsService = app(DomainDnsService::class);
+            foreach ($application->domains()->where('dns_status', DomainDnsService::STATUS_PENDING_PROXY)->get() as $domain) {
+                $dnsService->activatePendingProxy($domain);
+            }
 
             return response()->json($result);
         } catch (\Exception $e) {

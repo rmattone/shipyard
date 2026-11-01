@@ -195,6 +195,33 @@ export interface EnvironmentVariable {
   updated_at: string
 }
 
+export interface EnvTemplate {
+  content: string
+  source: 'repository' | 'builtin' | 'none'
+  // Keys whose value the template set or changed (production defaults)
+  applied: string[]
+  notice: string | null
+}
+
+export type EnvWarningFix =
+  | {
+      type: 'daemon'
+      server_id: number
+      data: { command: string; user: string; directory: string; processes: number; application_id: number }
+    }
+  | {
+      type: 'scheduled_task'
+      server_id: number
+      data: { command: string; user: string; frequency: ScheduledTask['frequency']; application_id: number }
+    }
+
+export interface EnvWarning {
+  code: string
+  level: 'danger' | 'warning' | 'info'
+  message: string
+  fix?: EnvWarningFix
+}
+
 export type OrganizationRole = 'owner' | 'admin' | 'member'
 
 export interface Organization {
@@ -268,8 +295,35 @@ export interface Domain {
   ssl_enabled: boolean
   ssl_expires_at: string | null
   ssl_issuer: string | null
+  dns_provider_id: number | null
+  dns_record_managed: boolean
+  dns_proxied: boolean
+  dns_status: 'active' | 'pending_proxy' | 'error' | null
+  dns_error: string | null
   created_at: string
   updated_at: string
+}
+
+export interface DnsProvider {
+  id: number
+  name: string
+  type: 'cloudflare'
+  domains_count?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface DnsOptions {
+  dns_provider_id?: number
+  dns_proxied?: boolean
+  dns_overwrite?: boolean
+}
+
+// 409 body when the hostname already points somewhere else
+export interface DnsConflict {
+  message: string
+  conflict: true
+  records: { type: string; content: string }[]
 }
 
 export interface Tag {
@@ -959,6 +1013,10 @@ export const envApi = {
   // Full .env file content
   getContent: (appId: number) =>
     api.get<{ content: string }>('/applications/' + appId + '/env-file'),
+  getTemplate: (appId: number) =>
+    api.get<EnvTemplate>('/applications/' + appId + '/env-template'),
+  getHealth: (appId: number) =>
+    api.get<{ warnings: EnvWarning[] }>('/applications/' + appId + '/env-health'),
   updateContent: (appId: number, content: string) =>
     api.put<{ message: string; sync_result: { synced: boolean; message: string; error?: string } }>('/applications/' + appId + '/env-file', { content }),
 }
@@ -972,8 +1030,8 @@ export const deploymentsApi = {
 export const domainsApi = {
   list: (appId: number) =>
     api.get<Domain[]>('/applications/' + appId + '/domains'),
-  create: (appId: number, domain: string) =>
-    api.post<Domain>('/applications/' + appId + '/domains', { domain }),
+  create: (appId: number, domain: string, dns: DnsOptions = {}) =>
+    api.post<Domain>('/applications/' + appId + '/domains', { domain, ...dns }),
   delete: (appId: number, domainId: number) =>
     api.delete('/applications/' + appId + '/domains/' + domainId),
   setPrimary: (appId: number, domainId: number) =>
@@ -982,6 +1040,26 @@ export const domainsApi = {
     api.post<{ message: string; domain: Domain }>('/applications/' + appId + '/domains/' + domainId + '/ssl', { email }),
   getSslStatus: (appId: number, domainId: number) =>
     api.get<SslStatus>('/applications/' + appId + '/domains/' + domainId + '/ssl'),
+  linkDns: (appId: number, domainId: number, dns: DnsOptions & { dns_provider_id: number }) =>
+    api.post<Domain>('/applications/' + appId + '/domains/' + domainId + '/dns', dns),
+  setProxied: (appId: number, domainId: number, proxied: boolean) =>
+    api.put<Domain>('/applications/' + appId + '/domains/' + domainId + '/dns', { dns_proxied: proxied }),
+  unlinkDns: (appId: number, domainId: number, deleteRecord: boolean) =>
+    api.delete<Domain>('/applications/' + appId + '/domains/' + domainId + '/dns', {
+      params: { delete_record: deleteRecord ? 1 : 0 },
+    }),
+}
+
+// DNS providers (Cloudflare)
+export const dnsProvidersApi = {
+  list: () => api.get<DnsProvider[]>('/dns-providers'),
+  create: (data: { name: string; type: DnsProvider['type']; api_token: string }) =>
+    api.post<DnsProvider & { zone_count: number }>('/dns-providers', data),
+  update: (id: number, data: { name?: string; api_token?: string }) =>
+    api.put<DnsProvider>('/dns-providers/' + id, data),
+  delete: (id: number) => api.delete('/dns-providers/' + id),
+  test: (id: number) =>
+    api.post<{ success: boolean; message: string; zones: string[] }>('/dns-providers/' + id + '/test'),
 }
 
 // Nginx Configuration

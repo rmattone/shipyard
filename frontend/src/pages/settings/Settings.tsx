@@ -29,13 +29,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { AccountSettings } from './AccountSettings'
+import { DnsProviders } from './DnsProviders'
 import { NotificationChannels } from './NotificationChannels'
 import { OrganizationGeneral } from './OrganizationGeneral'
 import { OrganizationMembers } from './OrganizationMembers'
 import { ServerTrash } from './ServerTrash'
 
-type SettingsSection = 'account' | 'source-control' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
-const SECTIONS: readonly SettingsSection[] = ['account', 'source-control', 'notifications', 'members', 'general', 'trash', 'system']
+type SettingsSection = 'account' | 'source-control' | 'dns' | 'notifications' | 'members' | 'general' | 'trash' | 'system'
+const SECTIONS: readonly SettingsSection[] = ['account', 'source-control', 'dns', 'notifications', 'members', 'general', 'trash', 'system']
 
 export default function Settings() {
   const navigate = useNavigate()
@@ -191,6 +192,7 @@ export default function Settings() {
   const sidebarItems = [
     { id: 'account' as const, label: 'Account' },
     { id: 'source-control' as const, label: 'Source Control' },
+    { id: 'dns' as const, label: 'DNS' },
     { id: 'notifications' as const, label: 'Notifications' },
     { id: 'members' as const, label: 'Members' },
     { id: 'general' as const, label: 'General' },
@@ -310,6 +312,8 @@ export default function Settings() {
         )}
 
         {activeSection === 'account' && <AccountSettings />}
+
+        {activeSection === 'dns' && <DnsProviders />}
 
         {activeSection === 'notifications' && <NotificationChannels />}
 
