@@ -1,6 +1,10 @@
-import { useState, useEffect, FormEvent } from 'react'
+import { useState, useEffect, useRef, useCallback, FormEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { applicationsApi, serversApi, gitProvidersApi, Server, GitProvider, Repository } from '../../services/api'
+import { applicationsApi, serversApi, gitProvidersApi, databasesApi, Server, GitProvider, Repository, Database, getErrorMessage } from '../../services/api'
+import { useNavigation } from '@/contexts/NavigationContext'
+import { Textarea } from '@/components/ui/textarea'
+import { Configuration, SetupProgress, setupApplication } from './new/setup'
+import { ConfigurationStep } from './new/ConfigurationStep'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -19,13 +23,30 @@ import { MagnifyingGlassIcon, LockClosedIcon, GlobeAltIcon } from '@heroicons/re
 
 export default function AppNew() {
   const navigate = useNavigate()
+  const { refreshApps } = useNavigation()
   const { serverId } = useParams<{ serverId: string }>()
   const [loading, setLoading] = useState(false)
   const [loadingServer, setLoadingServer] = useState(true)
   const [server, setServer] = useState<Server | null>(null)
   const [gitProviders, setGitProviders] = useState<GitProvider[]>([])
   const [step, setStep] = useState(1)
-  const [webhookInfo, setWebhookInfo] = useState<{ url: string; secret: string } | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const progress = useRef<SetupProgress>({})
+  const submitting = useRef(false)
+  const [setupStarted, setSetupStarted] = useState(false)
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
+  const [databases, setDatabases] = useState<Database[]>([])
+  const [databaseError, setDatabaseError] = useState(false)
+  const [loadingDatabases, setLoadingDatabases] = useState(true)
+  const [pathEdited, setPathEdited] = useState(false)
+  const [loadingScript, setLoadingScript] = useState(false)
+  const [configuration, setConfiguration] = useState<Configuration>({
+    domain: '', environment: '', productionDefaults: false,
+    databaseId: 'none', databaseName: '', databaseUsername: '', databasePassword: '',
+  })
+  const selectedDatabase = databases.find(database => String(database.id) === configuration.databaseId)
+
 
   // Repository search state
   const [repositories, setRepositories] = useState<Repository[]>([])
@@ -50,7 +71,9 @@ export default function AppNew() {
     repository_url: '',
     branch: 'main',
     deploy_path: '',
-    build_command: '',
+    deploy_script: '',
+    php_version: '',
+    port: '3000',
   })
 
   const selectedProvider = gitProviders.find(p => p.id.toString() === formData.git_provider_id)
@@ -78,6 +101,11 @@ export default function AppNew() {
         setFormData(prev => ({ ...prev, git_provider_id: defaultProvider.id.toString() }))
       }
 
+      databasesApi.list(parseInt(serverId))
+        .then(res => setDatabases(res.data.filter(database => database.status === 'active')))
+        .catch(() => setDatabaseError(true))
+        .finally(() => setLoadingDatabases(false))
+
       // Load Node.js versions from the server
       setLoadingNodeVersions(true)
       serversApi.getNodeVersions(parseInt(serverId))
@@ -92,48 +120,50 @@ export default function AppNew() {
     })
   }, [serverId, navigate])
 
-  // Load repositories when provider changes
-  useEffect(() => {
-    if (formData.git_provider_id && formData.git_provider_id !== 'none' && selectedProvider?.has_access_token) {
-      loadRepositories()
-    } else {
-      setRepositories([])
-    }
-    setSelectedRepo(null)
-    setShowManualInput(false)
-  }, [formData.git_provider_id, selectedProvider?.has_access_token])
-
-  const loadRepositories = async (search?: string) => {
-    if (!formData.git_provider_id || formData.git_provider_id === 'none') return
-
+  const repositoryRequest = useRef(0)
+  const branchRequest = useRef(0)
+  const loadRepositories = useCallback(async (search?: string) => {
+    if (formData.git_provider_id === 'none') return
+    const request = ++repositoryRequest.current
     setLoadingRepos(true)
     try {
-      const res = await gitProvidersApi.listRepositories(
-        parseInt(formData.git_provider_id),
-        search,
-        1,
-        50
-      )
-      setRepositories(res.data.repositories)
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { error?: string } } }
-      if (err.response?.data?.error) {
-        toast.error(err.response.data.error)
+      const res = await gitProvidersApi.listRepositories(parseInt(formData.git_provider_id), search, 1, 50)
+      if (request === repositoryRequest.current) setRepositories(res.data.repositories)
+    } catch {
+      if (request === repositoryRequest.current) {
+        toast.error('Could not load repositories. Try again or enter a URL manually.')
+        setRepositories([])
       }
-      setRepositories([])
     } finally {
-      setLoadingRepos(false)
+      if (request === repositoryRequest.current) setLoadingRepos(false)
     }
-  }
+  }, [formData.git_provider_id])
+
+  useEffect(() => {
+    setSelectedRepo(null)
+    setShowManualInput(false)
+    setRepositories([])
+    setBranches([])
+    setRepoSearch('')
+    setLoadingBranches(false)
+    setLoadingRepos(false)
+    branchRequest.current++
+    if (selectedProvider?.has_access_token) void loadRepositories()
+    const repositoryCounter = repositoryRequest
+    const branchCounter = branchRequest
+    return () => { repositoryCounter.current++; branchCounter.current++ }
+  }, [loadRepositories, selectedProvider?.has_access_token])
 
   const handleRepoSearch = () => {
     loadRepositories(repoSearch)
   }
 
   const handleSelectRepo = async (repo: Repository) => {
+    const request = ++branchRequest.current
     setSelectedRepo(repo)
     setFormData(prev => ({
       ...prev,
+      name: prev.name || repo.full_name.split('/').pop() || '',
       repository_url: selectedProvider?.has_private_key ? repo.ssh_url : repo.https_url,
       branch: repo.default_branch,
     }))
@@ -144,56 +174,88 @@ export default function AppNew() {
       setBranches([])
       try {
         const res = await gitProvidersApi.listBranches(selectedProvider.id, repo.full_name)
-        setBranches(res.data.branches)
+        if (request === branchRequest.current) setBranches(res.data.branches)
       } catch {
         // Fallback to just the default branch
-        setBranches([{ name: repo.default_branch, default: true }])
+        if (request === branchRequest.current) setBranches([{ name: repo.default_branch, default: true }])
       } finally {
-        setLoadingBranches(false)
+        if (request === branchRequest.current) setLoadingBranches(false)
       }
     }
   }
 
+  useEffect(() => {
+    heading.current?.focus({ preventScroll: true })
+    heading.current?.scrollIntoView({ block: 'start' })
+  }, [step])
+
+  const deployFolder = pathEdited ? formData.deploy_path : formData.name.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+
+  const validStep = () => {
+    if (step === 1) return Boolean(formData.repository_url.trim() && formData.branch.trim() && !loadingBranches)
+    if (step === 2) return Boolean(formData.name.trim() && deployFolder && !loadingScript)
+    if (step === 3) return configuration.databaseId === 'none' || Boolean(selectedDatabase && /^[a-zA-Z_][a-zA-Z0-9_]{0,62}$/.test(configuration.databaseName) && /^[a-zA-Z_][a-zA-Z0-9_]{0,31}$/.test(configuration.databaseUsername) && configuration.databasePassword.length >= 8)
+    return true
+  }
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
-    if (!serverId) return
+    if (submitting.current || !serverId || !validStep()) return
+    if (step < 4) {
+      setError('')
+      setStep(step + 1)
+      return
+    }
+    submitting.current = true
     setLoading(true)
-
+    setSetupStarted(true)
+    setError('')
     try {
-      const response = await applicationsApi.create({
+      const application = await setupApplication({
         server_id: parseInt(serverId),
-        git_provider_id: formData.git_provider_id && formData.git_provider_id !== 'none' ? parseInt(formData.git_provider_id) : null,
-        name: formData.name,
-        type: formData.type,
+        git_provider_id: formData.git_provider_id !== 'none' ? parseInt(formData.git_provider_id) : null,
+        name: formData.name.trim(), type: formData.type,
         node_version: formData.node_version === 'default' ? null : formData.node_version,
-        repository_url: formData.repository_url,
-        branch: formData.branch,
-        deploy_path: formData.deploy_path ? `${deployBase}/${formData.deploy_path}` : undefined,
-        build_command: formData.build_command || null,
-      })
-      setWebhookInfo({
-        url: response.data.webhook_url,
-        secret: response.data.webhook_secret,
-      })
-      setStep(3)
-      toast.success('Application created successfully')
-    } catch (error: unknown) {
-      const err = error as { response?: { data?: { message?: string } } }
-      toast.error(err.response?.data?.message || 'Failed to create application')
+        php_version: formData.type === 'laravel' ? formData.php_version || null : null,
+        ...(formData.type === 'nodejs' ? { port: Number(formData.port) } : {}),
+        repository_url: formData.repository_url.trim(), branch: formData.branch.trim(),
+        deploy_path: `${deployBase}/${deployFolder}`,
+        domain: configuration.domain.trim(), deployment_strategy: 'atomic',
+        ...(formData.deploy_script.trim() ? { deploy_script: formData.deploy_script } : {}),
+      }, configuration, selectedDatabase, progress.current, setStatus)
+      await refreshApps()
+      setStatus('Starting first deployment…')
+      if (progress.current.deploymentRequested && !progress.current.deploymentId) {
+        const existing = await applicationsApi.getDeployments(application.id)
+        progress.current.deploymentId = existing.data.data[0]?.id
+      }
+      if (!progress.current.deploymentId) {
+        progress.current.deploymentRequested = true
+        const response = await applicationsApi.deploy(application.id)
+        progress.current.deploymentId = response.data.deployment_id
+      }
+      navigate(`/apps/${application.id}/deployments/${progress.current.deploymentId}`)
+    } catch (err) {
+      setError(err instanceof Error && !('response' in err) ? err.message : getErrorMessage(err, 'Setup could not finish. Check the connection and try again.'))
+      if (!progress.current.application) setSetupStarted(false)
+      else await refreshApps()
     } finally {
+      submitting.current = false
       setLoading(false)
     }
   }
 
-  useEffect(() => {
-    if (formData.name && !formData.deploy_path) {
-      const safeName = formData.name.toLowerCase()
-        .replace(/[^a-z0-9-]/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '')
-      setFormData((prev) => ({ ...prev, deploy_path: safeName }))
+  const loadDefaultScript = async () => {
+    setLoadingScript(true)
+    try {
+      const response = await applicationsApi.getDefaultScript(formData.type)
+      setFormData(prev => ({ ...prev, deploy_script: response.data.deploy_script }))
+    } catch {
+      toast.error('Could not load the deployment script')
+    } finally {
+      setLoadingScript(false)
     }
-  }, [formData.name])
+  }
 
   if (loadingServer) {
     return (
@@ -210,22 +272,23 @@ export default function AppNew() {
   const deployBase = server?.default_deploy_base ?? '/var/www/shipyard'
 
   const steps = [
-    { number: 1, name: 'Details' },
-    { number: 2, name: 'Repository' },
-    { number: 3, name: 'Complete' },
+    { number: 1, name: 'Repository' },
+    { number: 2, name: 'Application' },
+    { number: 3, name: 'Configuration' },
+    { number: 4, name: 'Deploy' },
   ]
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6">
       <div>
-        <h1 className="text-2xl font-bold">Add New Application</h1>
+        <h1 ref={heading} tabIndex={-1} className="text-2xl font-bold scroll-mt-24 outline-none">Add New Application</h1>
         <p className="text-muted-foreground mt-1">
           Creating application on <span className="font-medium text-foreground">{server.name}</span>
         </p>
       </div>
 
       <nav aria-label="Progress">
-        <ol className="flex items-center">
+        <ol className="grid grid-cols-2 gap-3 sm:flex sm:items-center">
           {steps.map((s, i) => (
             <li key={s.number} className={`flex items-center ${i < steps.length - 1 ? 'flex-1' : ''}`}>
               <span
@@ -249,7 +312,9 @@ export default function AppNew() {
       <Card>
         <CardContent className="pt-6">
           <form onSubmit={handleSubmit}>
-            {step === 1 && (
+            {error && <Alert variant="destructive" className="mb-6" role="alert"><AlertDescription>{error}</AlertDescription></Alert>}
+            <fieldset disabled={loading || setupStarted} className="min-w-0">
+            {step === 2 && (
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="name">Application Name</Label>
@@ -266,7 +331,8 @@ export default function AppNew() {
                   <Label>Application Type</Label>
                   <Select
                     value={formData.type}
-                    onValueChange={(value) => setFormData({ ...formData, type: value as 'laravel' | 'nodejs' | 'static', node_version: 'default' })}
+                    disabled={loadingScript}
+                    onValueChange={(value) => { setFormData({ ...formData, type: value as 'laravel' | 'nodejs' | 'static', node_version: 'default', deploy_script: '' }); if (value === 'static') setConfiguration(prev => ({ ...prev, databaseId: 'none' })) }}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -314,8 +380,8 @@ export default function AppNew() {
                       {deployBase}/
                     </span>
                     <Input
-                      value={formData.deploy_path}
-                      onChange={(e) => setFormData({ ...formData, deploy_path: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-') })}
+                      value={deployFolder}
+                      onChange={(e) => { setPathEdited(true); setFormData({ ...formData, deploy_path: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-') }) }}
                       placeholder="my-app"
                       className="font-mono text-sm rounded-l-none"
                     />
@@ -325,18 +391,36 @@ export default function AppNew() {
                   </p>
                 </div>
 
+                {formData.type === 'laravel' && <div className="space-y-2">
+                  <Label htmlFor="php-version">PHP version</Label>
+                  <Input id="php-version" placeholder="Server default" pattern="[0-9]+\.[0-9]+" value={formData.php_version} onChange={e => setFormData({ ...formData, php_version: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">Use an installed PHP version, such as 8.3.</p>
+                </div>}
+                {formData.type === 'nodejs' && <div className="space-y-2">
+                  <Label htmlFor="app-port">Application port</Label>
+                  <Input id="app-port" type="number" min={1} max={65535} required value={formData.port} onChange={e => setFormData({ ...formData, port: e.target.value })} />
+                  <p className="text-xs text-muted-foreground">Choose an unused port on this server.</p>
+                </div>}
+                <details className="space-y-3">
+                  <summary className="cursor-pointer text-sm font-medium">Deployment script and build settings</summary>
+                  <p className="text-xs text-muted-foreground">Leave empty to use the default atomic deployment script. Load it to customize install and build commands.</p>
+                  <Button type="button" variant="outline" disabled={loadingScript} onClick={loadDefaultScript}>{loadingScript ? 'Loading…' : 'Load default script'}</Button>
+                  <Label htmlFor="deploy-script" className="block">Deployment script</Label>
+                  <Textarea id="deploy-script" rows={12} className="font-mono text-xs" value={formData.deploy_script} onChange={e => setFormData({ ...formData, deploy_script: e.target.value })} />
+                </details>
+
                 <div className="flex justify-between">
-                  <Button type="button" variant="outline" onClick={() => navigate(`/servers/${serverId}`)}>
-                    Cancel
+                  <Button type="button" variant="outline" onClick={() => setStep(1)}>
+                    Back
                   </Button>
-                  <Button type="button" onClick={() => setStep(2)} disabled={!formData.name}>
+                  <Button type="submit" disabled={!validStep()}>
                     Next
                   </Button>
                 </div>
               </div>
             )}
 
-            {step === 2 && (
+            {step === 1 && (
               <div className="space-y-6">
                 <div className="space-y-2">
                   <Label>Git Provider</Label>
@@ -399,6 +483,8 @@ export default function AppNew() {
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => {
+                                  branchRequest.current++
+                                  setLoadingBranches(false)
                                   setSelectedRepo(null)
                                   setBranches([])
                                   setFormData(prev => ({ ...prev, repository_url: '', branch: 'main' }))
@@ -451,6 +537,8 @@ export default function AppNew() {
                                 <li
                                   key={repo.id}
                                   className="p-3 hover:bg-muted cursor-pointer"
+                                  role="button" tabIndex={0}
+                                  onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); void handleSelectRepo(repo) } }}
                                   onClick={() => handleSelectRepo(repo)}
                                 >
                                   <div className="flex items-center justify-between">
@@ -532,105 +620,49 @@ export default function AppNew() {
                   </div>
                 )}
 
-                {formData.type !== 'laravel' && (
-                  <div className="space-y-2">
-                    <Label htmlFor="build_command">Build Command</Label>
-                    <Input
-                      id="build_command"
-                      value={formData.build_command}
-                      onChange={(e) => setFormData({ ...formData, build_command: e.target.value })}
-                      placeholder="npm run build"
-                    />
-                  </div>
-                )}
-
                 <div className="flex justify-between">
-                  <Button type="button" variant="outline" onClick={() => setStep(1)}>
-                    Back
+                  <Button type="button" variant="outline" onClick={() => navigate(`/servers/${serverId}`)}>
+                    Cancel
                   </Button>
-                  <Button type="submit" disabled={loading || !formData.repository_url}>
-                    {loading && <LoadingSpinner size="sm" className="mr-2" />}
-                    Create Application
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {step === 3 && webhookInfo && (
-              <div className="space-y-6">
-                <Alert className="bg-green-50 border-green-200">
-                  <AlertDescription>
-                    <h3 className="text-green-800 font-medium">Application created successfully!</h3>
-                    <p className="text-green-700 mt-1">
-                      Configure the webhook in your git provider to enable automatic deployments.
-                    </p>
-                  </AlertDescription>
-                </Alert>
-
-                <div className="space-y-2">
-                  <Label>Webhook URL</Label>
-                  <div className="flex">
-                    <Input
-                      readOnly
-                      value={webhookInfo.url}
-                      className="rounded-r-none bg-muted"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-l-none border-l-0"
-                      onClick={() => {
-                        navigator.clipboard.writeText(webhookInfo.url)
-                        toast.success('Copied!')
-                      }}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label>Webhook Secret Token</Label>
-                  <div className="flex">
-                    <Input
-                      readOnly
-                      value={webhookInfo.secret}
-                      className="rounded-r-none bg-muted"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="rounded-l-none border-l-0"
-                      onClick={() => {
-                        navigator.clipboard.writeText(webhookInfo.secret)
-                        toast.success('Copied!')
-                      }}
-                    >
-                      Copy
-                    </Button>
-                  </div>
-                </div>
-
-                <Alert className="bg-yellow-50 border-yellow-200">
-                  <AlertDescription>
-                    <h4 className="text-yellow-800 font-medium">Webhook Setup Instructions:</h4>
-                    <ol className="list-decimal list-inside text-yellow-700 mt-2 space-y-1">
-                      <li>Go to your repository Settings → Webhooks</li>
-                      <li>Paste the Webhook URL above</li>
-                      <li>Set the Secret Token</li>
-                      <li>Select "Push events" as trigger</li>
-                      <li>Save the webhook</li>
-                    </ol>
-                  </AlertDescription>
-                </Alert>
-
-                <div className="flex justify-end">
-                  <Button type="button" onClick={() => navigate(`/servers/${serverId}`)}>
-                    Back to Server
+                  <Button type="submit" disabled={!validStep()}>
+                    Next
                   </Button>
                 </div>
               </div>
             )}
+
+            {step === 3 && (
+              <ConfigurationStep value={configuration} onChange={setConfiguration} databases={databases}
+                databaseError={databaseError} loadingDatabases={loadingDatabases} type={formData.type} />
+            )}
+            </fieldset>
+            {step === 3 && <div className="flex justify-between mt-6">
+              <Button type="button" variant="outline" onClick={() => setStep(2)}>Back</Button>
+              <Button type="submit" disabled={!validStep()}>Review deployment</Button>
+            </div>}
+            {step === 4 && <div className="space-y-6">
+              <div><h2 className="text-lg font-semibold">Ready for your first deployment</h2>
+                <p className="text-sm text-muted-foreground">Review the setup. ShipYard will configure the application, then open its live deployment log.</p></div>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm [overflow-wrap:anywhere]">
+                <dt className="text-muted-foreground">Application</dt><dd>{formData.name} · {formData.type}</dd>
+                <dt className="text-muted-foreground">Server</dt><dd>{server.name}</dd>
+                <dt className="text-muted-foreground">Repository</dt><dd>{formData.repository_url} · {formData.branch}</dd>
+                <dt className="text-muted-foreground">Runtime</dt><dd>{formData.type === 'laravel' ? `PHP ${formData.php_version || 'server default'}` : `Node.js ${formData.node_version}`}{formData.type === 'nodejs' ? ` · port ${formData.port}` : ''}</dd>
+                <dt className="text-muted-foreground">Deploy path</dt><dd>{deployBase}/{deployFolder}</dd>
+                <dt className="text-muted-foreground">Domain</dt><dd>{configuration.domain || 'Add a domain later'}</dd>
+                <dt className="text-muted-foreground">Environment</dt><dd>{configuration.productionDefaults ? 'Production defaults + your overrides' : configuration.environment.trim() ? 'Your environment file' : 'No environment file supplied'}</dd>
+                <dt className="text-muted-foreground">Database</dt><dd>{selectedDatabase ? `${configuration.databaseName} on ${selectedDatabase.name} · user ${configuration.databaseUsername}` : 'No database will be created'}</dd>
+                <dt className="text-muted-foreground">Deploy script</dt><dd>{formData.deploy_script.trim() ? 'Custom script' : 'Default atomic deployment script'}</dd>
+              </dl>
+              <p className="text-sm text-muted-foreground">You can configure HTTPS and automatic deployments from the application after its first deployment.</p>
+              {status && <p role="status" className="flex items-center gap-2 text-sm">{loading && <LoadingSpinner size="sm" />}{status}</p>}
+              {error && progress.current.application && <p className="text-sm text-muted-foreground">Application created. Completed setup steps are kept for this session. Retry to continue, or open the application to resolve the error. If a request lost its response, check the created resources before retrying.</p>}
+              <div className="flex flex-wrap justify-between gap-3">
+                {!setupStarted && <Button type="button" variant="outline" onClick={() => setStep(3)}>Back</Button>}
+                {progress.current.application && !loading && <Button type="button" variant="outline" onClick={() => navigate(`/apps/${progress.current.application!.id}`)}>Open application</Button>}
+                <Button type="submit" disabled={loading}>{loading ? 'Setting up…' : setupStarted ? 'Retry remaining steps' : 'Create and deploy'}</Button>
+              </div>
+            </div>}
           </form>
         </CardContent>
       </Card>
