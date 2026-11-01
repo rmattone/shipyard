@@ -405,9 +405,10 @@ Legend: `[ ]` open, `[x]` done. IDs are stable, reference them in commits/PRs.
   Fix: proxy `/sanctum` too.
   Fixed (July 2026): `/sanctum` proxied alongside `/api`, both honoring a `BACKEND_URL` env override (edit made directly in the working tree, shipped with the FE-1..4 commit).
 
-- [ ] **FE-11 (Medium): Enter key on wizard step 1 submits the whole app-creation form.**
+- [x] **FE-11 (Medium): Enter key on wizard step 1 submits the whole app-creation form.**
   `AppNew.tsx:249`: one `<form>` wraps all steps; the required `repository_url` input isn't mounted on step 1 so constraint validation can't block, and a 422 fires out of context.
   Fix: submit only on the final step (guard by current step, or use type="button" for step navigation).
+  Fixed (November 2026): the four-step creation wizard validates and advances intermediate steps on submit. Only the final review creates the application; repeated submissions are guarded while setup runs.
 
 - [ ] **FE-12 (Medium): "Check & Update" triggers a full self-update instead of checking.**
   `Settings.tsx:362-377` calls `startUpdate()` directly, even when `update_available` is false or version info hasn't loaded.

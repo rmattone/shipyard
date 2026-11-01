@@ -245,15 +245,18 @@ The action stays within the selected PHP branch. A successful update confirms pa
 
 ### Deploying an Application
 
-1. Go to **Applications** → **New Application**
-2. Configure your application:
-   - **Name** - Application name
-   - **Server** - Select the target server
-   - **Repository** - Git repository URL
-   - **Branch** - Branch to deploy
-   - **Type** - Laravel, Node.js, or Static
-   - **Domain** - Your application's domain
-3. Save and click **Deploy**
+Open **New Application** on a ready server and follow the four steps:
+
+1. **Repository**: choose a Git provider, repository and branch, or enter a repository URL.
+2. **Application**: set the name, type, runtime and deploy path. Expand deployment settings to load and customize the default atomic deployment script, including build commands.
+3. **Configuration**: optionally add a domain and paste your environment variables. Production defaults can supply a repository template or built-in defaults before applying your overrides. For Laravel and Node.js, select an active local MySQL or PostgreSQL connection to create a dedicated database and user; existing or remote database credentials can be supplied in the environment instead. Node.js applications must consume the supplied DB_* variables.
+4. **Deploy**: review the settings and select **Create and deploy**. ShipYard saves the environment before starting the first deployment and opens the live deployment log.
+
+Point the domain's DNS at the server; enable HTTPS and configure webhooks from the application afterward. No database engine is installed by this wizard. Leaving the environment empty with production defaults unchecked preserves a server-managed environment.
+
+If setup fails, completed steps are retained while the wizard remains open. Retry continues those steps without recreating confirmed resources; reopening or refreshing the wizard starts a new flow. Use **Open application** to inspect a partially configured application. If a request lost its response, verify its resources before retrying.
+
+Frontend setup regression tests: `cd frontend && npm run test:setup`.
 
 ### Setting Up Automatic Deployments
 
