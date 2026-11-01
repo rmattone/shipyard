@@ -43,7 +43,7 @@ class CertbotService
             "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
             $domain->domain,
-            $email
+            escapeshellarg($email)
         );
 
         $result = $this->sshService->execute(RemoteSudo::wrap($app->server, $command), 120);
@@ -208,7 +208,7 @@ class CertbotService
             "certbot certonly --webroot -w %s -d %s --email %s --agree-tos --non-interactive --deploy-hook 'systemctl reload nginx'",
             $webroot,
             $app->domain,
-            $email
+            escapeshellarg($email)
         );
 
         $result = $this->sshService->execute(RemoteSudo::wrap($app->server, $command), 120);

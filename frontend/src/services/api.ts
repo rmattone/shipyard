@@ -288,6 +288,8 @@ export interface Repository {
 }
 
 export interface Domain {
+  ssl_status?: 'pending' | 'active' | 'failed' | null
+  ssl_error?: string | null
   id: number
   application_id: number
   domain: string

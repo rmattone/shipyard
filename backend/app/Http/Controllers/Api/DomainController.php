@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProvisionDomainSsl;
 use App\Models\Application;
 use App\Models\DnsProvider;
 use App\Models\Domain;
@@ -109,6 +110,7 @@ class DomainController extends Controller
 
         if ($dns) {
             $newDomain = $this->dnsService->link($newDomain, $provider, $dns, (bool) ($validated['dns_proxied'] ?? false));
+            $this->queueSsl($newDomain, $request);
         }
 
         return response()->json($newDomain, 201);
@@ -141,7 +143,19 @@ class DomainController extends Controller
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        $this->queueSsl($domain, $request);
+
         return response()->json($domain);
+    }
+
+    private function queueSsl(Domain $domain, Request $request): void
+    {
+        if ($domain->ssl_enabled || $domain->ssl_status === 'pending') {
+            return;
+        }
+
+        $domain->update(['ssl_status' => 'pending', 'ssl_error' => null]);
+        ProvisionDomainSsl::dispatch($domain->id, $request->user()->email)->delay(now()->addSeconds(30));
     }
 
     /**
@@ -259,6 +273,10 @@ class DomainController extends Controller
             'email' => 'required|email',
         ]);
 
+        if ($domain->ssl_status === 'pending') {
+            return response()->json(['message' => 'SSL provisioning is already in progress.'], 409);
+        }
+
         try {
             $result = $this->certbotService->obtainCertificateForDomain(
                 $domain,
@@ -268,6 +286,7 @@ class DomainController extends Controller
             // A proxied Cloudflare record waits for the certificate; now
             // that it exists the proxy can go on.
             $issued = $this->dnsService->activatePendingProxy($result['domain']);
+            $issued->update(['ssl_status' => 'active', 'ssl_error' => null]);
 
             return response()->json([
                 'message' => $result['message'],
