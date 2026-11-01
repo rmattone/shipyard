@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\ProvisionDomainSsl;
+use Illuminate\Support\Facades\Queue;
 use App\Models\Application;
 use App\Models\DnsProvider;
 use App\Models\Domain;
@@ -34,6 +36,7 @@ class DomainDnsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        Queue::fake([ProvisionDomainSsl::class]);
 
         $this->mock(SSHService::class, function ($mock) {
             $mock->shouldReceive('connect')->andReturnSelf();
@@ -67,6 +70,9 @@ class DomainDnsTest extends TestCase
             ->assertJsonPath('dns_record_managed', true)
             ->assertJsonPath('dns_proxied', true);
 
+        Queue::assertPushed(ProvisionDomainSsl::class, fn ($job) => $job->email === $this->user->email);
+        $this->assertDatabaseHas('domains', ['domain' => 'shop.example.com', 'ssl_status' => 'pending']);
+
         $records = $this->cloudflare->recordsFor('shop.example.com');
         $this->assertCount(1, $records);
         $this->assertSame('A', $records[0]['type']);
@@ -90,12 +96,33 @@ class DomainDnsTest extends TestCase
             });
         });
 
-        $this->actingAs($this->user)
-            ->postJson("/api/applications/{$this->application->id}/domains/{$domain['id']}/ssl", ['email' => 'ops@example.com'])
-            ->assertOk()
-            ->assertJsonPath('domain.dns_status', DomainDnsService::STATUS_ACTIVE);
+        $job = new ProvisionDomainSsl($domain['id'], $this->user->email);
+        $job->handle(app(CertbotService::class), app(DomainDnsService::class));
+        $this->assertDatabaseHas('domains', ['id' => $domain['id'], 'ssl_status' => 'active', 'dns_status' => DomainDnsService::STATUS_ACTIVE]);
 
         $this->assertTrue($this->cloudflare->recordsFor('shop.example.com')[0]['proxied']);
+    }
+
+    public function test_failed_auto_ssl_keeps_dns_only_and_records_an_actionable_error(): void
+    {
+        $domain = $this->addDomain([
+            'domain' => 'shop.example.com',
+            'dns_provider_id' => $this->provider->id,
+            'dns_proxied' => true,
+        ])->json();
+        $this->mock(CertbotService::class, function ($mock) {
+            $mock->shouldReceive('obtainCertificateForDomain')->once()->andThrow(new RuntimeException('DNS not ready'));
+        });
+        $job = new ProvisionDomainSsl($domain['id'], $this->user->email);
+        try {
+            $job->handle(app(CertbotService::class), app(DomainDnsService::class));
+            $this->fail('The queue must receive the failure to retry.');
+        } catch (RuntimeException $e) {
+            $this->assertSame('DNS not ready', $e->getMessage());
+            $job->failed($e);
+        }
+        $this->assertDatabaseHas('domains', ['id' => $domain['id'], 'ssl_status' => 'failed', 'ssl_error' => 'DNS not ready', 'ssl_enabled' => false]);
+        $this->assertFalse($this->cloudflare->recordsFor('shop.example.com')[0]['proxied']);
     }
 
     public function test_a_record_already_pointing_at_the_server_is_adopted_and_kept_on_removal(): void

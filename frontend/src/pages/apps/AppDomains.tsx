@@ -86,6 +86,19 @@ export default function AppDomains() {
     loadData()
   }, [id])
 
+  const hasPendingSsl = domains.some(domain => domain.ssl_status === 'pending')
+  useEffect(() => {
+    if (!id || !hasPendingSsl) return
+    let cancelled = false
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await domainsApi.list(parseInt(id))
+        if (!cancelled) setDomains(response.data)
+      } catch { /* Retry on the next poll. */ }
+    }, 5000)
+    return () => { cancelled = true; window.clearInterval(timer) }
+  }, [id, hasPendingSsl])
+
   const loadData = async () => {
     try {
       const [appResponse, domainsResponse, providersResponse] = await Promise.all([
@@ -121,7 +134,7 @@ export default function AppDomains() {
       const response = await domainsApi.create(parseInt(id!), name, { ...dns, dns_overwrite: overwrite || undefined })
       setDomains(current => [...current, response.data])
       setNewDomain('')
-      toast.success(dns.dns_provider_id ? 'Domain added and DNS record created' : 'Domain added successfully')
+      toast.success(dns.dns_provider_id ? 'Domain added. SSL will be enabled automatically.' : 'Domain added successfully')
     }
 
     setAdding(true)
@@ -374,7 +387,7 @@ export default function AppDomains() {
                       onCheckedChange={(checked) => setNewDnsProxied(checked === true)}
                     />
                     <Label htmlFor="new-dns-proxied" className="text-sm font-normal">
-                      Proxy through Cloudflare (turns on after SSL)
+                      Proxy through Cloudflare (SSL is set up automatically)
                     </Label>
                   </div>
                 )}
@@ -650,12 +663,19 @@ function DomainRow({
       <div className="flex items-center gap-2.5">
         <p className="text-sm font-medium">{domain.domain}</p>
         {domain.is_primary && <Badge variant="outline">Primary</Badge>}
+        {domain.ssl_status === 'failed' && (
+          <span className="text-sm text-destructive" title={domain.ssl_error || undefined}>
+            SSL failed — use Enable SSL to retry
+          </span>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
         {managesDns && <DnsBadge domain={domain} />}
         <span className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          {domain.ssl_enabled ? (
+          {domain.ssl_status === 'pending' ? (
+            <> <LoadingSpinner size="sm" /> Setting up SSL… </>
+          ) : domain.ssl_enabled ? (
             <>
               <LockClosedIcon className="h-3.5 w-3.5 text-emerald-500" />
               SSL enabled
@@ -674,7 +694,7 @@ function DomainRow({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {!domain.ssl_enabled && (
+            {!domain.ssl_enabled && domain.ssl_status !== 'pending' && (
               <DropdownMenuItem onClick={() => onRequestSsl(domain)}>
                 <ShieldCheckIcon className="h-4 w-4 mr-2" />
                 Enable SSL

@@ -16,6 +16,8 @@ class Domain extends Model
         'application_id',
         'domain',
         'is_primary',
+        'ssl_status',
+        'ssl_error',
         'ssl_enabled',
         'ssl_expires_at',
         'ssl_issuer',
