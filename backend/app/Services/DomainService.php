@@ -10,7 +10,8 @@ use RuntimeException;
 class DomainService
 {
     public function __construct(
-        private NginxService $nginxService
+        private NginxService $nginxService,
+        private DomainDnsService $dnsService
     ) {}
 
     /**
@@ -67,6 +68,9 @@ class DomainService
 
         // If removing primary, assign primary to another domain
         $wasPrimary = $domain->is_primary;
+
+        // Delete the DNS record ShipYard created for it (best effort)
+        $this->dnsService->releaseQuietly($domain);
 
         $domain->delete();
 

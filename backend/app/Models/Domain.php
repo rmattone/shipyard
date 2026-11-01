@@ -19,6 +19,13 @@ class Domain extends Model
         'ssl_enabled',
         'ssl_expires_at',
         'ssl_issuer',
+        'dns_provider_id',
+        'dns_zone_id',
+        'dns_record_id',
+        'dns_record_managed',
+        'dns_proxied',
+        'dns_status',
+        'dns_error',
     ];
 
     protected function casts(): array
@@ -27,6 +34,8 @@ class Domain extends Model
             'is_primary' => 'boolean',
             'ssl_enabled' => 'boolean',
             'ssl_expires_at' => 'datetime',
+            'dns_record_managed' => 'boolean',
+            'dns_proxied' => 'boolean',
         ];
     }
 
@@ -36,6 +45,14 @@ class Domain extends Model
     public function application(): BelongsTo
     {
         return $this->belongsTo(Application::class);
+    }
+
+    /**
+     * The DNS provider that manages this domain's record, if any.
+     */
+    public function dnsProvider(): BelongsTo
+    {
+        return $this->belongsTo(DnsProvider::class);
     }
 
     /**

@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Application;
 use App\Models\EnvironmentVariable;
+use App\Services\EnvHealthService;
 use App\Services\EnvSyncService;
+use App\Services\EnvTemplateService;
 use App\Support\EnvFile;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -151,5 +153,23 @@ class EnvironmentVariableController extends Controller
             'message' => 'Environment variables updated',
             'sync_result' => $syncResult,
         ]);
+    }
+
+    /**
+     * A starting .env with production defaults (not saved).
+     */
+    public function template(Application $application, EnvTemplateService $templates): JsonResponse
+    {
+        $application->loadMissing('gitProvider');
+
+        return response()->json($templates->build($application));
+    }
+
+    /**
+     * Production checks on the saved environment (keys and verdicts only).
+     */
+    public function health(Application $application, EnvHealthService $health): JsonResponse
+    {
+        return response()->json(['warnings' => $health->check($application)]);
     }
 }
