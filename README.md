@@ -258,6 +258,16 @@ If setup fails, completed steps are retained while the wizard remains open. Retr
 
 Frontend setup regression tests: `cd frontend && npm run test:setup`.
 
+### Uploading Application Files
+
+Open an application and select **Files**. Drop a file (up to 100 MiB), browse to its destination folder, and select **Upload to this folder**. You can create a folder, copy the completed upload's absolute server path, and review the last 20 successful transfers. Uploads and folder creation require an organization owner or admin; members can browse.
+
+The initial destination is private storage: `storage/app/private` for in-place Laravel applications, `shared/storage/app/private` for atomic Laravel applications, `shared/uploads` for other atomic applications, and `.shipyard/uploads` for other in-place applications. The folder is created on the first upload. Deploy the application before uploading files. Files in shared storage survive atomic release changes; custom deploy scripts can still modify them. For Node.js and static applications, configure your application to read the copied path if needed.
+
+The folder picker stays within the application's deployment directory, including symlinks that resolve within it. Known public destinations are labelled **Web-accessible** and require explicit acknowledgement; release destinations warn that deployments can replace or remove their contents. Custom application routes or Nginx configuration can expose other directories, so keep confidential files outside anything your application serves. Existing files require a replacement confirmation. Transfers are staged privately and published only when complete; Shipyard stores transfer metadata, not a permanent copy of the uploaded file.
+
+When upgrading an existing installation, apply the database migration and reload Shipyard's Nginx configuration so the upload endpoint accepts the full 100 MiB plus multipart headers: `docker compose exec app php artisan migrate --force` and `docker compose restart nginx` (the updater also reports the Nginx reload requirement).
+
 ### Setting Up Automatic Deployments
 
 1. Go to your application's **Settings**

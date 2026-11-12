@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\ApplicationController;
+use App\Http\Controllers\Api\ApplicationFileController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\BackupRunStreamController;
 use App\Http\Controllers\Api\DaemonController;
@@ -231,6 +232,11 @@ Route::middleware(['auth:sanctum', 'org.context', 'org.writes'])->group(function
     Route::post('/applications/default-script', [ApplicationController::class, 'getDefaultScript']);
     Route::post('/applications/generate-path', [ApplicationController::class, 'generateDeployPath']);
     Route::put('/applications/{application}/tags', [ApplicationController::class, 'syncTags']);
+
+    Route::get('/applications/{application}/files/directories', [ApplicationFileController::class, 'directories']);
+    Route::post('/applications/{application}/files/directories', [ApplicationFileController::class, 'createDirectory']);
+    Route::get('/applications/{application}/files', [ApplicationFileController::class, 'index']);
+    Route::post('/applications/{application}/files', [ApplicationFileController::class, 'store']);
 
     // Rollback (atomic deployments)
     Route::get('/applications/{application}/releases', [RollbackController::class, 'releases']);

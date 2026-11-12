@@ -902,6 +902,48 @@ export const databaseRestoresApi = {
   },
 }
 
+export interface ApplicationDirectory {
+  path: string
+  absolute_path: string
+  exists: boolean
+  public: boolean
+  ephemeral: boolean
+  default_path: string
+  folders: { name: string; path: string; public: boolean; ephemeral: boolean }[]
+  truncated: boolean
+  max_upload_bytes: number
+}
+
+export interface ApplicationFileUpload {
+  id: number
+  filename: string
+  path: string
+  size_bytes: number
+  created_at: string
+  user: { id: number; name: string } | null
+}
+
+export const applicationFilesApi = {
+  directories: (id: number, path?: string) =>
+    api.get<ApplicationDirectory>(`/applications/${id}/files/directories`, { params: path === undefined ? {} : { path } }),
+  createDirectory: (id: number, path: string, name: string, allowPublic: boolean) =>
+    api.post<{ path: string }>(`/applications/${id}/files/directories`, { path, name, allow_public: allowPublic }),
+  history: (id: number) => api.get<{ data: ApplicationFileUpload[] }>(`/applications/${id}/files`),
+  upload: (id: number, path: string, file: File, overwrite: boolean, allowPublic: boolean, onProgress: (percent: number) => void) => {
+    const form = new FormData()
+    form.append('file', file)
+    form.append('path', path)
+    form.append('overwrite', overwrite ? '1' : '0')
+    form.append('allow_public', allowPublic ? '1' : '0')
+    return api.post<{ data: ApplicationFileUpload }>(`/applications/${id}/files`, form, {
+      headers: { 'Content-Type': undefined },
+      onUploadProgress: event => {
+        if (event.total) onProgress(Math.round(event.loaded * 100 / event.total))
+      },
+    })
+  },
+}
+
 // Git Providers
 export const gitProvidersApi = {
   list: () => api.get<GitProvider[]>('/git-providers'),

@@ -1,9 +1,9 @@
 import { NavLink } from 'react-router-dom'
 import { useNavigation } from '@/contexts/NavigationContext'
 import { cn } from '@/lib/utils'
-import { ArrowLeft, LayoutDashboard, Server, Settings, Rocket, Globe, ScrollText, Clock, Activity, Terminal, Database, Package } from 'lucide-react'
+import { ArrowLeft, LayoutDashboard, Server, Settings, Rocket, Globe, ScrollText, Clock, Activity, Terminal, Database, Package, FolderOpen } from 'lucide-react'
 
-const icons = { Overview: LayoutDashboard, Servers: Server, Settings, Deployments: Rocket, 'Domains & TLS': Globe, Logs: ScrollText, 'Scheduled tasks': Clock, Processes: Activity, Terminal, Databases: Database, Software: Package }
+const icons = { Overview: LayoutDashboard, Servers: Server, Settings, Deployments: Rocket, 'Domains & TLS': Globe, Logs: ScrollText, Files: FolderOpen, 'Scheduled tasks': Clock, Processes: Activity, Terminal, Databases: Database, Software: Package }
 
 interface TabItem {
   label: string
@@ -21,6 +21,7 @@ export function ContextTabs({ onNavigate }: { onNavigate?: () => void }) {
       { label: 'Deployments', to: `/apps/${currentApp.id}/deployments` },
       { label: 'Domains & TLS', to: `/apps/${currentApp.id}/domains` },
       { label: 'Logs', to: `/apps/${currentApp.id}/logs` },
+      { label: 'Files', to: `/apps/${currentApp.id}/files` },
       { label: 'Scheduled tasks', to: `/apps/${currentApp.id}/scheduler` },
       { label: 'Processes', to: `/apps/${currentApp.id}/daemons` },
       { label: 'Settings', to: `/apps/${currentApp.id}/settings` },

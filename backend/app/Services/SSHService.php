@@ -227,7 +227,7 @@ class SSHService
      *                               file, and returned true. (A path that exists but is unreadable, e.g.
      *                               permission denied, still returns false rather than throwing.)
      */
-    public function upload(string $localPath, string $remotePath): bool
+    public function upload(string $localPath, string $remotePath, int $timeout = 30): bool
     {
         if (! $this->sftp && $this->server) {
             $this->connectSftp($this->server);
@@ -240,7 +240,12 @@ class SSHService
         // Stream from disk rather than buffering: restore dumps reach a
         // gigabyte, and file_get_contents on one would exhaust memory_limit
         // before anything reached the server.
-        return $this->sftp->put($remotePath, $localPath, SFTP::SOURCE_LOCAL_FILE);
+        $this->sftp->setTimeout($timeout);
+        try {
+            return $this->sftp->put($remotePath, $localPath, SFTP::SOURCE_LOCAL_FILE);
+        } finally {
+            $this->sftp->setTimeout(30);
+        }
     }
 
     public function uploadContent(string $content, string $remotePath): bool
