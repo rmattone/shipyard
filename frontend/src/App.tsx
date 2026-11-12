@@ -32,6 +32,7 @@ import AppOverview from './pages/apps/AppOverview'
 import AppDeployments from './pages/apps/AppDeployments'
 import AppDomains from './pages/apps/AppDomains'
 import AppLogs from './pages/apps/AppLogs'
+import AppFiles from './pages/apps/AppFiles'
 import AppScheduler from './pages/apps/AppScheduler'
 import AppDaemons from './pages/apps/AppDaemons'
 import AppSettings from './pages/apps/AppSettings'
@@ -94,6 +95,7 @@ function AppRoutes() {
         <Route path="apps/:id/deployments" element={<AppDeployments />} />
         <Route path="apps/:id/domains" element={<AppDomains />} />
         <Route path="apps/:id/logs" element={<AppLogs />} />
+        <Route path="apps/:id/files" element={<AppFiles />} />
         <Route path="apps/:id/scheduler" element={<AppScheduler />} />
         <Route path="apps/:id/daemons" element={<AppDaemons />} />
         <Route path="apps/:id/settings" element={<AppSettings />} />

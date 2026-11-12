@@ -20,6 +20,8 @@ class FakeSftp extends SFTP
 
     public bool $connected = true;
 
+    public array $timeouts = [];
+
     public function __construct()
     {
         parent::__construct('unused.invalid', 22);
@@ -35,7 +37,10 @@ class FakeSftp extends SFTP
         return true;
     }
 
-    public function setTimeout($timeout) {}
+    public function setTimeout($timeout)
+    {
+        $this->timeouts[] = $timeout;
+    }
 
     public function put($remote_file, $data, $mode = self::SOURCE_STRING, $start = -1, $local_start = -1, $progressCallback = null)
     {
@@ -114,5 +119,13 @@ class SSHServiceUploadTest extends TestCase
         $this->assertSame(SFTP::SOURCE_LOCAL_FILE, $fake->putMode);
 
         unlink($localPath);
+    }
+
+    public function test_long_uploads_can_extend_the_timeout_without_affecting_later_operations(): void
+    {
+        $service = new TestableUploadSSHService;
+        $service->connectSftp($this->makeServer(1));
+        $this->assertTrue($service->upload('/tmp/example.csv', '/private/example.csv', 240));
+        $this->assertSame([30, 240, 30], $service->sftpClients[0]->timeouts);
     }
 }
