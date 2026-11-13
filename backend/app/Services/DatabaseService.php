@@ -96,6 +96,35 @@ class DatabaseService
         }
     }
 
+    public function listSchemas(Database $database, string $dbName): array
+    {
+        if (! $database->isPostgreSQL()) {
+            throw new RuntimeException('Schemas are only available for PostgreSQL connections.');
+        }
+
+        try {
+            $this->connect($database->server);
+
+            return $this->postgresqlService->listSchemas($this->ssh, $database, $dbName);
+        } finally {
+            $this->disconnect();
+        }
+    }
+
+    public function createSchema(Database $database, string $dbName, string $name, string $owner): void
+    {
+        if (! $database->isPostgreSQL()) {
+            throw new RuntimeException('Schemas are only available for PostgreSQL connections.');
+        }
+
+        try {
+            $this->connect($database->server);
+            $this->postgresqlService->createSchema($this->ssh, $database, $dbName, $name, $owner);
+        } finally {
+            $this->disconnect();
+        }
+    }
+
     /**
      * Create a new database.
      */

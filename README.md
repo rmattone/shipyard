@@ -83,6 +83,7 @@ ShipYard provides a clean web interface to manage your servers and automate depl
 - **MySQL support** - Install and manage MySQL databases
 - **PostgreSQL support** - Full PostgreSQL support
 - **Database creation** - Create databases and users from the UI
+- **PostgreSQL schemas** - List schemas inside each database and create them with an explicit application owner
 - **Secure credentials** - Encrypted storage for database passwords
 
 ### Environment Variables
