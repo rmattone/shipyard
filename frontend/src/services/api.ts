@@ -743,6 +743,11 @@ export const daemonsApi = {
     ),
 }
 
+export interface DatabaseSchema {
+  name: string
+  owner: string
+}
+
 // Databases (server-scoped)
 export const databasesApi = {
   detect: (serverId: number) =>
@@ -778,6 +783,16 @@ export const databasesApi = {
       '/servers/' + serverId + '/databases/' + databaseId + '/test'
     ),
   // Remote database operations
+  listSchemas: (serverId: number, databaseId: number, databaseName: string) =>
+    api.get<{ schemas: DatabaseSchema[] }>(
+      `/servers/${serverId}/databases/${databaseId}/schemas`,
+      { params: { database_name: databaseName } }
+    ),
+  createSchema: (serverId: number, databaseId: number, data: {
+    database_name: string
+    name: string
+    owner: string
+  }) => api.post<{ message: string }>(`/servers/${serverId}/databases/${databaseId}/schemas`, data),
   listRemoteDatabases: (serverId: number, databaseId: number) =>
     api.get<{ databases: string[] }>(
       '/servers/' + serverId + '/databases/' + databaseId + '/remote-databases'

@@ -39,6 +39,50 @@ class PostgreSQLService implements DatabaseDriverInterface
         return array_values($databases);
     }
 
+    public function listSchemas(SSHService $ssh, Database $database, string $dbName): array
+    {
+        $sql = <<<'SQL'
+SELECT COALESCE(json_agg(s ORDER BY s.name), '[]'::json)::text
+FROM (
+    SELECT nspname AS name, pg_get_userbyid(nspowner) AS owner
+    FROM pg_catalog.pg_namespace
+    WHERE nspname !~ '^pg_' AND nspname <> 'information_schema'
+) s
+SQL;
+        $result = $ssh->execute($this->buildCommand($database, $sql, true, $dbName));
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to list schemas: '.$result['output']);
+        }
+
+        try {
+            $schemas = json_decode(trim($result['output']), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new RuntimeException('Failed to read the PostgreSQL schema list.', previous: $e);
+        }
+        if (! is_array($schemas) || ! array_is_list($schemas)) {
+            throw new RuntimeException('Failed to read the PostgreSQL schema list.');
+        }
+        foreach ($schemas as $schema) {
+            if (! is_array($schema) || ! is_string($schema['name'] ?? null) || ! is_string($schema['owner'] ?? null)) {
+                throw new RuntimeException('Failed to read the PostgreSQL schema list.');
+            }
+        }
+
+        return $schemas;
+    }
+
+    public function createSchema(SSHService $ssh, Database $database, string $dbName, string $name, string $owner): void
+    {
+        // AUTHORIZATION gives the app role ownership within this schema only.
+        // Do not silently accept an existing schema with a different owner.
+        $sql = sprintf('CREATE SCHEMA "%s" AUTHORIZATION "%s"', $this->escapeName($name), $this->escapeName($owner));
+        $result = $ssh->execute($this->buildCommand($database, $sql, false, $dbName));
+
+        if (! $result['success']) {
+            throw new RuntimeException('Failed to create schema: '.$result['output']);
+        }
+    }
+
     public function createDatabase(SSHService $ssh, Database $database, string $name, ?string $charset = null, ?string $collation = null): bool
     {
         $encoding = $charset ?? $database->charset ?? 'UTF8';

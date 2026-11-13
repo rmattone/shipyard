@@ -48,6 +48,7 @@ import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { LoadingSpinner } from '@/components/custom'
 import { RestoreDatabaseDialog } from '@/components/databases/RestoreDatabaseDialog'
+import { DatabaseSchemasDialog } from '@/components/databases/DatabaseSchemasDialog'
 import { RestoreLogPanel } from '@/components/databases/RestoreLogPanel'
 import {
   databasesApi,
@@ -81,6 +82,7 @@ export default function DatabaseDetail() {
   const [dbFormData, setDbFormData] = useState({ name: '', charset: '', collation: '' })
   const [creatingDb, setCreatingDb] = useState(false)
   const [deletingDb, setDeletingDb] = useState(false)
+  const [schemaTarget, setSchemaTarget] = useState<string | null>(null)
 
   // Restore from uploaded dump
   const [restoreTarget, setRestoreTarget] = useState<string | null>(null)
@@ -410,6 +412,11 @@ export default function DatabaseDetail() {
                         <span className="font-medium">{dbName}</span>
                       </div>
                       <div className="flex items-center gap-2">
+                        {database.type === 'postgresql' && (
+                          <Button variant="outline" size="sm" onClick={() => setSchemaTarget(dbName)}>
+                            Schemas
+                          </Button>
+                        )}
                         <Button
                           variant="outline"
                           size="sm"
@@ -632,6 +639,11 @@ export default function DatabaseDetail() {
             setRestoreTarget(null)
           }}
         />
+      )}
+
+      {schemaTarget && (
+        <DatabaseSchemasDialog key={schemaTarget} serverId={serverId} databaseId={dbId}
+          databaseName={schemaTarget} onClose={() => setSchemaTarget(null)} />
       )}
 
       {/* Create Database Dialog */}
